@@ -19,6 +19,8 @@ pub(super) enum DialogAction {
 }
 
 enum DialogInput {
+    Rejected,
+    Native(Arc<crate::native_dialogs::NativeDialogView>),
     Text(Arc<Input>),
     Options(Arc<SelectList>),
 }
@@ -34,8 +36,42 @@ impl ActiveDialog {
     fn new(
         request_id: String,
         prompt: AskUserPrompt,
+        native: Option<Result<rpi_plugin_sdk::dialogs::native::Dialog, String>>,
         tx: mpsc::UnboundedSender<DialogAction>,
     ) -> Self {
+        if let Some(dialog) = native {
+            let frame = Arc::new(Container::new());
+            let Ok(dialog) = dialog else {
+                let _ = tx.send(DialogAction::Answer {
+                    request_id: request_id.clone(),
+                    answer: None,
+                });
+                frame.add_child(Arc::new(rpi_tui::Text::new("Invalid native dialog", 0, 0)));
+                return Self {
+                    request_id,
+                    prompt,
+                    input: DialogInput::Rejected,
+                    frame,
+                };
+            };
+            let id = request_id.clone();
+            let view = Arc::new(crate::native_dialogs::NativeDialogView::new(
+                dialog,
+                Arc::new(move |answer| {
+                    let _ = tx.send(DialogAction::Answer {
+                        request_id: id.clone(),
+                        answer,
+                    });
+                }),
+            ));
+            frame.add_child(view.clone());
+            return Self {
+                request_id,
+                prompt,
+                input: DialogInput::Native(view),
+                frame,
+            };
+        }
         let (input, frame) = if prompt.kind == "input" || prompt.options.is_empty() {
             let input = Arc::new(Input::with_placeholder(
                 prompt.suggest.as_deref().unwrap_or("Type your answer…"),
@@ -176,9 +212,14 @@ impl ShellDialogs {
         if self.active.is_none() {
             if let Some(request) = self.pending.pop_front() {
                 let prompt = parse_ask_user_prompt(&request);
+                let native = request
+                    .ui
+                    .get("nativeDialog")
+                    .map(rpi_plugin_sdk::dialogs::native::Dialog::parse);
                 self.active = Some(ActiveDialog::new(
                     request.request_id,
                     prompt,
+                    native,
                     self.actions.clone(),
                 ));
                 self.dirty = true;
@@ -234,7 +275,12 @@ impl ShellDialogs {
                     let mut prompt = active.prompt.clone();
                     prompt.options.clear();
                     prompt.kind = "input".to_string();
-                    self.active = Some(ActiveDialog::new(request_id, prompt, self.actions.clone()));
+                    self.active = Some(ActiveDialog::new(
+                        request_id,
+                        prompt,
+                        None,
+                        self.actions.clone(),
+                    ));
                     self.dirty = true;
                 }
                 None
@@ -247,6 +293,8 @@ impl ShellDialogs {
             return false;
         };
         match &active.input {
+            DialogInput::Rejected => {}
+            DialogInput::Native(view) => view.handle_key(key),
             DialogInput::Text(input) => input.handle_key(key),
             DialogInput::Options(list) => list.handle_key(key),
         }
@@ -257,8 +305,10 @@ impl ShellDialogs {
         let Some(active) = &self.active else {
             return false;
         };
-        if let DialogInput::Text(input) = &active.input {
-            input.handle_paste(text);
+        match &active.input {
+            DialogInput::Native(view) => view.handle_paste(text),
+            DialogInput::Text(input) => input.handle_paste(text),
+            DialogInput::Options(_) | DialogInput::Rejected => {}
         }
         true
     }
@@ -277,11 +327,15 @@ impl ShellDialogs {
             editor.set_focused(false);
             slot.add_child(active.frame.clone());
             match &active.input {
+                DialogInput::Native(view) => {
+                    view.set_focused(true);
+                    tui.set_focus(Some(view.clone()));
+                }
                 DialogInput::Text(input) => {
                     input.set_focused(true);
                     tui.set_focus(Some(input.clone()));
                 }
-                DialogInput::Options(_) => tui.set_focus(None),
+                DialogInput::Options(_) | DialogInput::Rejected => tui.set_focus(None),
             }
         } else {
             slot.add_child(editor.clone());
@@ -309,6 +363,52 @@ mod tests {
     }
     fn key(dialogs: &ShellDialogs, code: KeyCode) {
         assert!(dialogs.handle_key(KeyEvent::new(code, KeyModifiers::NONE)));
+    }
+
+    #[test]
+    fn remote_native_dialog_uses_shared_validation_and_private_answer_envelope() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let mut dialogs = ShellDialogs::new(tx);
+        dialogs.push(request(
+            "native",
+            json!({"nativeDialog":{"kind":"input","title":"Weight","integerMin":1}}),
+        ));
+        assert!(dialogs.handle_paste("bad"));
+        key(&dialogs, KeyCode::Enter);
+        assert!(rx.try_recv().is_err());
+        for _ in 0..3 {
+            key(&dialogs, KeyCode::Backspace);
+        }
+        assert!(dialogs.handle_paste("003"));
+        key(&dialogs, KeyCode::Enter);
+        let (id, command) = dialogs.action(rx.try_recv().unwrap()).unwrap();
+        assert_eq!(id, "native");
+        assert_eq!(
+            command,
+            DriverCommand::UiDialogResponse {
+                request_id: id,
+                answer: Some(json!({"type":"input","value":"3"}))
+            }
+        );
+        dialogs.close("native");
+        dialogs.push(request(
+            "bad",
+            json!({"nativeDialog":{"kind":"unsupported"}}),
+        ));
+        key(&dialogs, KeyCode::Enter);
+        let (_, command) = dialogs.action(rx.try_recv().unwrap()).unwrap();
+        assert_eq!(
+            command,
+            DriverCommand::UiDialogResponse {
+                request_id: "bad".into(),
+                answer: None
+            }
+        );
+        assert!(rx.try_recv().is_err());
+        assert!(matches!(
+            dialogs.active.unwrap().input,
+            DialogInput::Rejected
+        ));
     }
 
     #[test]

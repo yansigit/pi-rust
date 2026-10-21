@@ -68,6 +68,34 @@ static ECHO_EXECUTIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::Atom
 
 static ECHO_DRIVES: ToolHandles<EchoDrive> = ToolHandles::new();
 
+/// Exercise an awaited dialog across the actual loaded SDK boundary.
+#[no_mangle]
+pub extern "C" fn plugin_stub_native_dialog(api: rpi_plugin_sdk::PluginApi, outcome: u32) -> i32 {
+    rpi_plugin_sdk::guard_or(1, || {
+        let client = rpi_plugin_sdk::provider::native::Client::new(&api)
+            .unwrap()
+            .scoped()
+            .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = runtime.block_on(client.request(
+            serde_json::json!({"port":"dialogs","action":"show","ui":{"kind":"input","title":"Fixture login","masked":true}}),
+            rpi_ai::SimpleStreamOptions::default().signal,
+        ));
+        match outcome {
+            0 => assert_eq!(
+                result.unwrap(),
+                serde_json::json!({"type":"input","value":"fixture-code"})
+            ),
+            1 => assert_eq!(result.unwrap(), serde_json::Value::Null),
+            _ => assert!(result.is_err() || result == Ok(serde_json::Value::Null)),
+        }
+        0
+    })
+}
+
 // ---------------------------------------------------------------------------
 // The echo tool's 4 lifecycle fns (extern "C", no captured state)
 // ---------------------------------------------------------------------------

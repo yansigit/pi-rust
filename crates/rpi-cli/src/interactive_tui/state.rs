@@ -74,6 +74,7 @@ pub(super) enum SelectorKind {
 /// selection inspection.
 #[derive(Clone)]
 pub(super) enum SelectorView {
+    Native(Arc<crate::native_dialogs::NativeDialogView>),
     /// A bare `SelectList` (no search box).
     List(Arc<SelectList>),
     /// A `SelectList` wrapped with a fuzzy-filter input.
@@ -87,6 +88,7 @@ impl SelectorView {
     /// Route a key to the appropriate child.
     pub(super) fn handle_key(&self, key: KeyEvent) {
         match self {
+            Self::Native(view) => view.handle_key(key),
             Self::List(list) => list.handle_key(key),
             Self::Searchable(searchable) => searchable.handle_key(key),
             Self::Settings(settings) => settings.handle_key(key),

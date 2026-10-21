@@ -1701,6 +1701,23 @@ pub async fn interactive_tui(
             if !*running_key.lock().unwrap() {
                 break;
             }
+            if ask_user_for_key.take_closed_visible() {
+                if state_for_key.selector_open() {
+                    close_selector(
+                        &state_for_key,
+                        &ctx_for_key.editor_container,
+                        &editor_for_key,
+                        &tui_for_key,
+                    );
+                } else if state_for_key.extension_dialog_open() {
+                    close_extension_editor(
+                        &state_for_key,
+                        &ctx_for_key.editor_container,
+                        &editor_for_key,
+                        &tui_for_key,
+                    );
+                }
+            }
             if !state_for_key.selector_open() && !state_for_key.extension_dialog_open() {
                 if let Some(request) = ask_user_for_key.take_pending() {
                     open_ask_user_dialog(&ctx_for_key, ask_user_for_key.clone(), request);
@@ -1851,6 +1868,12 @@ pub async fn interactive_tui(
             }
             let Event::Key(key) = ev else {
                 if let Event::Paste(text) = ev {
+                    let selector = state_for_key.active_selector.lock().unwrap().clone();
+                    if let Some((SelectorView::Native(view), _)) = selector {
+                        view.handle_paste(&text);
+                        tui_for_key.request_render_reusing_scroll_content();
+                        continue;
+                    }
                     if side_questions::input_allowed(&state_for_key)
                         && side_for_key.lock().unwrap().paste(&text, &tui_for_key)
                     {

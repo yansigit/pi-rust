@@ -3603,3 +3603,30 @@ fn ask_user_bridge_answers_and_cancels_by_request_id() {
         }))
         .is_err());
 }
+
+#[test]
+fn ask_user_bridge_releases_cancelled_visible_prompt_without_consuming_answers() {
+    let mailbox = rpi_extensions::UiDialogMailbox::new();
+    mailbox.attach();
+    let bridge = AskUserBridge::new(mailbox.clone());
+    for id in ["cancelled", "answered", "next"] {
+        mailbox
+            .handle(serde_json::json!({"requestId":id,"ui":{"question":"Question?"}}))
+            .unwrap();
+    }
+    assert_eq!(bridge.take_pending().unwrap().request_id, "cancelled");
+    assert!(!bridge.take_closed_visible());
+    mailbox.cancel("cancelled").unwrap();
+    assert!(bridge.take_closed_visible());
+    assert!(!bridge.take_closed_visible());
+    assert_eq!(bridge.take_pending().unwrap().request_id, "answered");
+    mailbox
+        .respond("answered", serde_json::json!({"value":"private"}))
+        .unwrap();
+    assert!(bridge.take_closed_visible());
+    assert_eq!(
+        mailbox.poll("answered").unwrap()["answer"]["value"],
+        "private"
+    );
+    assert_eq!(bridge.take_pending().unwrap().request_id, "next");
+}

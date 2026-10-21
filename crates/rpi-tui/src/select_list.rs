@@ -237,8 +237,19 @@ impl SelectList {
 
     /// Set the filter text.
     pub fn set_filter(&self, filter: &str) {
+        self.set_filter_with(filter, |items, filter| {
+            fuzzy_filter(items, filter, SelectItem::search_key)
+        });
+    }
+
+    /// Use a caller's ranking policy while retaining hidden multi-selections.
+    pub fn set_filter_with(
+        &self,
+        filter: &str,
+        rank: impl FnOnce(&[SelectItem], &str) -> Vec<SelectItem>,
+    ) {
         if let Ok(items) = self.items.lock() {
-            let filtered = fuzzy_filter(&items, filter, |item| item.search_key());
+            let filtered = rank(&items, filter);
             if let Ok(mut filtered_items) = self.filtered_items.lock() {
                 *filtered_items = filtered;
             }

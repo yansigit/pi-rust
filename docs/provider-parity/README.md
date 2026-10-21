@@ -65,6 +65,13 @@ history serialization. Recovery cannot execute a recorded call, including when a
 same-named tool declares safe reexecution. [Tool evidence](host-tools-results.json)
 records host checks; retained Cursor/MCP and live tool acceptance remain pending.
 
+[Native dialogs](native-dialogs.md) add private awaited replies, searchable stable
+account IDs, nested settings actions and validated login inputs to both terminal
+modes. Owner shutdown and cancellation release pending prompts. Package-specific
+command traces and persisted outcomes remain pending. [Dialog evidence](host-dialogs-results.json)
+includes 276 executable Pi search comparisons, affected-crate regressions, a
+loaded-library dialog fixture and Rust 1.78 checks.
+
 [baseline-results.json](baseline-results.json) records upstream results, lock
 hashes and evidence hashes. All three unchanged suites pass in
 [CI run 39569889592](https://github.com/yansigit/pi-rust/actions/runs/39569889592):

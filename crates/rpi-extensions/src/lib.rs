@@ -223,6 +223,7 @@ impl HostApi {
                 native::retire_owner(owner.id);
                 if let Some(bridge) = &self.action_bridge {
                     bridge.services.remove_owner(owner.id);
+                    bridge.ui_dialog_mailbox().cancel_owner(owner.id);
                 }
             }
             let lifecycle = self.lifecycle.lock().unwrap().clone();

@@ -40,7 +40,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = ["json"]
-json = ["dep:serde_json"]
+json = ["dep:serde_json", "dep:serde"]
 provider = ["json", "dep:rpi-ai", "dep:tokio", "dep:serde", "dep:reqwest", "dep:async-trait", "dep:tokio-util"]
 process = ["dep:windows-sys", "dep:libc"]
 stdio = ["dep:windows-sys", "dep:libc"]

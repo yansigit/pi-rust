@@ -557,6 +557,19 @@ impl AskUserBridge {
         Some(request)
     }
 
+    /// Cancellation can originate in a worker or reload, without a keystroke.
+    pub(super) fn take_closed_visible(&self) -> bool {
+        let mut visible = self.visible.lock().unwrap();
+        if visible
+            .as_ref()
+            .is_some_and(|id| !self.mailbox.is_pending(id))
+        {
+            visible.take();
+            return true;
+        }
+        false
+    }
+
     pub(super) fn clear_visible(&self, id: &str) {
         if let Ok(mut visible) = self.visible.lock() {
             if visible.as_deref() == Some(id) {
@@ -755,6 +768,34 @@ pub(super) fn open_ask_user_dialog(
     bridge: AskUserBridge,
     request: rpi_extensions::UiDialogRequest,
 ) {
+    if let Some(spec) = request.ui.get("nativeDialog") {
+        let Ok(dialog) = rpi_plugin_sdk::dialogs::native::Dialog::parse(spec) else {
+            bridge.cancel(&request.request_id);
+            return;
+        };
+        let done = ctx.clone();
+        let view = Arc::new(crate::native_dialogs::NativeDialogView::new(
+            dialog,
+            Arc::new(move |answer| {
+                match answer {
+                    Some(answer) => bridge.respond(&request.request_id, answer),
+                    None => bridge.cancel(&request.request_id),
+                }
+                close_selector(&done.state, &done.editor_container, &done.editor, &done.tui);
+            }),
+        ));
+        view.set_focused(true);
+        open_selector_with_view(
+            &ctx.state,
+            &ctx.editor_container,
+            &ctx.editor,
+            &ctx.tui,
+            SelectorView::Native(view.clone()),
+            view,
+            SelectorKind::Extension,
+        );
+        return;
+    }
     let prompt = parse_ask_user_prompt(&request);
     if prompt.kind == "input" || prompt.options.is_empty() {
         open_ask_user_input(ctx, bridge, request, prompt);

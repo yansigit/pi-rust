@@ -1,0 +1,9016 @@
+{
+  "host": "1.3.0",
+  "node": "v24.22.0",
+  "sourceSha256": "f873c8e2d808d215e57942ac325b9e635bde9632526d25b56b4eef253362b91b",
+  "cases": [
+    {
+      "query": "",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ]
+    },
+    {
+      "query": "work",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "Work",
+        "work one",
+        "Work Two"
+      ]
+    },
+    {
+      "query": "a",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "Account 2",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "abcdefghijklmn",
+        "aXXb",
+        "a12-!",
+        "a b",
+        "a b",
+        "a b",
+        "﻿account",
+        "2 Account",
+        "12-a",
+        "account",
+        "XaXb",
+        "😀account",
+        "😀a😀b",
+        "123ab",
+        "İstanbul",
+        "Personal",
+        "Google/Flash"
+      ]
+    },
+    {
+      "query": "ab",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "abcdefghijklmn",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a b",
+        "a b",
+        "a b",
+        "aXXb",
+        "a123b",
+        "123ab",
+        "XaXb",
+        "İstanbul",
+        "😀a😀b"
+      ]
+    },
+    {
+      "query": "a b",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a b",
+        "a b",
+        "a b",
+        "abcdefghijklmn",
+        "aXXb",
+        "a123b",
+        "XaXb",
+        "😀a😀b",
+        "123ab",
+        "İstanbul"
+      ]
+    },
+    {
+      "query": "a/b",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a b",
+        "a b",
+        "a b",
+        "abcdefghijklmn",
+        "aXXb",
+        "a123b",
+        "XaXb",
+        "😀a😀b",
+        "123ab",
+        "İstanbul"
+      ]
+    },
+    {
+      "query": "Account2",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "Account 2",
+        "2 Account"
+      ]
+    },
+    {
+      "query": "2Account",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "Account 2",
+        "2 Account"
+      ]
+    },
+    {
+      "query": "a12-!",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "a12-!"
+      ]
+    },
+    {
+      "query": "1ab2",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": []
+    },
+    {
+      "query": "ab",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": []
+    },
+    {
+      "query": "﻿a",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "Account 2",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "abcdefghijklmn",
+        "aXXb",
+        "a12-!",
+        "a b",
+        "a b",
+        "a b",
+        "﻿account",
+        "2 Account",
+        "12-a",
+        "account",
+        "XaXb",
+        "😀account",
+        "😀a😀b",
+        "123ab",
+        "İstanbul",
+        "Personal",
+        "Google/Flash"
+      ]
+    },
+    {
+      "query": "a﻿b",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a b",
+        "a b",
+        "a b",
+        "abcdefghijklmn",
+        "aXXb",
+        "a123b",
+        "XaXb",
+        "😀a😀b",
+        "123ab",
+        "İstanbul"
+      ]
+    },
+    {
+      "query": "i̇",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "İstanbul"
+      ]
+    },
+    {
+      "query": "ΟΣ",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "ΟΣ",
+        "ΣΟΣ"
+      ]
+    },
+    {
+      "query": "😀ab",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "😀a😀b"
+      ]
+    },
+    {
+      "query": "😀",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "😀account",
+        "😀a😀b"
+      ]
+    },
+    {
+      "query": "Ａ",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "ＡＢ"
+      ]
+    },
+    {
+      "query": "Grok47",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "Grok 4.7"
+      ]
+    },
+    {
+      "query": "account 😀",
+      "labels": [
+        "Work",
+        "work one",
+        "Work Two",
+        "Personal",
+        "Account 2",
+        "2 Account",
+        "Grok 4.7",
+        "Composer 2.5",
+        "Google/Flash",
+        "ＡＢ",
+        "İstanbul",
+        "ΣΟΣ",
+        "ΟΣ",
+        "😀account",
+        "😀a😀b",
+        "﻿account",
+        "account",
+        "a/b",
+        "a-b",
+        "a_b",
+        "a.b",
+        "a:b",
+        "a b",
+        "a123b",
+        "123ab",
+        "abcdefghijklmn",
+        "aXXb",
+        "XaXb",
+        "a12-!",
+        "12-a",
+        "a b",
+        "a b",
+        "a b"
+      ],
+      "expected": [
+        "😀account"
+      ]
+    },
+    {
+      "query": "A_/:2",
+      "labels": [
+        "A:.AB0B😀:",
+        "_😀.2B0 a_0ΣB0_0:",
+        "﻿",
+        "_",
+        "_İ:😀.",
+        " 0﻿",
+        "ΣİB __",
+        ":1a 21",
+        "B2 /b0﻿a1İ﻿/ ",
+        "Σ0ΣaΣİb 1😀ba_aB",
+        "b 1b2 aΣ2 ",
+        "﻿a_😀 0﻿21/_",
+        ":aΣ",
+        "Σ😀.  İ1İ1 B0﻿A1 ﻿",
+        "B😀: ﻿",
+        "bAB😀121a﻿ B",
+        "./.",
+        "B",
+        "bA: b",
+        "B😀B😀B"
+      ],
+      "expected": []
+    },
+    {
+      "query": "1İ1A",
+      "labels": [
+        "2Σ",
+        "1/.A_A 21a  BA:",
+        "Σa1/.0Σ 0﻿ 1  ",
+        "B",
+        "Bİ1A_2bİ10﻿0b",
+        " 0_İΣaΣ",
+        "Σ b  a: _",
+        "Σ0Σ😀b0. b/1😀1 ",
+        "12B1😀1İ 0ΣAB/B2.",
+        "﻿/.A﻿Abİ.aΣ/Σ:",
+        "﻿2_",
+        "Σa.:﻿ 10b0 A.",
+        "﻿2bAB",
+        ". b😀b",
+        ". :0:/﻿ab:",
+        "bAb2b2_abAΣ21",
+        "ba.0:a﻿a ",
+        ":😀﻿AΣ/BA. .AΣA_",
+        "b   BaΣ",
+        " 😀:b 1İb"
+      ],
+      "expected": []
+    },
+    {
+      "query": "1/Σa",
+      "labels": [
+        "İ﻿A_A ",
+        "_aΣa1 1😀b/Σ",
+        "B/:/﻿A1 _.😀:",
+        "_a﻿",
+        "_",
+        "_  😀./:1 :İ.😀﻿",
+        "Σ ﻿/:21a 😀B",
+        "bA1 Σ2_",
+        "﻿0﻿İ.a /_a:a aB",
+        "10  .",
+        "﻿aΣ/10 ",
+        "b😀B ",
+        ".😀﻿ _",
+        ". B/B",
+        " İ 0.aΣA ",
+        "Σ/_A /bİ  ﻿Σ0_2:",
+        "﻿ b_",
+        "_",
+        " 2b😀﻿01﻿﻿😀﻿/﻿A1",
+        "Σ"
+      ],
+      "expected": [
+        "_aΣa1 1😀b/Σ",
+        "Σ ﻿/:21a 😀B"
+      ]
+    },
+    {
+      "query": "B",
+      "labels": [
+        "B_/﻿",
+        "1B:.0b/Σ  ",
+        "b😀BA:  2B",
+        "Σ ",
+        "﻿2b",
+        "Σ12 😀:0:İ:aB",
+        ".0.😀_ ﻿aΣ _😀_01",
+        ".A﻿a﻿0./﻿",
+        ":/ΣİΣ/1ABİ_A﻿01a:",
+        ".😀1a1/﻿1😀10b/B",
+        "﻿﻿ ﻿ .B .",
+        "b",
+        ":/_/.",
+        "10Σa a.2﻿2.",
+        ":/  B😀 2Bİ:A1",
+        " 0Σ😀Ba 0﻿İ AΣ😀﻿a:",
+        "1😀b/Σa a:",
+        "b.2Σ/:.0Σ0b",
+        "bΣİB2﻿Σİ﻿ b:0_",
+        "_İ. :0_a./﻿a_"
+      ],
+      "expected": [
+        "b",
+        "B_/﻿",
+        "b😀BA:  2B",
+        "b.2Σ/:.0Σ0b",
+        "bΣİB2﻿Σİ﻿ b:0_",
+        ":/  B😀 2Bİ:A1",
+        "1B:.0b/Σ  ",
+        "﻿2b",
+        "1😀b/Σa a:",
+        " 0Σ😀Ba 0﻿İ AΣ😀﻿a:",
+        "﻿﻿ ﻿ .B .",
+        ":/ΣİΣ/1ABİ_A﻿01a:",
+        "Σ12 😀:0:İ:aB",
+        ".😀1a1/﻿1😀10b/B"
+      ]
+    },
+    {
+      "query": ": Σİ:",
+      "labels": [
+        "﻿",
+        "﻿İ﻿😀1",
+        "12 😀Σ a_İ: :😀﻿😀b",
+        "1ab2﻿0﻿A.aΣ  B﻿",
+        ":/:2:A﻿/﻿İ1",
+        "Σ/BaΣA 2:21 b",
+        "Σ",
+        ".aΣ😀Bİ12B01/B",
+        "10ΣA﻿A. B 1İ  Σ😀b",
+        "_b .😀bİΣ",
+        " /﻿/B0:AbΣ2 /.",
+        "﻿a﻿0_😀B😀.AΣA.",
+        "﻿ 1A﻿",
+        "B/B😀 /_😀b",
+        "._İ1",
+        ".a:",
+        "Σ/B2b2b 2B",
+        "ΣİΣA:A﻿AΣ2::/_ :",
+        "BAΣaΣ/_",
+        "b/﻿/﻿😀b😀Σİ_﻿A_AB"
+      ],
+      "expected": [
+        "ΣİΣA:A﻿AΣ2::/_ :",
+        "12 😀Σ a_İ: :😀﻿😀b"
+      ]
+    },
+    {
+      "query": " /:2",
+      "labels": [
+        " ./ΣaΣA.😀1a﻿0_İΣ",
+        "Σ0_😀B",
+        "b2:😀b/. 1",
+        "B😀_",
+        "b",
+        "b2.😀.😀.",
+        "ΣABab/ 😀B😀 ",
+        "b21a﻿A.A:",
+        ":Σ﻿B.2Σ",
+        "1A1Σ😀B/.İ﻿a1İ_",
+        " 😀1",
+        "Σ  😀 ",
+        "_İ_21/ΣAB/b",
+        ".2B0Σ/ ",
+        " aBa 2﻿/ /b",
+        "_2Σ :",
+        "1",
+        ".😀.😀B",
+        ":A1",
+        ":a.😀b2Σ ."
+      ],
+      "expected": [
+        ":Σ﻿B.2Σ",
+        ":a.😀b2Σ ."
+      ]
+    },
+    {
+      "query": "1/ΣİB",
+      "labels": [
+        "Σ",
+        "B a_ _ΣA:",
+        ".",
+        ".a1:2:😀 ",
+        "  1 B2 A_0.😀﻿abA ",
+        ".İ ",
+        " ",
+        "_ ﻿😀B.",
+        ":😀B",
+        "﻿/B2:1😀:/﻿ 1aΣ😀b",
+        "   / ",
+        "b",
+        "﻿",
+        "b B2baΣ2﻿2Bİ:",
+        "﻿İ1",
+        "Ba1A﻿",
+        "1😀10b",
+        "﻿İ./1A 😀﻿BAB",
+        "_A﻿BABİ1İ:a_😀B0b",
+        " a:"
+      ],
+      "expected": []
+    },
+    {
+      "query": "B😀",
+      "labels": [
+        "a:0Σ/. .2.a:İb/Σ",
+        "_a_😀:Σ010B/1A﻿",
+        "1   ﻿",
+        " 2:0 ./ ",
+        ":",
+        "﻿ b/_İ1A_0:A /Σ😀.",
+        "10ΣA﻿",
+        ":İ./bİ a.İ_2.İ:2﻿",
+        ".a 2 2_/_a.",
+        "Σ",
+        ".İb0:A:AB",
+        " 2.",
+        "B ﻿/﻿ba1",
+        ":A_A.A _﻿AB/1😀 ",
+        ".A12_0bİ﻿/.😀1",
+        "Σ0Σa:ab0.2.AB",
+        "_aΣ",
+        ".0baΣ2bA1 Σ",
+        "b😀b😀.İΣA İBİ1 B0_",
+        "BA:0﻿a﻿_"
+      ],
+      "expected": [
+        "b😀b😀.İΣA İBİ1 B0_",
+        ".A12_0bİ﻿/.😀1",
+        ":A_A.A _﻿AB/1😀 ",
+        "﻿ b/_İ1A_0:A /Σ😀."
+      ]
+    },
+    {
+      "query": "Σİ﻿İ",
+      "labels": [
+        "A.01a_İΣ😀 😀.",
+        "b. ΣA  b0_",
+        "Σİ:😀Σ😀:A A﻿21 12.",
+        "1",
+        "1/:",
+        ":A.A 0:/﻿/B21",
+        "b :0﻿",
+        "bİ.a_😀﻿İ./1",
+        "_İ1a﻿😀BİΣ/B./﻿A ",
+        "Bİ:a10 A ",
+        "﻿:😀﻿/Σ😀 ",
+        "1Ab2Σ/.😀.",
+        "Σ",
+        " /﻿2Σ/.2_0:ABb/_",
+        "10_0:a1A. ",
+        "Σ/B .İΣB0﻿/_",
+        ":BA:.  :/ba.",
+        " ",
+        "b010./ ",
+        "B0.aΣ/Σ0:aB ﻿"
+      ],
+      "expected": [
+        "Σİ:😀Σ😀:A A﻿21 12.",
+        "Σ/B .İΣB0﻿/_"
+      ]
+    },
+    {
+      "query": "B2 a:",
+      "labels": [
+        " 0Bab/Σ ba1",
+        "_/B0﻿a_",
+        "ba :2.😀_a﻿",
+        "b/_ Bİb2ΣA:0_ 01",
+        "B",
+        "Σ/b 1a  _0B/Σ0﻿",
+        "b",
+        "b😀Ba_",
+        "_A ",
+        " 0. B/_İb/ 😀1",
+        ":😀﻿A.",
+        "  Σ😀BaΣ .İ ",
+        "b2Bİ A_/_İ.",
+        ":",
+        "ΣaΣ😀:/:İΣAb b10 ",
+        "Σ",
+        "_ :210 İba1😀_ ",
+        "Bab B b",
+        "﻿",
+        "_A﻿0:/BabaΣ﻿"
+      ],
+      "expected": [
+        "ba :2.😀_a﻿",
+        "b/_ Bİb2ΣA:0_ 01"
+      ]
+    },
+    {
+      "query": ":",
+      "labels": [
+        "_A﻿2:",
+        "B_A:2Σ",
+        "B2Ba1A1/.0 ",
+        ".a /Bİ /:😀B",
+        "_A.01/Σİ1   b2b_",
+        " a b2Bb .2B/1",
+        "ΣA:012﻿ ﻿BaΣ0:",
+        "﻿",
+        ".😀1aBİ:2B",
+        "12BAbAΣİ1 10B",
+        "10﻿",
+        "B ﻿İ﻿ ﻿İ_",
+        "1A:/Σİ./B",
+        " ",
+        "_A1/. b﻿/b2.",
+        "12.İ﻿0 😀:2B",
+        "_0﻿aba_/1",
+        "BİbAΣ",
+        ":a İ:😀 0.a 21",
+        " 01:/ 😀Σİ./1😀1😀_"
+      ],
+      "expected": [
+        ":a İ:😀 0.a 21",
+        ".a /Bİ /:😀B",
+        "ΣA:012﻿ ﻿BaΣ0:",
+        "1A:/Σİ./B",
+        "_A﻿2:",
+        "B_A:2Σ",
+        " 01:/ 😀Σİ./1😀1😀_",
+        ".😀1aBİ:2B",
+        "12.İ﻿0 😀:2B"
+      ]
+    },
+    {
+      "query": "./.",
+      "labels": [
+        ":a 2B",
+        "  1aΣ😀Σİb",
+        "b/﻿A:01   .",
+        ": ﻿/B",
+        "﻿2﻿",
+        ": b/1 Σa1AΣ",
+        "b/﻿ba   😀BABB",
+        "1a1AB2Σ",
+        " ",
+        "_ /B😀_0:/ A:/﻿😀.",
+        "BA_",
+        "_/1 ﻿",
+        "_İΣİB😀 AB210Bİ:",
+        ".0 ",
+        "baBİ:0.2﻿  😀Σİ_",
+        " a1İ﻿ABAΣ😀B😀1",
+        ":/.😀_😀.😀_A.",
+        "1İΣ_BaBa1/.2.",
+        "_İ_",
+        ":"
+      ],
+      "expected": [
+        ".0 ",
+        ":/.😀_😀.😀_A.",
+        "b/﻿A:01   .",
+        "1İΣ_BaBa1/.2.",
+        "baBİ:0.2﻿  😀Σİ_",
+        "_ /B😀_0:/ A:/﻿😀."
+      ]
+    },
+    {
+      "query": "b",
+      "labels": [
+        " 0 İ_",
+        "1",
+        "Σ0.İ_2ΣB",
+        "b0_a İ.a _AbaΣA1",
+        "B2.0: _İ:İ:A:/:",
+        "Σ/b b/Σ 2.😀:İΣ😀1",
+        "    :",
+        "B0B/:/_A1 b",
+        "﻿A / 0b😀1İb:",
+        ":a:2 😀B",
+        "B",
+        ".",
+        "1😀B2BİΣ/﻿İ﻿0Bİ :",
+        ":2:A İΣ0 2.😀.",
+        "1İ:İB ﻿/Σ2 0.aB",
+        ".😀BAΣ0:/﻿İ1_",
+        "﻿😀B0 012:",
+        "BA_0baB2./_A.b",
+        ".",
+        ".😀.Σ_0b"
+      ],
+      "expected": [
+        "B",
+        "b0_a İ.a _AbaΣA1",
+        "B2.0: _İ:İ:A:/:",
+        "B0B/:/_A1 b",
+        "BA_0baB2./_A.b",
+        "Σ/b b/Σ 2.😀:İΣ😀1",
+        "1😀B2BİΣ/﻿İ﻿0Bİ :",
+        ".😀BAΣ0:/﻿İ1_",
+        "﻿😀B0 012:",
+        "﻿A / 0b😀1İb:",
+        "1İ:İB ﻿/Σ2 0.aB",
+        ":a:2 😀B",
+        "Σ0.İ_2ΣB",
+        ".😀.Σ_0b"
+      ]
+    },
+    {
+      "query": "Σa.",
+      "labels": [
+        "1😀 Aba﻿/b2. 1İ10b",
+        "﻿İΣ/baΣab 10Σ0_A.",
+        " 2_",
+        "﻿",
+        "bİΣ Σ  /1a:a.İ1",
+        "Σ2Bİ_AΣ0b",
+        ". ﻿AB",
+        "ΣA.İ1A: _.😀Σ",
+        " ",
+        "1İ1",
+        "1b😀_İ:/_ :İ﻿",
+        "_a İΣA1İ﻿İ 21",
+        " 0Ba_a﻿",
+        " A1a﻿😀﻿😀 a﻿A.BAΣ",
+        "Σİ1aBa. 1İΣ",
+        "1İ.Σ😀﻿:_😀_😀﻿",
+        "b2 A_İ﻿A﻿0.İΣ/_",
+        "1B/1İ1😀bİ1A﻿",
+        "﻿2Σ",
+        "Bab2_AB😀Bİ1a. "
+      ],
+      "expected": [
+        "ΣA.İ1A: _.😀Σ"
+      ]
+    },
+    {
+      "query": "1 .",
+      "labels": [
+        " A﻿0 İb😀1.😀﻿ baB",
+        ":ab",
+        "﻿21😀 2.aΣ﻿İ1/ AB",
+        ".İ_2.",
+        "BİbaB0Σ",
+        ".2b0b0_",
+        ":İBİ1 B ﻿",
+        "﻿/Baba.AB😀.0_21 _",
+        "﻿:﻿/﻿2:",
+        " . 12ba:0B😀b ﻿",
+        "B0﻿AΣA:A /: :/﻿",
+        "_2 0bA.😀1:/ 😀.",
+        "12Σ😀1İbİ:  /b😀BA﻿",
+        ":21 _",
+        " A1",
+        ".  2﻿B",
+        "_  😀B",
+        ":İ_0BaB/B",
+        "bA 😀. B",
+        ":2B﻿İba: Σ"
+      ],
+      "expected": [
+        " . 12ba:0B😀b ﻿",
+        "﻿21😀 2.aΣ﻿İ1/ AB",
+        "_2 0bA.😀1:/ 😀.",
+        "﻿/Baba.AB😀.0_21 _",
+        " A﻿0 İb😀1.😀﻿ baB"
+      ]
+    },
+    {
+      "query": "b/ ",
+      "labels": [
+        "Σ😀  Σ:İB",
+        "Σa1/1 ﻿😀﻿:2 ",
+        " 012﻿/1",
+        " /Σ0B/_",
+        "﻿İb0ΣAB _ B",
+        ".2b2﻿A.Σ/112_2:",
+        "﻿",
+        "Bab2 Σ0.0 İ.",
+        "Σ0_0121 ﻿2.0﻿",
+        "_. ﻿/.",
+        "﻿1Ab/:Σ",
+        "1/ΣB",
+        "Σ B2. :/ a.İ﻿😀:2b",
+        ".",
+        ":😀 Σ0:0baΣaB",
+        "1 B😀﻿",
+        ":ΣB0_",
+        ".2_ B/b😀﻿",
+        "﻿😀_/.",
+        "1 Σİ."
+      ],
+      "expected": [
+        "Bab2 Σ0.0 İ.",
+        "Σ B2. :/ a.İ﻿😀:2b",
+        "1 B😀﻿",
+        ".2_ B/b😀﻿",
+        ".2b2﻿A.Σ/112_2:",
+        "﻿İb0ΣAB _ B",
+        " /Σ0B/_",
+        "﻿1Ab/:Σ",
+        "1/ΣB",
+        ":ΣB0_",
+        ":😀 Σ0:0baΣaB",
+        "Σ😀  Σ:İB"
+      ]
+    },
+    {
+      "query": "Σİ",
+      "labels": [
+        "_",
+        ".İ1/b_😀Σa_ _aΣ b",
+        ".0 21",
+        "1A_aB😀B",
+        "  Σ😀 A.a: 1Σ😀B  ",
+        "BA_😀b/B😀Σ",
+        "﻿ ﻿﻿😀:.2﻿A.",
+        ": _",
+        "1A1AΣBa ",
+        "1Σ😀 0: _",
+        "b😀 A /_",
+        "_😀.İ1a:😀:",
+        "b0﻿2 😀b0 ",
+        "B bAB B  Σ",
+        "ΣaB😀﻿01😀BİBİ.A A_",
+        "Σ2b.10_2bİ 😀﻿",
+        "Σ0.0BA12 2_/BA﻿",
+        " 😀B2Σİ_0Σa_",
+        "B",
+        ".a.İΣ/bİb b0. ba."
+      ],
+      "expected": [
+        " 😀B2Σİ_0Σa_",
+        "ΣaB😀﻿01😀BİBİ.A A_",
+        "Σ2b.10_2bİ 😀﻿"
+      ]
+    },
+    {
+      "query": "1İ",
+      "labels": [
+        "﻿1",
+        "B",
+        "./_",
+        ":İ_/B",
+        "Σ/b",
+        ".a 0BABa:01",
+        " AB/:A:2B2B",
+        "Σa﻿/.İ1a:2bA.İ 0B",
+        ".",
+        "1 b 1/b😀_A1a_Σ0:",
+        "12 2Σ b",
+        "1a﻿/_İ﻿",
+        "ba﻿a_A ",
+        "﻿0./B😀b Σ﻿İ﻿2ΣİΣ",
+        "b0 😀1a_2.",
+        ".😀:",
+        "B😀_ A:İ_İ﻿",
+        "﻿2:0B2ba﻿ /_",
+        " ",
+        "b/  Bİ./ΣA İ_b"
+      ],
+      "expected": [
+        "1a﻿/_İ﻿",
+        "Σa﻿/.İ1a:2bA.İ 0B"
+      ]
+    },
+    {
+      "query": ".😀Σ:",
+      "labels": [
+        "Σ😀_",
+        "﻿aB  İΣ",
+        "﻿😀10_İ:aΣ",
+        "_/1İ:2b",
+        "_2./:😀.😀bİ_",
+        "Σ Σ",
+        "﻿0.2﻿0ΣA.aBİBab",
+        "Σ _0:a1ab0b:😀_",
+        "1a ",
+        ":/1a:2.Aba1",
+        ":21 ",
+        ":2Σ﻿ B_😀Bİ:",
+        " 1",
+        "ΣAB",
+        "_0﻿ Σ0B",
+        "﻿",
+        ".Ab21a ABİbA_",
+        ":B/_0Σİ﻿😀 A./.2B",
+        ".",
+        "Σ 1"
+      ],
+      "expected": []
+    },
+    {
+      "query": ":/",
+      "labels": [
+        "0 0 ./.",
+        "B",
+        "﻿2:210﻿/.",
+        "Σ2 a ",
+        "B.2_aB B_İ_😀Σ",
+        "1",
+        "_😀Σ :a:İ 2bİ﻿2﻿İ_",
+        " A:",
+        "Σa1",
+        " ",
+        "b",
+        "Σİ.A:",
+        ":A﻿😀 ",
+        ":A﻿ ﻿0B",
+        "1/b/1",
+        ". Ba﻿2.",
+        "Σa a 0_AΣ",
+        "_aΣ/﻿/Bb2:AΣ",
+        ":a﻿a 0./B B",
+        "_AΣ😀Σ2b/_BA:😀 ."
+      ],
+      "expected": [
+        ":A﻿😀 ",
+        ":A﻿ ﻿0B",
+        ":a﻿a 0./B B",
+        "_😀Σ :a:İ 2bİ﻿2﻿İ_",
+        "﻿2:210﻿/.",
+        " A:",
+        "Σİ.A:",
+        "_aΣ/﻿/Bb2:AΣ",
+        "_AΣ😀Σ2b/_BA:😀 ."
+      ]
+    },
+    {
+      "query": ". bA:",
+      "labels": [
+        "1 ﻿ B BAΣ﻿A.2﻿",
+        ":😀12_",
+        "B .😀1",
+        "Ba:😀 _2B0ba﻿2Σ",
+        "﻿İ ",
+        "_A ",
+        "﻿0.😀.aΣAΣİ:2Σ",
+        "1 ﻿",
+        "﻿0b_/﻿1 Σİ_﻿",
+        "_",
+        "b21BB😀B2B2B0Σ",
+        "Σb",
+        "_0 a﻿",
+        " /:",
+        "B ΣA:ab2_İ1😀B",
+        "B _İ1İΣ",
+        "B2ΣaBİ1",
+        "﻿0Σ/ΣB",
+        "_0.İ:",
+        " A_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "B21",
+      "labels": [
+        "_a﻿0﻿ :a.2b.",
+        ":2_2b ./1İ﻿2BA﻿",
+        "_2﻿2B ",
+        "﻿",
+        "b/b 0ΣaΣ _İB",
+        "1abİ_2BA_😀1/: B0_",
+        "ba_",
+        "./:😀:_",
+        " .😀Σ0B2﻿0:",
+        "1A﻿2b B0 ",
+        " AΣAb1 _0bA﻿Ab",
+        ".",
+        "B0Σ😀﻿",
+        "﻿2:😀Bb ﻿a:a1a_",
+        "ΣaΣA﻿2:İb.Ab2Σ",
+        "1/ İ 2Bİ./B/﻿",
+        "Σab0b😀:",
+        "_İ_b .aΣA1 b",
+        ".",
+        "﻿B011a 😀12 "
+      ],
+      "expected": [
+        ":2_2b ./1İ﻿2BA﻿",
+        "1abİ_2BA_😀1/: B0_"
+      ]
+    },
+    {
+      "query": " . .",
+      "labels": [
+        "b0b0﻿",
+        ":a_",
+        ".﻿﻿😀baB1  2B2_",
+        " A1A﻿ 12:AB2b😀  .",
+        "121a1😀 İBİΣ",
+        ":0﻿1",
+        "1",
+        ": :😀b_",
+        "Σ﻿/﻿aB b0 :2Σ _",
+        "_😀 İ﻿A_",
+        ":AΣ😀_ Σ😀 a﻿İ_",
+        ".İ..a﻿/_2Σ",
+        " İ1İB_/:İb ﻿﻿  ",
+        "﻿1İ﻿/.﻿😀1_21İ ",
+        ".",
+        "1",
+        ".Σa﻿",
+        "_",
+        "﻿2b",
+        "10 A 2ΣAB"
+      ],
+      "expected": [
+        ".İ..a﻿/_2Σ",
+        "﻿1İ﻿/.﻿😀1_21İ "
+      ]
+    },
+    {
+      "query": "ΣaB",
+      "labels": [
+        " aB012:",
+        "bAb :AΣa1a_",
+        "﻿ b😀_0B",
+        ".",
+        "_b😀﻿0.",
+        "﻿/.😀10B/﻿/ΣaΣ",
+        "Σ2.ba:0﻿😀﻿A.",
+        "﻿0.2 A: .",
+        ".😀Σ/Σ😀b0:2﻿  2b",
+        "babA 0Σ ba_0Σa 😀﻿",
+        " 2:",
+        ".A12.",
+        "_ .a.İΣa.. 1/b",
+        "1",
+        "bA_a:2 .AΣ",
+        "_İ.😀 A 12BAΣ",
+        " aB2Σ01 :",
+        "﻿/:2:2Σ21İ1",
+        ":İ﻿B2.0﻿aB😀 ",
+        "_   Σ"
+      ],
+      "expected": [
+        "_ .a.İΣa.. 1/b"
+      ]
+    },
+    {
+      "query": "﻿😀b0",
+      "labels": [
+        ".A_/Σ/ 2B",
+        "B0_2b",
+        "1AΣ/:",
+        "Σ",
+        " /1İ﻿a_0:ab😀B0:",
+        "_/b😀 /.﻿İΣ",
+        "﻿2B .B0Σ",
+        ":😀﻿﻿a.aΣ😀.0_İΣ",
+        "_A /_",
+        "﻿0:😀_İ1/Σ0B B",
+        "﻿İΣa_0B 1",
+        "../Σ 1/B/ba﻿AB0Σ",
+        "10B ",
+        "﻿İΣ Σ😀_",
+        "Σ12 /:İBA1 1 Σ",
+        "b_0:",
+        "_/.😀1😀﻿a_",
+        "1a 21😀1/﻿",
+        ".2b21 b/  b :😀b",
+        "1😀b ."
+      ],
+      "expected": [
+        " /1İ﻿a_0:ab😀B0:"
+      ]
+    },
+    {
+      "query": " ",
+      "labels": [
+        ":/b0﻿a aBa﻿😀bİB",
+        "b😀.a_ b",
+        "12﻿  ",
+        "ba _.İ1 İ_/ a﻿",
+        "_21aΣ2.0   ",
+        "b..2_ _A. .",
+        "Σ",
+        "Σ😀 /Σ/  Σİb01a:",
+        "﻿a.a _ 12﻿  ",
+        ":İBİ1AB12Σ2:a_İ_",
+        " 😀﻿/.İb0_2bA﻿İ10﻿",
+        "﻿",
+        ".:aBAΣ/Σİ.",
+        ". ﻿İΣ/.😀1A1a11",
+        "b0b. .İ _2﻿A1AB",
+        "Σ﻿/﻿",
+        "Σa_İbA:İΣA:😀﻿.",
+        "1😀bA:/_",
+        "B😀:A﻿",
+        " a_😀_ _0bİ.😀1A1"
+      ],
+      "expected": [
+        ":/b0﻿a aBa﻿😀bİB",
+        "b😀.a_ b",
+        "12﻿  ",
+        "ba _.İ1 İ_/ a﻿",
+        "_21aΣ2.0   ",
+        "b..2_ _A. .",
+        "Σ",
+        "Σ😀 /Σ/  Σİb01a:",
+        "﻿a.a _ 12﻿  ",
+        ":İBİ1AB12Σ2:a_İ_",
+        " 😀﻿/.İb0_2bA﻿İ10﻿",
+        "﻿",
+        ".:aBAΣ/Σİ.",
+        ". ﻿İΣ/.😀1A1a11",
+        "b0b. .İ _2﻿A1AB",
+        "Σ﻿/﻿",
+        "Σa_İbA:İΣA:😀﻿.",
+        "1😀bA:/_",
+        "B😀:A﻿",
+        " a_😀_ _0bİ.😀1A1"
+      ]
+    },
+    {
+      "query": " 😀B2",
+      "labels": [
+        "/﻿İΣ0.B",
+        ":2Σ :/b",
+        "b:0﻿0﻿İ ",
+        "_İ A_ 1",
+        " İ  B/BAb B",
+        ".",
+        " ",
+        ":  .A﻿😀 0﻿/ ",
+        " A AbA﻿",
+        "b0:😀B😀B0b/1 _",
+        "BA ABbaB/b",
+        "Ba A_/B/Σ/B",
+        "1. İ  B0 2B0B",
+        "1﻿A.",
+        "ΣAB﻿İ:A  ",
+        "_😀_ 0b😀_1",
+        "B0b2 😀:/:/.2:2_😀b",
+        ". :İBİ1😀1A﻿0b  ﻿",
+        ".0 /1",
+        "B . Σ"
+      ],
+      "expected": []
+    },
+    {
+      "query": ":İ_B",
+      "labels": [
+        "b",
+        "_/1İΣB b😀﻿0_aB",
+        " 0bbİ1a1A_/B",
+        "BİBA:/_ _/ΣAΣ😀Σ",
+        " 0 İ:a ΣBabİb",
+        "Σ0:a:",
+        "Σ _",
+        "﻿/﻿0./.İ1A_A_İΣİb",
+        "﻿ :a:",
+        ".A12 0.0 a1😀b😀Σ",
+        "﻿ B/1   Bİ:21a﻿",
+        ":/1AB😀﻿/Σ .",
+        "_A﻿İ.A_ba﻿/1AΣ2.",
+        "1",
+        "﻿Σİ﻿A10bİ  İ1",
+        "_0Σ 10﻿0 Σ0B  Σ",
+        "Bİ  B2 😀./Σ",
+        "1/1/1",
+        "﻿ : b",
+        "b2_0.😀.2_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "BB",
+      "labels": [
+        "﻿ Σ",
+        ":.﻿﻿a 2﻿0B😀B😀1",
+        "B bb Σ2_",
+        "b",
+        ": 12Bİ: :2.0.",
+        "b0_",
+        "B_/_/﻿/ 0 ",
+        "_/_a﻿/ΣB210Bİ1",
+        ":010﻿/B2. bİ./1",
+        "Σ😀B/: 0:aΣ",
+        ".😀﻿2:İ1 bİB😀 2Σ😀B",
+        "Σ :İ﻿A ",
+        "./10 /:2 İ1/_0﻿😀B",
+        "﻿",
+        "1",
+        "﻿/ A﻿",
+        "﻿😀: :0_2.aΣa1",
+        ".😀Bİ﻿/:İΣA_İ a:/.",
+        "  :21A﻿İ1AΣ",
+        "101 Σ2.İΣA﻿AB/﻿ ﻿"
+      ],
+      "expected": [
+        "B bb Σ2_"
+      ]
+    },
+    {
+      "query": "_/b😀",
+      "labels": [
+        "/.😀:/B.0 :.1/.",
+        "bA_2Bİb01A1İ﻿ ",
+        "./.ab/.Ab01/1a  _",
+        "1A İ 😀.a:a_B",
+        "b",
+        "1﻿B/BA:﻿2.",
+        "b2Σ2b/:2﻿/:0﻿A:",
+        "_😀 😀.2Ba﻿",
+        "B b0Σ/_A_aBİ10Σ",
+        ":.😀:abB",
+        "_Σ/B0:0 😀﻿aΣ😀b",
+        ":2:2bab.b",
+        "1İ.AB",
+        "﻿2_2Σ",
+        "bA﻿İ_😀 01A.",
+        "1aB_1a.2Σİ:😀.",
+        " İ:😀:A 0b0. 2B",
+        "_1aΣ. _",
+        "﻿😀b /:_A﻿ 1A_😀﻿",
+        " "
+      ],
+      "expected": [
+        "_Σ/B0:0 😀﻿aΣ😀b",
+        "bA﻿İ_😀 01A.",
+        "1aB_1a.2Σİ:😀.",
+        "﻿😀b /:_A﻿ 1A_😀﻿"
+      ]
+    },
+    {
+      "query": "1İB",
+      "labels": [
+        "11 1A1A ",
+        ".a İ_a:",
+        " Σ2_İb0Σ .",
+        "_",
+        "bA.2b",
+        "B/B😀Σ😀Σ _",
+        "Σİ1İBa1a_0b",
+        "﻿  0B2_0 / 0﻿0B",
+        "ba A_a101😀:/12:İB",
+        "BAB/﻿2:İB2_21",
+        "B2.",
+        ".",
+        "b/Bİ 2_0:😀 2.",
+        "Σ😀1😀ΣAb./ ",
+        "_ _😀﻿ _😀ba  baB",
+        " A﻿😀. ﻿aB😀Σ0b😀:",
+        "B2B_2:😀b",
+        " 😀1a  1",
+        "Σ",
+        "b"
+      ],
+      "expected": [
+        "Σİ1İBa1a_0b",
+        "ba A_a101😀:/12:İB"
+      ]
+    },
+    {
+      "query": ":/﻿",
+      "labels": [
+        "Σ :0b2﻿",
+        "1İ﻿ .İ﻿2B2.2Σa.2_",
+        " İB0Σ2.",
+        "_a İ:0bİb0b😀b212 ",
+        "B/.😀B_😀bİ_",
+        "B/:",
+        ".2﻿a1",
+        "﻿İΣİ a﻿😀Ba a1﻿b",
+        "b/:İ.😀_",
+        "﻿/.0﻿a1/ ",
+        "﻿/:  0B",
+        "ba:😀.",
+        "_😀Σ",
+        ":😀b2_/_😀ba 2BΣ _",
+        "1a1😀﻿0bA﻿ .İ.😀 ",
+        ":😀B b😀Σ ﻿A.A.",
+        "b ﻿.İb2BİΣA:a1",
+        "B/.b",
+        "﻿BΣ2bB2.a.ΣaΣ",
+        "B😀Ba_"
+      ],
+      "expected": [
+        ":😀b2_/_😀ba 2BΣ _",
+        ":😀B b😀Σ ﻿A.A.",
+        "Σ :0b2﻿",
+        "B/:",
+        "b/:İ.😀_",
+        "﻿/:  0B",
+        "ba:😀.",
+        "_a İ:0bİb0b😀b212 ",
+        "b ﻿.İb2BİΣA:a1"
+      ]
+    },
+    {
+      "query": ":./",
+      "labels": [
+        " b/ ",
+        ".",
+        "BaB ﻿A_",
+        "1İ ",
+        "babİ 😀B",
+        "b",
+        " a_/Σ/.0B0﻿/B",
+        "1aΣ ΣİBa﻿_İΣ0﻿0 ",
+        "b2.A.😀b1",
+        " 1İ_/  Σ",
+        ":İ1😀.aB Σ2:2_0 İ_",
+        "_İB1İb/_a﻿",
+        " 2.a_2.1😀:A:A﻿İ_",
+        "1",
+        "﻿A.2B",
+        "Bİ /1A 2 😀 /﻿:",
+        "1/b",
+        ".AB_",
+        "ΣaBb::",
+        "b2Σ/BAB😀:A:AΣİ1"
+      ],
+      "expected": []
+    },
+    {
+      "query": ":",
+      "labels": [
+        ":",
+        "1 ﻿a_ B",
+        "1İ. ﻿/.0 ",
+        "﻿ B😀B",
+        "_0:2:0B0:2b_İbA﻿",
+        "Bab_0 AΣA_2﻿",
+        ".",
+        ":2. b_B0.",
+        "b0﻿0.",
+        "_a1İBA:",
+        "BB ",
+        "Σ0﻿A:😀.",
+        "b   B  ab",
+        "﻿",
+        "_0B ΣA.0_",
+        "_😀 İ /B😀:A.",
+        "B",
+        "﻿2B😀Σ😀 /.",
+        " ",
+        "_a﻿A_😀_ Σİ_😀  b"
+      ],
+      "expected": [
+        ":",
+        ":2. b_B0.",
+        "_0:2:0B0:2b_İbA﻿",
+        "Σ0﻿A:😀.",
+        "_a1İBA:",
+        "_😀 İ /B😀:A."
+      ]
+    },
+    {
+      "query": ":A /",
+      "labels": [
+        "01/:/1a 01a:",
+        "12.İ﻿2﻿:  ",
+        "Σ/1/b  ",
+        "﻿b0BİBa1",
+        " İ1İb0ΣaΣ0.AΣ﻿1",
+        ":",
+        "Σ21",
+        " ./_  😀Bİ1",
+        ".a: /b😀B",
+        "b😀1İ A.",
+        "b/Ba  :﻿2﻿AbAba.",
+        "B2.01İ1:",
+        "Σb",
+        "﻿/1 Σ0.  ",
+        "ΣaB .😀﻿ Σ _😀1😀bİ_",
+        "﻿😀:a1A. 10Σ😀._",
+        "B😀Σ2﻿/b",
+        "1/1/1İΣ/bİbA.",
+        "_0 😀1A_ B",
+        "_/B B😀Σa1"
+      ],
+      "expected": [
+        "﻿😀:a1A. 10Σ😀._",
+        "b/Ba  :﻿2﻿AbAba.",
+        "01/:/1a 01a:"
+      ]
+    },
+    {
+      "query": "_ ",
+      "labels": [
+        "Σİ﻿Σ0﻿2_",
+        ".0Σ/﻿/﻿Abİb/ ",
+        " A.aB",
+        ":İb10 A:",
+        "﻿A12 2_",
+        " 01İ.﻿212B0b.2b",
+        "_A:a﻿İBaB2:",
+        "1/:😀bA﻿😀﻿İ Σ",
+        ".0: :/﻿0ΣA10.a:",
+        "1AΣ😀: _😀b/﻿010_",
+        "﻿A﻿ _",
+        "Σa﻿B21😀.",
+        " ﻿b/b😀_",
+        "b0.",
+        "Σ:aB",
+        "./.İb/Σ😀﻿",
+        "_2:a: Σ",
+        ":A 😀10 😀.İb",
+        "_/﻿2:a1a: BA.2B",
+        "﻿a.AΣ : .2:a_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "_",
+      "labels": [
+        " 😀1 :2b0Σİ﻿😀B",
+        "BABİB2 2:A:İbA  Σ",
+        ":",
+        "1",
+        " A_İ 😀_a 2 İ:",
+        "_",
+        "b2Σ2b",
+        "b/Bİ﻿ Σ😀 ",
+        ".aΣ:0:",
+        "Σ0B1  ",
+        "B/1 .Σ2 01",
+        "1 Σ",
+        ":0 1ab2 İ1/:😀 ",
+        ":0Σ😀b0.AbΣ﻿",
+        ".",
+        " /﻿0101İ1/_İB😀.😀:",
+        "1a12ba1ab2bA  : Σ",
+        "b😀﻿ 😀b﻿İ. 1",
+        "Σ .",
+        ": _İ_2BİΣB/.😀_/b"
+      ],
+      "expected": [
+        "_",
+        ": _İ_2BİΣB/.😀_/b",
+        " /﻿0101İ1/_İB😀.😀:",
+        " A_İ 😀_a 2 İ:"
+      ]
+    },
+    {
+      "query": "Σ",
+      "labels": [
+        "Σ",
+        ":A.İB😀 ",
+        ".ab01",
+        " 😀bİ12.a_0./ ",
+        "B😀:",
+        "﻿",
+        "_ Σ/:",
+        "1 _b",
+        "Σ _ 1A.A_01",
+        "Bİ:",
+        "b0 İ1",
+        "bΣa﻿",
+        "Σa_a:😀.",
+        "_:😀_ _",
+        " A 😀BΣ😀1",
+        " A﻿:a:/Σ/Σ😀1İ﻿",
+        "b😀Σ0Σ/ 010B/b",
+        "bİ﻿İ:😀.2B😀ba﻿0Σ",
+        "1😀_İ 2:😀 😀:İ.",
+        "B2Σ"
+      ],
+      "expected": [
+        "Σ",
+        "Σ _ 1A.A_01",
+        "Σa_a:😀.",
+        "_ Σ/:",
+        " A﻿:a:/Σ/Σ😀1İ﻿",
+        "bΣa﻿",
+        "B2Σ",
+        "b😀Σ0Σ/ 010B/b",
+        " A 😀BΣ😀1",
+        "bİ﻿İ:😀.2B😀ba﻿0Σ"
+      ]
+    },
+    {
+      "query": "10 Σ",
+      "labels": [
+        " 😀B/B2B2_",
+        "﻿0b/_",
+        "b😀_",
+        "bABİ:",
+        "﻿😀B",
+        "b/bİ:2Bab0 0baB",
+        "﻿A::BA / İ﻿",
+        "1 B",
+        "1",
+        " a_a ",
+        "b2﻿İΣ",
+        "Σ/ 2:A: b",
+        "bAB😀Σİ﻿Ab",
+        "﻿ İB/.0_İB",
+        "b0_/B/b2:😀﻿",
+        "b/Σ2:0_/ ab",
+        "1😀B0:İ:",
+        ".İ:aΣaΣ",
+        "b/Σ",
+        ":İ.2Σ😀Σ"
+      ],
+      "expected": []
+    },
+    {
+      "query": " BAb",
+      "labels": [
+        "﻿1B😀bİ: _",
+        "Bİ.A﻿0B",
+        "Σa 😀﻿/:0:",
+        " 😀 /﻿2.",
+        "b :",
+        "﻿😀BA﻿",
+        ":2B0.aΣİB",
+        "B😀1Σ",
+        "Σ :😀_a ",
+        "_ab2Σ/﻿",
+        "Bİ.﻿/ΣaΣ  2_a.İ_",
+        "B",
+        "_",
+        "1a:",
+        "﻿AΣA:İΣ0B",
+        "Σ2:0./.",
+        ":İ1A_İ_İB2B",
+        ":/Babİ﻿İB0B😀:/.",
+        ". .AB :1",
+        "B/B2:abAB ."
+      ],
+      "expected": []
+    },
+    {
+      "query": ":İ_ab",
+      "labels": [
+        "﻿İΣ2Σ",
+        "﻿a﻿",
+        "B0.aB😀Ba 21",
+        "B2bb",
+        "_😀:/Σa:aB  _",
+        "  1İ:2Σİ﻿2 ",
+        ":/BaΣ😀1A.A./ A﻿",
+        "b0bİ﻿0_",
+        "1A1 baB",
+        "_ 0_",
+        "1İ﻿:/1/.",
+        " /1Ab ﻿aB2101😀:",
+        ".",
+        "Σ bİ﻿baΣbİ ",
+        "_a﻿2:İ﻿2B 1B2_",
+        " ",
+        "./.😀:İ:",
+        "﻿.",
+        "B😀.2﻿",
+        "Σ B ba_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "﻿",
+      "labels": [
+        " 0./ 0:/b",
+        "b",
+        "1b /_aΣ",
+        "﻿:İb21ABa:😀.İ.İ_",
+        "_0:😀 a﻿0b ",
+        " A﻿2_/.😀B",
+        " 0_😀bA ",
+        "_ bABAb01/b2_2﻿0_",
+        "b2Σ0:a1 ﻿/b",
+        ":﻿İ1 1A:😀B",
+        "ΣaB",
+        ".2:2﻿ :😀Σ BA /B",
+        "BA.😀Σa: Σ2_ab",
+        "bİ:b😀b0b😀Σ ﻿😀﻿A_",
+        "bA.a_Ab/1",
+        " 0_😀:😀 01Σ",
+        "10:İ1/Σ/ İ﻿a﻿",
+        ". _",
+        "1İ:😀10_bİ﻿A_",
+        "  B😀B"
+      ],
+      "expected": [
+        " 0./ 0:/b",
+        "b",
+        "1b /_aΣ",
+        "﻿:İb21ABa:😀.İ.İ_",
+        "_0:😀 a﻿0b ",
+        " A﻿2_/.😀B",
+        " 0_😀bA ",
+        "_ bABAb01/b2_2﻿0_",
+        "b2Σ0:a1 ﻿/b",
+        ":﻿İ1 1A:😀B",
+        "ΣaB",
+        ".2:2﻿ :😀Σ BA /B",
+        "BA.😀Σa: Σ2_ab",
+        "bİ:b😀b0b😀Σ ﻿😀﻿A_",
+        "bA.a_Ab/1",
+        " 0_😀:😀 01Σ",
+        "10:İ1/Σ/ İ﻿a﻿",
+        ". _",
+        "1İ:😀10_bİ﻿A_",
+        "  B😀B"
+      ]
+    },
+    {
+      "query": "Σ",
+      "labels": [
+        "_/b",
+        "b 1 b.",
+        "B😀./.A﻿",
+        " Ab B/b  a﻿",
+        "bΣA:😀B:1.😀:",
+        "_0./:2b😀_",
+        "Σ",
+        "Σ",
+        "BA.2.Σ",
+        " a:﻿0:0Σ",
+        " 2. Σ",
+        "Bİb  A_İΣ B😀Σ😀﻿İb",
+        " 0:İ_",
+        "﻿0Ba101",
+        "B  /1a.A:",
+        " /Σa﻿",
+        "1A / / ",
+        "1 b0:/﻿_😀12BA﻿ _",
+        "b0.A﻿ ﻿",
+        "﻿AB B"
+      ],
+      "expected": [
+        "Σ",
+        "Σ",
+        " /Σa﻿",
+        " 2. Σ",
+        "bΣA:😀B:1.😀:",
+        "BA.2.Σ",
+        " a:﻿0:0Σ",
+        "Bİb  A_İΣ B😀Σ😀﻿İb"
+      ]
+    },
+    {
+      "query": "_2_",
+      "labels": [
+        "﻿﻿0:a Ab",
+        ".AB",
+        ".İΣ",
+        ".2 01",
+        ".",
+        ":a1😀.A_A.",
+        " İΣ",
+        "Σ0B0 /b",
+        "./bİ_ ﻿2Σ😀﻿",
+        "Bİ12 1A_﻿a1/:",
+        "_2bAΣ2_A a ﻿/﻿01",
+        "﻿0:A﻿😀bİ: _",
+        "./.a: ﻿",
+        " ",
+        "﻿/. ba_A﻿😀:2B",
+        "121😀﻿1.",
+        "Σba﻿a1",
+        "bİ1 1😀 a.:A:  ",
+        ":Bİ.😀1a1😀: ﻿İ12B",
+        ".21Σ"
+      ],
+      "expected": [
+        "_2bAΣ2_A a ﻿/﻿01"
+      ]
+    },
+    {
+      "query": "b",
+      "labels": [
+        "1/_İ 😀:İΣ",
+        "    :",
+        "Σ B B B.",
+        " 2﻿Ba /b",
+        "b",
+        "B .1",
+        "b😀1İ_İ_ :",
+        "﻿ ﻿ :İ A_2_a.01",
+        "﻿A_İΣ😀B😀B",
+        ":aΣ😀.a İ:/bB",
+        ":a10B",
+        "_",
+        " İΣa_a:0b",
+        "ΣA1a_",
+        "12Σ/1 b",
+        "BΣa1b:",
+        "Σ",
+        "_a:AB/﻿/ İ_0:",
+        "BA_",
+        " ΣA_/Σ0b "
+      ],
+      "expected": [
+        "b",
+        "B .1",
+        "b😀1İ_İ_ :",
+        "BΣa1b:",
+        "BA_",
+        "Σ B B B.",
+        "12Σ/1 b",
+        ":aΣ😀.a İ:/bB",
+        " 2﻿Ba /b",
+        ":a10B",
+        "_a:AB/﻿/ İ_0:",
+        "﻿A_İΣ😀B😀B",
+        " ΣA_/Σ0b ",
+        " İΣa_a:0b"
+      ]
+    },
+    {
+      "query": "1/_a_",
+      "labels": [
+        "1ba1Ab😀.0b b0﻿2b",
+        ".AbaB1aΣ",
+        "Σİ_﻿ ﻿/.A_😀.0.",
+        "1/._A﻿2bİ_Σ.😀B",
+        "b0:İ﻿/1A:0_2Σ/:İ_",
+        ".0_",
+        "B/./Bİ /_/1",
+        ":",
+        "baΣ😀1 0:😀_0 ",
+        ":/.Ab",
+        "_😀  _ ﻿_2:",
+        "b_",
+        " a1",
+        " İ﻿/﻿ab./﻿2b",
+        " aΣİb/1﻿",
+        ": b0__0 ",
+        "BΣ0.Ab2./b01:",
+        "_A.﻿İ﻿İ_/ _İ.",
+        "ΣA 01İ﻿ba:ab",
+        "."
+      ],
+      "expected": [
+        "1/._A﻿2bİ_Σ.😀B"
+      ]
+    },
+    {
+      "query": ".0b",
+      "labels": [
+        "bİ﻿ab2ΣA﻿",
+        ":",
+        "_İ:/: b_/ A ",
+        ": _😀.A_b ﻿10.2Σ",
+        "﻿",
+        "Σ",
+        "﻿a ",
+        ":0.😀﻿2.ab",
+        "1İ.0B1",
+        "Σ12 /:2_ B21",
+        "b 0﻿ B",
+        "_",
+        "﻿",
+        ".0Bİb😀1aΣa1",
+        "b1İ 0_AB",
+        "_",
+        "﻿.A﻿",
+        "_A:A﻿2:Σİ_",
+        "_ab😀 😀BA:aB01İ.",
+        "﻿/:"
+      ],
+      "expected": [
+        ".0Bİb😀1aΣa1",
+        "1İ.0B1"
+      ]
+    },
+    {
+      "query": "b/B",
+      "labels": [
+        "Σ😀.İ.0_/:😀ba1_",
+        "﻿😀_ b/Σ_10Σ",
+        "  B😀1/﻿İ﻿/ /:",
+        "Σ/_ .aBİB0 İ1İ. Σ",
+        ".A12_😀:01/1",
+        "﻿A_0.",
+        "bA1.İ.A﻿ B:İ: Σ",
+        "1",
+        ".",
+        "﻿A ",
+        "﻿ΣİΣ0Σ2_2  :",
+        "  ﻿aΣİ:",
+        "Σ21ab😀﻿:",
+        "BİΣ/ a1A_İ﻿😀 1😀b",
+        "1A.😀.İB2 İB",
+        "Σ",
+        "b0.İ:ab0_a.",
+        "_",
+        "﻿2.a1İB0b0._a ",
+        "12  b"
+      ],
+      "expected": [
+        "bA1.İ.A﻿ B:İ: Σ",
+        "BİΣ/ a1A_İ﻿😀 1😀b",
+        "b0.İ:ab0_a.",
+        "  B😀1/﻿İ﻿/ /:",
+        "12  b",
+        "﻿😀_ b/Σ_10Σ",
+        "Σ21ab😀﻿:",
+        "Σ/_ .aBİB0 İ1İ. Σ",
+        "﻿2.a1İB0b0._a ",
+        "1A.😀.İB2 İB",
+        "Σ😀.İ.0_/:😀ba1_"
+      ]
+    },
+    {
+      "query": "_😀_/",
+      "labels": [
+        ".0_Aba﻿",
+        "BA:0 a_",
+        "Σ 1/Σİ  Ab",
+        "Ba﻿",
+        "1﻿ 1/:0_",
+        "Σ .😀.😀Ba.2Σ0﻿/:AB",
+        "b😀BaB/Σ0.a ﻿a12:",
+        ":",
+        "Σİ. ΣB/.2﻿ Σ2 Ab",
+        " 😀B2 a_",
+        ":a 😀.İb0B/Σ2:b",
+        ": Σİ.",
+        " 2Σİb0_0B😀1a_A:",
+        ":a_😀1bB",
+        "﻿ 1",
+        ".İ_😀Σ A1  0 ",
+        "Σ0﻿ .2.İ_01İ a:",
+        " 0B_a_A 2.Ab",
+        "﻿a 2ΣA_  ",
+        "Σ😀_A."
+      ],
+      "expected": [
+        " 2Σİb0_0B😀1a_A:"
+      ]
+    },
+    {
+      "query": "ΣA﻿",
+      "labels": [
+        ":2 İBA_0 İΣ0B0﻿",
+        "b0b/﻿:/.",
+        ":a:",
+        "b ﻿2Bb2Σ/_./B",
+        ".A﻿A_ ﻿01",
+        "﻿2:2bİb",
+        "_:2.",
+        "b/_",
+        "1",
+        "bba_abb0:aB😀.0B",
+        ".",
+        "B b/  Σ1İbİ﻿2_İ:",
+        "B  A  :ΣAb2_",
+        "﻿0 A﻿İ:a1  😀B",
+        "Σ21",
+        "_😀:İ /b1A_A.😀 A1",
+        " 0:😀B ﻿😀_",
+        "Σ0:Σ😀12.😀. ﻿ Ba:",
+        "./Σ😀Σİ./ΣabİB/ ",
+        "b😀1/b"
+      ],
+      "expected": [
+        "B  A  :ΣAb2_",
+        "./Σ😀Σİ./ΣabİB/ ",
+        "Σ0:Σ😀12.😀. ﻿ Ba:"
+      ]
+    },
+    {
+      "query": "B2",
+      "labels": [
+        "😀1a:0b2 a.İB B",
+        ":0.AbB",
+        "B .",
+        ": :a﻿İ.İ1",
+        "ΣABİ_AΣAΣ/1",
+        "_aΣ😀 /b",
+        "ΣaBa  .﻿a:ab2bA﻿",
+        "B2_/1 121a ",
+        "Ba﻿A:",
+        "B0. ﻿😀Bİ 0b/: Σ",
+        ":2_0B _a1  ",
+        "﻿a:A.2﻿İ﻿/_ :",
+        " İb:İB﻿İ./:",
+        "_212﻿A_aΣ0 /b0_2_",
+        ":2_A:İ121İΣİ .",
+        "Σ😀1😀_:a.2.😀bA1AB",
+        " 0Σ",
+        "_1",
+        ". 2:",
+        "bİ "
+      ],
+      "expected": [
+        "B2_/1 121a ",
+        "_212﻿A_aΣ0 /b0_2_",
+        "😀1a:0b2 a.İB B",
+        ":2_0B _a1  ",
+        "Σ😀1😀_:a.2.😀bA1AB",
+        "ΣaBa  .﻿a:ab2bA﻿"
+      ]
+    },
+    {
+      "query": ".",
+      "labels": [
+        "1AΣ",
+        "_İ1😀:0:﻿0Σ😀.2 ",
+        "Σaba.😀 ",
+        "Σ ",
+        ":İ.😀_.21",
+        "Σ/﻿abba /Σ _21",
+        "ba_A A.B",
+        "BAb/B/_A1Ab0 212:",
+        "_İ.2 2.Ba_/Σ",
+        "﻿2BİΣA1_",
+        " aΣ.B  2:B .",
+        ":Ab2B😀.a 2BA_A ",
+        ".İ1a 2_2.a1AB😀_",
+        " İΣİ:2. : 12.",
+        ":1😀Σ2﻿﻿😀 0Σa:A:",
+        "_/Σ",
+        " İ:01A﻿",
+        "1😀: b﻿0_B  /B",
+        "﻿/﻿İ A﻿ _",
+        "﻿0B 0_ 1a﻿😀."
+      ],
+      "expected": [
+        ".İ1a 2_2.a1AB😀_",
+        ":İ.😀_.21",
+        "_İ.2 2.Ba_/Σ",
+        "Σaba.😀 ",
+        " aΣ.B  2:B .",
+        "ba_A A.B",
+        ":Ab2B😀.a 2BA_A ",
+        " İΣİ:2. : 12.",
+        "﻿0B 0_ 1a﻿😀.",
+        "_İ1😀:0:﻿0Σ😀.2 "
+      ]
+    },
+    {
+      "query": "Σ/",
+      "labels": [
+        "BİBA_2 2﻿.",
+        ".",
+        " aBAB/_",
+        "b",
+        "Bİbİ ba:/b2.",
+        "b .﻿",
+        ":aBa.0Σ😀1İ.2﻿21.",
+        "Bİ:",
+        "B :İ İ 😀bAB_İ1",
+        ".1aΣA_",
+        ".  İb/ aB",
+        "1a1/_/:aB01Ab",
+        "Σ21A 😀B/﻿2b",
+        ".",
+        "  a:Σİ﻿0﻿ _a.",
+        "_B😀:/.",
+        "B😀ΣA1/: ",
+        ".2﻿",
+        "_😀1B Σ2_",
+        "﻿ : ﻿"
+      ],
+      "expected": [
+        "Σ21A 😀B/﻿2b",
+        "_😀1B Σ2_",
+        "B😀ΣA1/: ",
+        ".1aΣA_",
+        ":aBa.0Σ😀1İ.2﻿21.",
+        "  a:Σİ﻿0﻿ _a."
+      ]
+    },
+    {
+      "query": "﻿AΣ/b",
+      "labels": [
+        "﻿2B😀1İb",
+        "_😀_İ ab",
+        "﻿a1a1B",
+        "_ 😀_2:  /_a /_",
+        "Bİ.A:1İ.2 ",
+        ".😀_/BA 2.A﻿ b2.a_",
+        "﻿/ 0﻿a1 b0b2B",
+        ":İ A﻿/﻿A﻿2: .",
+        "ΣA: .A10﻿İ İ.",
+        ":2Σ😀_/bİ_ABİ.İ ",
+        "b2 ",
+        ".😀.: ﻿a:2B/:",
+        "12.2_İ﻿:😀b . 1",
+        "﻿0﻿a12﻿2 A﻿",
+        ".2:0bA.2 /﻿a_",
+        "﻿0_a.😀ΣbAb21İ ",
+        "﻿/:B2Σİ.😀bİ1",
+        "Ba 0﻿a /.0 İ1😀Σ",
+        "BB1",
+        "Σ _0﻿😀12Σ2:B"
+      ],
+      "expected": []
+    },
+    {
+      "query": "1",
+      "labels": [
+        "baB😀_0.😀_a1😀﻿",
+        "_2 😀 /BAΣİ_abAB",
+        "1A 😀1İ 21/ İ: _",
+        "bİ_/ a1.",
+        "1İ:/.A﻿ .",
+        "﻿/﻿0Σ/Σ 10_",
+        "b/ 0 A﻿﻿aΣİb",
+        ".a1",
+        "_/﻿Ab",
+        "Σİ1",
+        "1 bİ.0ΣΣ  ",
+        "_0b",
+        "Σ",
+        "bΣ0:",
+        " 0b B﻿0B.2Σ",
+        ". 1Σİ 0ba﻿21 ﻿",
+        "b :İ_/b ﻿/B2.İ b",
+        "b0babAΣ",
+        "B",
+        "Σ😀.0﻿AΣA1"
+      ],
+      "expected": [
+        "1A 😀1İ 21/ İ: _",
+        "1İ:/.A﻿ .",
+        "1 bİ.0ΣΣ  ",
+        ". 1Σİ 0ba﻿21 ﻿",
+        "﻿/﻿0Σ/Σ 10_",
+        ".a1",
+        "Σİ1",
+        "bİ_/ a1.",
+        "Σ😀.0﻿AΣA1",
+        "baB😀_0.😀_a1😀﻿"
+      ]
+    },
+    {
+      "query": "b0_",
+      "labels": [
+        "1/﻿2bİ1",
+        "b😀b2.0_İ﻿a﻿1",
+        "B/_1 1 ﻿😀_﻿0_",
+        "﻿",
+        "Bİ_İB2BA:/B😀﻿ b ",
+        "b/Σ2:",
+        "Σb2:😀Σİ1İB",
+        "B😀:😀b",
+        "_😀.",
+        "_",
+        "Σ2..",
+        " İ﻿😀b0:İbİΣ21aB",
+        "B😀_a:ba﻿",
+        "..ΣΣ😀B",
+        "_/BA_ _",
+        "BBİ1A﻿a İ A﻿",
+        "b a: .",
+        "Σ2_2 /.1 _İ_",
+        "b😀﻿ b😀Σ/ İb",
+        "1"
+      ],
+      "expected": [
+        "b😀b2.0_İ﻿a﻿1",
+        "B/_1 1 ﻿😀_﻿0_"
+      ]
+    },
+    {
+      "query": "bİb2",
+      "labels": [
+        "İ:2﻿2﻿ΣaΣ2:",
+        ".abab_b21",
+        ":/b/﻿Ab2 /b",
+        "1",
+        "Ba İB2B",
+        ":a::İb",
+        ":a_ Bİ1",
+        ":a_ bΣ _2﻿:2 ",
+        "_",
+        "_AB0Σa ",
+        " /_İBa 0﻿",
+        "Ba:2﻿ Σa_İ 0  Σ/b",
+        ":",
+        " 😀b0: bab",
+        ":A:.",
+        "_",
+        "﻿ _İ1",
+        "_a﻿İ_a﻿",
+        "_İ﻿AB/ 0b/﻿1AΣ  ",
+        "1"
+      ],
+      "expected": [
+        "Ba İB2B"
+      ]
+    },
+    {
+      "query": "b😀B0B",
+      "labels": [
+        "﻿Σa﻿",
+        "_/ΣA. 2: b/1   _",
+        "﻿0_İ﻿İ﻿2B/1a_.0:",
+        "b Σİb0_",
+        "1Ba﻿0bİ ",
+        "_/﻿",
+        "Σa: ﻿  ",
+        ".a12. 1",
+        "ΣİB2B/1a.",
+        ".😀B😀_  0﻿",
+        "1 ΣA.aΣİ﻿01 _a.",
+        "bAbİ.",
+        "B/Σ😀:a1/b/ 01😀:  ",
+        "_a:2.😀.21A_2﻿ab",
+        "Σ😀Σİ﻿",
+        "_ _2﻿İ.",
+        ". .😀.a ",
+        "./bİ1/_İ:a﻿",
+        "1﻿a﻿ABA.2_1",
+        "1/Σ/bA./.İB0B01"
+      ],
+      "expected": []
+    },
+    {
+      "query": " a_",
+      "labels": [
+        ".0﻿",
+        "Σ_ 0   İB .",
+        "Σ İ./b01",
+        "1😀﻿A 2B .B😀 ",
+        "B😀 ",
+        "b2_2.: _",
+        "﻿2_",
+        ":  0BA:",
+        "b ﻿0./B/ ",
+        "Σ :/﻿/1 ΣAB",
+        " a﻿A_:",
+        "b0./ΣİB😀. .a﻿",
+        "b",
+        ":AΣA﻿ bA.2bAΣ",
+        "Σ .A.a﻿ab/ :/ ",
+        ":/ 😀:",
+        "bA / :a:/BΣ",
+        "1a_",
+        "1😀﻿21a_B1  ",
+        "Bab"
+      ],
+      "expected": [
+        " a﻿A_:",
+        "1a_",
+        "1😀﻿21a_B1  "
+      ]
+    },
+    {
+      "query": "Σ Σ😀.",
+      "labels": [
+        "Σİ﻿a /_ ",
+        "./_B",
+        ": 1  😀B _2Σ/﻿Σ",
+        "b :😀﻿A./﻿",
+        "_😀1 ﻿😀_0Σİ.",
+        "1ABİΣA﻿2.a_",
+        "Σ/_😀_/B  /Σ b :",
+        ":.0.A:",
+        "Σ",
+        ".😀b😀Σ﻿0:B",
+        "Σ",
+        ":/Σ﻿A ",
+        "1/BΣ Σ0ba:A1a.2_",
+        ":0  BAB😀 abA﻿21",
+        "b😀: .1",
+        "_",
+        "_aΣ/_ ΣA1 b/:😀.",
+        "B",
+        "Bb 1/1  İ.ΣAΣ",
+        "﻿ :0Σ .A:😀:"
+      ],
+      "expected": [
+        "_aΣ/_ ΣA1 b/:😀."
+      ]
+    },
+    {
+      "query": "BA",
+      "labels": [
+        "a_Σ1😀﻿21😀B2B0 0:",
+        "babA﻿2:",
+        " İ ",
+        "﻿",
+        "BA1İ.",
+        ":😀baΣ2.İ﻿bB",
+        ":",
+        "b😀. b😀1",
+        "﻿B",
+        ":",
+        "1😀:😀ΣA:İΣ2  :Σ",
+        "1A__",
+        ":0bA1 :0_12:",
+        ":İ_İΣİbab",
+        "Σİb ./Σ",
+        "﻿ b😀:",
+        "_a10:0:",
+        " 0bA:",
+        " İB/b /b",
+        "b0.2b :AΣ"
+      ],
+      "expected": [
+        "babA﻿2:",
+        "BA1İ.",
+        "b0.2b :AΣ",
+        ":0bA1 :0_12:",
+        " 0bA:",
+        ":😀baΣ2.İ﻿bB",
+        ":İ_İΣİbab"
+      ]
+    },
+    {
+      "query": "Σ0:0",
+      "labels": [
+        "😀.",
+        ".A_ . _ .2b",
+        " 0﻿ :2./Σİba1",
+        "﻿_/bAb",
+        ":/.ab",
+        ". ba1😀ΣA12b_",
+        "﻿0_0_21",
+        "BA_😀:21",
+        ": Σ",
+        " 0﻿0:2﻿😀.",
+        "ΣA.0.a.2bİb0 İ﻿",
+        "bA:",
+        "B2b/.0_",
+        "B B: 1İ:",
+        "Σ0:😀bİΣ0b: ﻿",
+        ".a AΣ😀.😀..aB😀:😀 ",
+        "﻿İ.",
+        " İB",
+        ".",
+        "﻿0bİ﻿"
+      ],
+      "expected": [
+        "Σ0:😀bİΣ0b: ﻿"
+      ]
+    },
+    {
+      "query": ":A1",
+      "labels": [
+        "﻿😀1a_0 .0:0b",
+        "1/1 : _2. 1😀 .",
+        "_a:a. BΣa:_0﻿0Σ",
+        "﻿2B0:",
+        "_a1İ.",
+        "Σ😀./ a A abΣ/Σ",
+        "Σ😀1 ",
+        "_İΣ😀. _😀b😀_",
+        "1﻿/B",
+        "::",
+        "1",
+        "BbİΣa:aΣaΣ2﻿😀_",
+        "﻿2Σa﻿a_İ﻿aB2B",
+        "1/10.BΣA﻿aba.",
+        "b😀12./b ﻿01",
+        "B",
+        ":Bİ İ﻿",
+        "﻿/1",
+        " İB21a 2B😀1a.",
+        ": AΣ"
+      ],
+      "expected": []
+    },
+    {
+      "query": ":A.2",
+      "labels": [
+        "0﻿a﻿2: ﻿😀_aΣ :",
+        "./ A.0BA1",
+        "121  😀_İ_😀1İbA1",
+        " 01A:İ:",
+        "1İb",
+        "B",
+        "b21/.",
+        "bİ﻿/BA / 0﻿ :B😀.",
+        "ba.a  _ab_/b0b0:",
+        "B   b2B😀1",
+        "b:0b0.A: 2﻿",
+        "_/.İΣ",
+        "B😀.",
+        "1 b:İb Bİ.  ",
+        "BA1",
+        "_2.Ab0:1A_212 ",
+        " 0_.A1A.İ.1İ﻿İ﻿",
+        " ",
+        ":",
+        "_1b/ 😀_a_"
+      ],
+      "expected": []
+    },
+    {
+      "query": " ",
+      "labels": [
+        "bİbB/Bİ﻿",
+        "Σ2﻿",
+        "b/B😀.😀 a_/b",
+        "﻿  0b",
+        " /ba﻿2.2Σ",
+        ".AbA﻿😀﻿İ /﻿0. _😀B",
+        "Σ .a.",
+        "﻿0:/1/_İ1😀1",
+        "1:a﻿",
+        " 😀:AB/./ba﻿/﻿2_",
+        "bA_Ab2:😀 ",
+        ":İ1",
+        "b",
+        "﻿aBab",
+        ".0﻿2 A_ .abİ b",
+        "10b😀 2BA ",
+        ". b",
+        "_AΣ0:",
+        " İ_İ﻿2_A:İ1A1",
+        "b0:0Bİ_.0 Σ  "
+      ],
+      "expected": [
+        "bİbB/Bİ﻿",
+        "Σ2﻿",
+        "b/B😀.😀 a_/b",
+        "﻿  0b",
+        " /ba﻿2.2Σ",
+        ".AbA﻿😀﻿İ /﻿0. _😀B",
+        "Σ .a.",
+        "﻿0:/1/_İ1😀1",
+        "1:a﻿",
+        " 😀:AB/./ba﻿/﻿2_",
+        "bA_Ab2:😀 ",
+        ":İ1",
+        "b",
+        "﻿aBab",
+        ".0﻿2 A_ .abİ b",
+        "10b😀 2BA ",
+        ". b",
+        "_AΣ0:",
+        " İ_İ﻿2_A:İ1A1",
+        "b0:0Bİ_.0 Σ  "
+      ]
+    },
+    {
+      "query": "﻿İ",
+      "labels": [
+        "0Σ/:/Σ",
+        "﻿İ_a:",
+        ".İ.﻿",
+        ":İ﻿😀b0.a.İbİ 0 ",
+        "Σ: _0 ",
+        "Σ/﻿İ. _a /:😀Bİ ",
+        "b0 /:A:😀﻿İ /.İ.A.",
+        ":İ: .",
+        "﻿a﻿210_2B/﻿İ_/_",
+        "Σ😀﻿a1   _0.",
+        "b😀b",
+        "1﻿😀1aB Σ _ab",
+        " 0﻿2:A.",
+        "12Σ/:0﻿A﻿0 İ_😀 ",
+        "Σ_a 😀Σa_",
+        "﻿İ a:",
+        ".0﻿İ:0b0:a1İb",
+        "1😀b0﻿😀Σ0b/Σ0:aBİΣ",
+        "  b😀: .b/:0B",
+        ":"
+      ],
+      "expected": [
+        "﻿İ_a:",
+        ".İ.﻿",
+        ":İ﻿😀b0.a.İbİ 0 ",
+        ":İ: .",
+        "﻿İ a:",
+        "Σ/﻿İ. _a /:😀Bİ ",
+        ".0﻿İ:0b0:a1İb",
+        "b0 /:A:😀﻿İ /.İ.A.",
+        "﻿a﻿210_2B/﻿İ_/_",
+        "12Σ/:0﻿A﻿0 İ_😀 ",
+        "1😀b0﻿😀Σ0b/Σ0:aBİΣ"
+      ]
+    },
+    {
+      "query": "ΣBA",
+      "labels": [
+        "aB  ﻿",
+        "B😀﻿İ﻿B",
+        "12:0﻿﻿",
+        "1",
+        "Σ😀_",
+        " 2﻿ ﻿  12﻿ :",
+        "﻿A İΣ2.İΣ",
+        ".",
+        "Σ bA.",
+        "Σ0Σ212: ﻿",
+        "bB",
+        "10﻿0_aBA1😀Σ/b",
+        "Σ01a﻿A_ ./.",
+        " aΣ 0.",
+        "b _Ab  2 0:0Σİ:",
+        "Σ ΣA: b0Σ",
+        " /_",
+        " Ab😀 2 😀_/.A.A.",
+        "_İ_/_İB0Σİ﻿B",
+        "b/_"
+      ],
+      "expected": []
+    },
+    {
+      "query": " ",
+      "labels": [
+        "B",
+        "B0_01a.2﻿21",
+        "1 b",
+        ":İB21 .",
+        "_﻿",
+        ":😀./1😀b212.😀1",
+        ":😀﻿0B2b",
+        "BABİ:/b  B",
+        "﻿İB",
+        "b/:",
+        ":2Ba.0_0﻿/ΣAΣ😀Σİ ",
+        "﻿2B_2_",
+        ".a﻿2Σ :0:Ab/:/b2_",
+        "1",
+        "10:2BaΣ😀:İb😀Σ",
+        "Σ/ /Bb1﻿2 21İ.",
+        "Σ2b/Bİ.2﻿İ1b",
+        "b :a﻿İ_aΣ ﻿İ.İ.Σ",
+        "﻿ 0_:İ./.011",
+        "1😀1_A1"
+      ],
+      "expected": [
+        "B",
+        "B0_01a.2﻿21",
+        "1 b",
+        ":İB21 .",
+        "_﻿",
+        ":😀./1😀b212.😀1",
+        ":😀﻿0B2b",
+        "BABİ:/b  B",
+        "﻿İB",
+        "b/:",
+        ":2Ba.0_0﻿/ΣAΣ😀Σİ ",
+        "﻿2B_2_",
+        ".a﻿2Σ :0:Ab/:/b2_",
+        "1",
+        "10:2BaΣ😀:İb😀Σ",
+        "Σ/ /Bb1﻿2 21İ.",
+        "Σ2b/Bİ.2﻿İ1b",
+        "b :a﻿İ_aΣ ﻿İ.İ.Σ",
+        "﻿ 0_:İ./.011",
+        "1😀1_A1"
+      ]
+    },
+    {
+      "query": "B",
+      "labels": [
+        "﻿:0B/  ",
+        "Σ😀.2_0B0Bİ﻿A.",
+        "﻿a1İ﻿:A.a.0:2.😀Σ",
+        "b0Σ2:İ 😀﻿/: Σİ﻿",
+        "BB : ﻿ : B😀b/.😀:",
+        "﻿2:😀﻿İBa_Σ",
+        "Σ",
+        "b",
+        "bİ: ::",
+        " A1A 2b😀1",
+        "..12 /_ b _ BA﻿",
+        ".İ.0 _",
+        "Σİ.a1",
+        ":😀B2_ ./Σ2.a.İ ",
+        "_😀Σ﻿aΣ21İb",
+        ":0_2b2.",
+        "Σa_01A 😀BA:",
+        "_ Σa:😀_😀b:﻿B",
+        "﻿",
+        "1 b/Σ/101/1b😀 İ1"
+      ],
+      "expected": [
+        "b",
+        "b0Σ2:İ 😀﻿/: Σİ﻿",
+        "BB : ﻿ : B😀b/.😀:",
+        "bİ: ::",
+        "1 b/Σ/101/1b😀 İ1",
+        "..12 /_ b _ BA﻿",
+        ":😀B2_ ./Σ2.a.İ ",
+        "﻿:0B/  ",
+        ":0_2b2.",
+        " A1A 2b😀1",
+        "Σ😀.2_0B0Bİ﻿A.",
+        "﻿2:😀﻿İBa_Σ",
+        "Σa_01A 😀BA:",
+        "_ Σa:😀_😀b:﻿B",
+        "_😀Σ﻿aΣ21İb"
+      ]
+    },
+    {
+      "query": "Σb",
+      "labels": [
+        "﻿a_/ 😀﻿A.😀B2_.😀B",
+        ":/_İ:_./.0b",
+        "Σ2b2 ",
+        "﻿21a ",
+        ":/ 2_",
+        "﻿İ1 1",
+        "Σ0ΣB",
+        ":😀 /:aB1",
+        ":İ.İb",
+        " /_ _İb﻿",
+        "ΣA﻿",
+        ":2_😀﻿ΣA a1  ",
+        "BA_İ_Σ2B2.",
+        ":",
+        ": _2﻿2﻿:A:",
+        "B/.a /:a1A.",
+        "﻿0ba_010:2﻿",
+        "_2 2Σa1aΣ2Σ/ΣA﻿AΣ",
+        "b/ 0Σ😀b",
+        "﻿A_aB2101A:"
+      ],
+      "expected": [
+        "Σ0ΣB"
+      ]
+    },
+    {
+      "query": "B😀: 1",
+      "labels": [
+        "_0﻿AΣ  ",
+        "  :",
+        "121A﻿A:/_2.😀ΣAb",
+        "12101/:",
+        "﻿ 10ba﻿21aΣ",
+        ": Σb😀.😀_0:/b",
+        "B BA_﻿",
+        ":2b/:A_2_.A AΣ",
+        "B .a:",
+        "Ba1/:",
+        ".İB2 :",
+        "﻿",
+        ": .0_0bA1",
+        "Σ ﻿2b",
+        "b2_İbİ﻿2BaΣ/ / ",
+        "_0﻿a1",
+        "b",
+        ".",
+        "_a1/_ .2B . Σab",
+        "1İ 😀Bb ﻿  "
+      ],
+      "expected": []
+    },
+    {
+      "query": ".ABİ:",
+      "labels": [
+        "1AB0Σ_0:",
+        "Ba12  b/:",
+        "﻿0:İ:ab21",
+        " :😀: B .😀﻿aΣ :",
+        "10b0b😀B .0.:2 ",
+        "  Σ😀.İba .",
+        "﻿Ab2Ba﻿😀:😀b",
+        ".İb :😀12:﻿/﻿AB ﻿",
+        ".﻿ .😀.😀_",
+        "b/b😀﻿",
+        "_2_/ İ:",
+        "﻿A﻿ b0B0B😀.A.2B",
+        "b1/.😀_😀B B :Ab",
+        "_İ﻿2b21 1",
+        ":Σ _a.İ1😀 ΣA.",
+        "b12ΣbA﻿/b😀.",
+        "_",
+        " a﻿a_101😀﻿😀 B 1",
+        "Σ2B.﻿/BAb2  b😀b",
+        ":İ12B"
+      ],
+      "expected": []
+    },
+    {
+      "query": "10",
+      "labels": [
+        "A.0B",
+        " A1 B _0Ba_İ ",
+        "Σ😀Bİ﻿0Σa.İ﻿0B0Σ😀.",
+        "1AΣ2 21/ _",
+        ": 1/B2B/BAΣ0 2 ",
+        "_A:A_abİΣ b",
+        ":a_😀b😀.",
+        "_0b2b",
+        "1a_",
+        "﻿İB0./_01ab2Σ😀:/:",
+        " 0ΣA aBİ_😀  .😀﻿ .",
+        "1aΣ2:0:",
+        ":😀_ ﻿ _0 ",
+        "Σ😀_ 1a A_",
+        ": 1 ./:😀ΣAb😀./Σ",
+        "_0 😀﻿ _0.A.",
+        "._",
+        "1/ 😀Σ😀b",
+        "B😀.  İ﻿ Bİ  ﻿",
+        " /10ba﻿İ.2_😀1İ."
+      ],
+      "expected": [
+        "1aΣ2:0:",
+        " /10ba﻿İ.2_😀1İ.",
+        " A1 B _0Ba_İ ",
+        ": 1/B2B/BAΣ0 2 "
+      ]
+    },
+    {
+      "query": "﻿AΣİ_",
+      "labels": [
+        "1😀: _a_/B",
+        "﻿İ:/:.İ_ΣİB Σ",
+        "﻿_AΣ",
+        "1İ﻿0﻿2﻿01😀﻿İB",
+        "ΣΣ﻿A ",
+        ":",
+        ":İ﻿12:21",
+        "Σİ: a﻿2﻿21a a.",
+        "1",
+        "B",
+        "B/_b0b21😀﻿",
+        ":0_😀B2﻿",
+        ": Ba./:İBbİb",
+        ".😀_Σ01a1 1",
+        "B0ΣAΣ",
+        "﻿2b/  1😀Σ",
+        ".10B😀bb😀﻿AB _İ ",
+        " ",
+        "12 A﻿/ ab😀B",
+        "﻿😀Σ _Ab0 0_"
+      ],
+      "expected": []
+    },
+    {
+      "query": ":",
+      "labels": [
+        "a_",
+        "Σ2_ :0﻿",
+        " A A::/:ab ",
+        ".İb😀 😀1a__0﻿:",
+        ":/:0Σ",
+        "﻿/Σ21/.Ab😀﻿",
+        "﻿/.a A.😀. b/ A:A﻿",
+        "B0Σ/B",
+        "﻿0:0 0_1A﻿AB",
+        "Σ2:İ﻿😀 ",
+        "Σ0B/bİ_😀Σ",
+        "B😀Σ baB",
+        "Σ ﻿/:Σ",
+        " a﻿İΣ﻿a.  a:",
+        ". .aΣ2b0.İ.",
+        ": ΣİΣ",
+        ". _:2Σİ﻿﻿ . _",
+        "Bİ  _A.İ_😀Σ 1İ ",
+        " 😀B😀b _ ΣAb0_",
+        "__Aba﻿İB/_😀b .A."
+      ],
+      "expected": [
+        "Σ ﻿/:Σ",
+        " A A::/:ab ",
+        "﻿0:0 0_1A﻿AB",
+        ". _:2Σİ﻿﻿ . _"
+      ]
+    },
+    {
+      "query": ".İ.0",
+      "labels": [
+        "a.İ: B",
+        ".",
+        "bİ_/:A_Σ .aΣa.",
+        ".a.Ab",
+        "./_1AB",
+        ".21İ_",
+        "﻿/_0b:﻿b  0:",
+        "_01",
+        "B2:0_ B",
+        " /.😀12Σ2.😀.2.0: ﻿",
+        "BA.0:İb﻿2B",
+        " İ﻿0BBΣ",
+        ":0.A:😀.ab",
+        "ΣB _/.AΣ2.",
+        "Σ01😀ΣA10﻿a:/.İ11",
+        ".Ab",
+        ":A İ_a.İ1A12_ 1",
+        "_😀1_A1😀_😀:",
+        ":İB/B",
+        "1012B1"
+      ],
+      "expected": []
+    },
+    {
+      "query": "b😀",
+      "labels": [
+        "😀﻿ 1b0﻿21A﻿",
+        "12.😀b😀ba.😀Σ",
+        "﻿İ﻿a_aΣ😀Σİ 0 2.B",
+        ".😀﻿0.2B _",
+        "__AΣ1",
+        "1",
+        "baB/Σ Σ",
+        "﻿0b2b",
+        ":/1A /:/Σİ 0_😀B0 ",
+        "1😀B2﻿21Ab0﻿",
+        "﻿ ./﻿a1ba10Σ0Σ/_",
+        "Bb2_A_ Σ 1/1/b2B",
+        ".A. .0B",
+        "./Σ",
+        ".  ",
+        "Σ1İ:1Ab2.a﻿10:",
+        "121",
+        ".01😀bİ﻿ : .",
+        ":﻿ _ .😀﻿ :0BA:_",
+        "Σ2B0﻿"
+      ],
+      "expected": [
+        "12.😀b😀ba.😀Σ"
+      ]
+    },
+    {
+      "query": "1A _",
+      "labels": [
+        ":/_ABİ.ab",
+        "Σ😀:😀_/﻿",
+        "B",
+        "Σ😀﻿ ",
+        "_😀Σ.0Σb121",
+        "﻿ B",
+        "B",
+        ": Ba_1Ab2 a﻿",
+        ":İbBA:a1A12﻿İ﻿",
+        "1",
+        "Σa_😀 _A1",
+        "_😀__a:a ",
+        "  /1İBA_0:",
+        "Σ  İb2:",
+        "Σ:2.",
+        "b2_0﻿01😀Σa1",
+        "b",
+        "1ab ﻿0Σ ﻿0ba101",
+        "Σ2  :/﻿",
+        "1A./:İ1/ a﻿İBİ "
+      ],
+      "expected": [
+        "  /1İBA_0:",
+        "Σa_😀 _A1"
+      ]
+    },
+    {
+      "query": ":",
+      "labels": [
+        "1 ΣA ",
+        "ΣA:0:A﻿",
+        "Σ",
+        "Σİ 😀Σ210_",
+        "BİB",
+        "Σ",
+        ".İbA.a﻿/B0.b/ ",
+        "_😀10_ 1",
+        ".2. b😀 A:😀ΣA_",
+        "Σ",
+        "./Σ0B/.21 ﻿ Bİ﻿B",
+        ".2:2B0_a_Σİ.😀_﻿",
+        "Σ0b  ab",
+        "B0Bİb.  0Σ",
+        "﻿2_İ 2b0B/:İ:﻿",
+        "Σ0bA.0.",
+        "Σ 21",
+        " / a ",
+        "1😀bΣAΣİ:Ab",
+        "Σ :"
+      ],
+      "expected": [
+        "Σ :",
+        "﻿2_İ 2b0B/:İ:﻿",
+        "ΣA:0:A﻿",
+        ".2:2B0_a_Σİ.😀_﻿",
+        ".2. b😀 A:😀ΣA_",
+        "1😀bΣAΣİ:Ab"
+      ]
+    },
+    {
+      "query": "1 ",
+      "labels": [
+        "0:﻿😀:AB2_",
+        "b/_a:😀1İ:",
+        "bİ.İ_0ΣA A_İ﻿  a_",
+        ".İ  :aΣ_a 2﻿0B",
+        "1İ_İ:",
+        "_ _0ΣBİ﻿2b0﻿2 ",
+        ":b😀b",
+        "ΣAΣ",
+        ".İ.2﻿ 1",
+        "Σ😀Ba ",
+        "b😀Σ0Σ",
+        ":😀Σ/.İ﻿İ  :0b/Σ",
+        "1/﻿😀:İba1aΣ 10b",
+        "bAba: ﻿",
+        "Σ😀bΣ/﻿a 2.2.",
+        "Bİ.2  2_/.",
+        "Σ2﻿AB/﻿0Σ0.a /Σ",
+        "Σ/Bİ_/ΣA..A.😀.A ",
+        "﻿a.😀B/ 0_B0﻿😀﻿A1",
+        "﻿A / "
+      ],
+      "expected": [
+        "1İ_İ:",
+        "1/﻿😀:İba1aΣ 10b",
+        ".İ.2﻿ 1",
+        "b/_a:😀1İ:",
+        "﻿a.😀B/ 0_B0﻿😀﻿A1"
+      ]
+    },
+    {
+      "query": "_/ ",
+      "labels": [
+        "_A11 Bİ_İ﻿2:İBİb",
+        "Σ_/Σ/_0﻿2 İ:2_",
+        ": ﻿aΣ0Σ2 ",
+        " A_",
+        " 2B",
+        " ",
+        ".A A_İ﻿😀_",
+        "Σ/ a /1😀.İ﻿a_😀﻿😀 ",
+        "1/Σ ",
+        ".İ﻿İ_😀ΣA A_/b2Σ",
+        ":21",
+        "Σ/Σ",
+        ".210 Ab .﻿",
+        "bab/ ",
+        "_İ﻿İ1 Σİ.   _/B",
+        "Σ😀:aΣİ1ab",
+        " a 😀  Σ",
+        "Σ :İ﻿",
+        "Σ:aBa1😀.A.ΣA_",
+        "Bİ.0:"
+      ],
+      "expected": [
+        "_A11 Bİ_İ﻿2:İBİb",
+        "_İ﻿İ1 Σİ.   _/B",
+        "Σ_/Σ/_0﻿2 İ:2_",
+        " A_",
+        ".A A_İ﻿😀_",
+        ".İ﻿İ_😀ΣA A_/b2Σ",
+        "Σ/ a /1😀.İ﻿a_😀﻿😀 ",
+        "Σ:aBa1😀.A.ΣA_"
+      ]
+    },
+    {
+      "query": "_abA",
+      "labels": [
+        " . b",
+        "﻿a ",
+        "_/1/_",
+        ":",
+        ".a1Σ",
+        "bA ",
+        "B2:a_Σ0.",
+        "b .. :  /ΣaΣ",
+        " A﻿a﻿2.2_",
+        ". ba:/_😀 İb",
+        " /_ABİ﻿a_ A1",
+        "BΣ😀ba_a_İ.",
+        ".İ_a A_aB",
+        "﻿0ΣİBa:",
+        ":",
+        "b",
+        ". _İ1/_a﻿0B",
+        "Σ0:aB2Σ﻿",
+        "B0 0Bİ﻿ ﻿0﻿1",
+        ":😀ΣİΣ"
+      ],
+      "expected": [
+        " /_ABİ﻿a_ A1"
+      ]
+    },
+    {
+      "query": "1",
+      "labels": [
+        "Σ",
+        " İbİ İB😀B",
+        " İ﻿a: .İ  ﻿",
+        "﻿İ:",
+        " ",
+        "﻿😀B/B",
+        "﻿ΣİBİba﻿/ΣBA ",
+        "_a:İ10bABİ_a.",
+        "_2 İBA.:/Σa a /﻿",
+        "Σ😀﻿",
+        ":0.A.A. .:AΣA.",
+        ".",
+        "﻿2﻿",
+        " a1 :ab",
+        "_﻿0Σ",
+        "Σa_İ﻿2Σ/_0 ",
+        ".2﻿0b . bAΣ21  2:",
+        "Bİ İ. _İΣ😀B😀_",
+        "1 ﻿😀 a 0:A:2﻿İ.",
+        ":İ﻿ b2 😀b"
+      ],
+      "expected": [
+        "1 ﻿😀 a 0:A:2﻿İ.",
+        " a1 :ab",
+        "_a:İ10bABİ_a.",
+        ".2﻿0b . bAΣ21  2:"
+      ]
+    },
+    {
+      "query": " ",
+      "labels": [
+        "1",
+        " /:😀 😀.a ",
+        "Σİ 😀 :",
+        " 2Σİ.1AΣ   ﻿",
+        "_😀 Σ0b/  Σ",
+        " b BaΣ2ba 2.İ_:",
+        "﻿A_/bA ",
+        " AΣİb😀﻿aΣ",
+        "b😀./:😀Ba﻿a  0 ",
+        " 2b2 0﻿B😀Σ",
+        ".😀1😀:A:A_B ﻿İ﻿0﻿",
+        "1😀﻿😀 /bİ﻿aBA_İ.",
+        "﻿A:2.",
+        "_",
+        "b😀 😀﻿😀﻿",
+        "bİ:",
+        ".İ﻿/ΣAΣ😀1   Σ",
+        "  .",
+        "_ _Ab İbİ Aba_/﻿",
+        " 0:/.😀_İBa﻿ Σ:0﻿"
+      ],
+      "expected": [
+        "1",
+        " /:😀 😀.a ",
+        "Σİ 😀 :",
+        " 2Σİ.1AΣ   ﻿",
+        "_😀 Σ0b/  Σ",
+        " b BaΣ2ba 2.İ_:",
+        "﻿A_/bA ",
+        " AΣİb😀﻿aΣ",
+        "b😀./:😀Ba﻿a  0 ",
+        " 2b2 0﻿B😀Σ",
+        ".😀1😀:A:A_B ﻿İ﻿0﻿",
+        "1😀﻿😀 /bİ﻿aBA_İ.",
+        "﻿A:2.",
+        "_",
+        "b😀 😀﻿😀﻿",
+        "bİ:",
+        ".İ﻿/ΣAΣ😀1   Σ",
+        "  .",
+        "_ _Ab İbİ Aba_/﻿",
+        " 0:/.😀_İBa﻿ Σ:0﻿"
+      ]
+    },
+    {
+      "query": ".İ1😀﻿",
+      "labels": [
+        "Σ😀﻿0_0 2﻿  /B/.",
+        ":ab",
+        " 2_0.",
+        "b0﻿210 /10:A ",
+        ":😀 A﻿😀b",
+        "bAB😀.",
+        " /B0B/Bİ ",
+        "B Σ/Σ",
+        " İ ﻿a_ ΣA1",
+        "_😀﻿A﻿😀1 1 a1",
+        ".",
+        "Bİ﻿",
+        "10 0BA101",
+        "b:A.İ﻿0_2 aΣİb0﻿",
+        "﻿ab😀b😀b2:0b0 😀10Σ",
+        ":😀.a1A.İ﻿😀Σİ:abaB",
+        "_aB ﻿0 /Σ ﻿AΣ/Bİb",
+        "﻿😀_0.0b1 ",
+        ".İ﻿2::/_a﻿",
+        "::İΣ2:a:Ab Σ/12b"
+      ],
+      "expected": []
+    },
+    {
+      "query": ".",
+      "labels": [
+        "Σ/bb212b",
+        "﻿Abb",
+        "1😀 a:2:1a_",
+        "bA 😀  _😀_İΣİ﻿",
+        "B",
+        " 😀 İ1a﻿İΣ/:﻿ Ba1",
+        "BİΣ😀B0B/Ba:İ:1﻿",
+        "B _2./b 1",
+        ":",
+        ":/. :0﻿1İ:Σ B",
+        "_2Σ😀:/﻿a_a_",
+        "1😀Σ😀 A10B  2:a ",
+        "Σ0_😀﻿21 Σ ﻿A./ ",
+        " İbaBaBİb2Ba 0﻿/_",
+        ". 1İB",
+        "Ba:A:A:İ:Abİ12:",
+        ":0:😀B😀Σ/Σ0b",
+        "_0B0ΣAb0B ﻿",
+        "﻿A﻿",
+        "1İ /_ B:"
+      ],
+      "expected": [
+        ". 1İB",
+        ":/. :0﻿1İ:Σ B",
+        "B _2./b 1",
+        "Σ0_😀﻿21 Σ ﻿A./ "
+      ]
+    },
+    {
+      "query": "BA.😀b",
+      "labels": [
+        "b :a  ",
+        "bA__İ:A_",
+        ".😀 ",
+        "Σ011İ_2bİ﻿😀_:2_",
+        "ΣA:",
+        "1AΣ/.",
+        "./1 b.b0bAΣ2 ",
+        ".AΣ2_/B  _",
+        "B",
+        "_😀: /1a﻿   _😀.",
+        ":İ1😀.İ:",
+        "Σ0Ba /1a.",
+        " a_",
+        "B/b/:",
+        "b0bİB",
+        " İ﻿ :/﻿😀1",
+        "B/1😀 /_  a﻿0﻿",
+        "Σ BaΣ b/﻿ b/﻿",
+        ":",
+        "Σ0_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "﻿😀",
+      "labels": [
+        "2 😀.0:😀﻿A1😀 B",
+        "Σİ ",
+        "10ba  :A:",
+        "Σ",
+        ".2:😀ΣİBa﻿/:2. :",
+        "1ab/:/1A﻿01 0 ",
+        " 😀﻿1:2_2Σ0﻿ .",
+        ".1_a﻿﻿.",
+        ":A﻿:_:2Σ😀B/:",
+        "﻿a_😀:A_0ΣabAb0:Ab",
+        "Σab2﻿ :😀 /:/ AΣab",
+        "﻿/Σ",
+        ".A:İB",
+        ":😀  .İ ABA.İ_A.  ",
+        "B ﻿a1",
+        "Σ bA_aBA /.",
+        "b/Σ0B _İ./B0Σ/B",
+        ":2Σ0 Ab B0_a﻿2B",
+        "_Σ0Σİ1😀.0bİ a:2b",
+        "Σ Σ2﻿a﻿a 2 "
+      ],
+      "expected": [
+        " 😀﻿1:2_2Σ0﻿ .",
+        ":😀  .İ ABA.İ_A.  ",
+        "2 😀.0:😀﻿A1😀 B",
+        ".2:😀ΣİBa﻿/:2. :",
+        "﻿a_😀:A_0ΣabAb0:Ab",
+        "Σab2﻿ :😀 /:/ AΣab",
+        "_Σ0Σİ1😀.0bİ a:2b",
+        ":A﻿:_:2Σ😀B/:"
+      ]
+    },
+    {
+      "query": "_😀",
+      "labels": [
+        "İ.﻿a﻿0 0_2 😀1",
+        "bAB/b",
+        "1a1😀1  a_😀1",
+        ".a:a10baB 1 bAB2.",
+        "ba1aΣ _",
+        " 😀: 0_/Σ😀.",
+        ".😀1.2 ",
+        "b2.A:Σ2﻿",
+        "_01Abİ.",
+        "﻿/Σ.😀b",
+        "_😀:B0:😀Σ0.😀.A ",
+        "B./_:2b",
+        ".😀 aΣ",
+        ".a_",
+        " İ:2:😀_😀.",
+        "1aBAB😀_İBİ_/.😀﻿",
+        "﻿😀_😀.😀Σ",
+        " a﻿a ",
+        ":/.",
+        " "
+      ],
+      "expected": [
+        "_😀:B0:😀Σ0.😀.A ",
+        "﻿😀_😀.😀Σ",
+        " İ:2:😀_😀.",
+        "1a1😀1  a_😀1",
+        "İ.﻿a﻿0 0_2 😀1",
+        " 😀: 0_/Σ😀.",
+        "1aBAB😀_İBİ_/.😀﻿"
+      ]
+    },
+    {
+      "query": "1a.😀",
+      "labels": [
+        "A 0:A:0 2ΣAB",
+        "1😀1A 0.",
+        "10:",
+        "b0﻿İΣA 2_ .",
+        ".İ.2B/1 1😀.a12.",
+        "__2 /1/10 A1",
+        "_ Σ0: .😀 /b😀_/1/B",
+        "﻿😀_﻿/1AB",
+        "_İ:İΣA.a1",
+        ". b .aBa_ :01İ ",
+        ".İ.İ: _😀:0B2b ",
+        ":0Ba a_A ﻿",
+        "B😀Σ0﻿İbAB",
+        "b/B﻿0: B/.İb0﻿",
+        "_/.:aB:0ΣA1",
+        ".",
+        "1",
+        "﻿😀:A /Σ😀 ",
+        "12 A1İb﻿İ /﻿",
+        " a1"
+      ],
+      "expected": []
+    },
+    {
+      "query": "Σ0bİ ",
+      "labels": [
+        "bA.😀1/b2b",
+        "1 ΣAb/1aBab21ab Σ",
+        "b0B",
+        "Σba:aΣ",
+        ":A﻿",
+        ":﻿2bA10B_/B",
+        ":😀﻿AB😀:İ:/ ",
+        "B😀:A_ ΣA.Ab/.",
+        ": 0b2﻿AB",
+        "b",
+        ".İ_ Σ  2.😀.",
+        ".İbİ_Σ😀ba 😀ΣaΣİB",
+        ":2﻿İB/B_",
+        "_:/12 İ_",
+        "B/﻿0Σb",
+        ".",
+        "  ﻿2﻿aΣabAB",
+        "_2bA: 1",
+        "﻿ b _BİΣ2.A:",
+        "_/:"
+      ],
+      "expected": []
+    },
+    {
+      "query": "1",
+      "labels": [
+        " /1A﻿0﻿",
+        "_",
+        " 2bİ1/: .:/ ",
+        "B😀_A_😀:2Ba.a.A10 ",
+        "B😀.😀:﻿",
+        ".a﻿B0b😀_aB21İ:İ.",
+        " 0:/1   B😀Σ0ΣİΣ😀 ",
+        " Ab _0:İ.",
+        "_A 0B0 ",
+        "bİB/  ﻿B/: Σ0﻿İ ",
+        "﻿",
+        "Σ2:",
+        "1a﻿A﻿A.2b",
+        "Bİb2 2_0_",
+        "Σ﻿İb/:2b2:ABİΣ",
+        " ",
+        "_Ab.😀:aΣ0_2baB",
+        "b",
+        "./1😀:2﻿/B😀1 _",
+        "_0_ Bİ1😀 /."
+      ],
+      "expected": [
+        "1a﻿A﻿A.2b",
+        " /1A﻿0﻿",
+        "./1😀:2﻿/B😀1 _",
+        " 0:/1   B😀Σ0ΣİΣ😀 ",
+        " 2bİ1/: .:/ ",
+        "_0_ Bİ1😀 /.",
+        ".a﻿B0b😀_aB21İ:İ.",
+        "B😀_A_😀:2Ba.a.A10 "
+      ]
+    },
+    {
+      "query": "1/",
+      "labels": [
+        "0. Σ﻿2:a.",
+        ".😀Bb😀b0_﻿1",
+        "﻿  B  😀b",
+        ":A1/Σ",
+        " 21 2b😀Σ",
+        " İbİ1A:/Ba._",
+        " /_2Σa_2Σ0_",
+        "B0Σ/ ",
+        "1İΣ ΣA1aΣ😀﻿",
+        "Σİb",
+        "﻿a..",
+        ":2Σ",
+        ".",
+        ":a.a121 0bA_ 1",
+        "1",
+        "BΣAB😀B",
+        "   a_Σab",
+        ".2B2﻿😀 ",
+        ".1/B_A_",
+        "   "
+      ],
+      "expected": [
+        "1",
+        "1İΣ ΣA1aΣ😀﻿",
+        ":A1/Σ",
+        " 21 2b😀Σ",
+        ".1/B_A_",
+        ":a.a121 0bA_ 1",
+        " İbİ1A:/Ba._",
+        ".😀Bb😀b0_﻿1"
+      ]
+    },
+    {
+      "query": "1😀: B",
+      "labels": [
+        ":0﻿/ΣA1",
+        "_",
+        "Σ/Bb😀_İ.😀 2Σ😀Σ",
+        "BA:/_",
+        " İ./Σ B1A:ab",
+        ".İ1 B",
+        "b:0B a_ Σ😀ΣA﻿",
+        "_:😀_a_0:",
+        " 010_/:/_",
+        ":B2_",
+        " 2b/Σa﻿2bİ1İb😀b",
+        ":0:﻿İ_A﻿",
+        ".0BAb2b _😀Σ",
+        ".0__/BA:0.2.",
+        ". ﻿a:2﻿a101",
+        " ab/ 2:0Σ😀 0B",
+        "_/Σ0﻿a: .Ab",
+        " a﻿",
+        ".0b _aΣİ:2bİ1 B",
+        "B  .😀B2Σ2.İb"
+      ],
+      "expected": []
+    },
+    {
+      "query": "BaB",
+      "labels": [
+        ":",
+        " 0 0﻿😀_",
+        "::",
+        "﻿ :😀﻿﻿",
+        ":aΣΣa_Ab/ ab/ /1",
+        "﻿İ İ:İ1İ.AΣ2B",
+        "1😀:a﻿0﻿  /Bİ_0:",
+        ":/1😀 /_0 a. B😀:2 ",
+        ":😀_a﻿2 /.a./.0B",
+        "1: .",
+        "1ΣΣA Ab2.😀1a.",
+        "_/Σ😀bAb :/.a.",
+        ".İ:0Σ",
+        ":2:İ: ﻿a_😀Σ",
+        " a:AΣİ:   A1😀 :",
+        ". ﻿ a_abab0﻿a.😀:",
+        "_﻿a:0Σ",
+        "1/:/ΣA 2b😀:",
+        " /1A_ ",
+        "﻿2B A1"
+      ],
+      "expected": [
+        "_/Σ😀bAb :/.a.",
+        ". ﻿ a_abab0﻿a.😀:",
+        ":aΣΣa_Ab/ ab/ /1"
+      ]
+    },
+    {
+      "query": "B/﻿",
+      "labels": [
+        "b ﻿",
+        "Σ0.0 / ",
+        "B😀B2_",
+        " 0B😀﻿",
+        "ΣİB B",
+        "﻿2B _ab2_😀B",
+        "_",
+        " İ 😀_a ",
+        "b😀BAb ﻿2B😀_",
+        "::0_ /﻿bİB:",
+        "b0﻿/1😀﻿İB😀 ",
+        "﻿0_",
+        "﻿bA ",
+        "b",
+        ".a:İb2﻿0ΣaΣ01",
+        ": _a_0﻿/_:2b😀 ",
+        "B0Σ0B",
+        "_a A 😀.A:İ./_﻿",
+        ":😀 /b",
+        "BΣ2b😀bAB"
+      ],
+      "expected": [
+        "b",
+        "b ﻿",
+        "B😀B2_",
+        "b😀BAb ﻿2B😀_",
+        "b0﻿/1😀﻿İB😀 ",
+        "B0Σ0B",
+        "BΣ2b😀bAB",
+        ":😀 /b",
+        " 0B😀﻿",
+        "﻿2B _ab2_😀B",
+        "﻿bA ",
+        "ΣİB B",
+        ".a:İb2﻿0ΣaΣ01",
+        "::0_ /﻿bİB:",
+        ": _a_0﻿/_:2b😀 "
+      ]
+    },
+    {
+      "query": "B 1.",
+      "labels": [
+        "﻿210_2BAB😀_",
+        ". :/Σ2bA1.AΣ😀 ",
+        "ba /:/ İB😀_😀﻿",
+        " AB/:",
+        "﻿😀:😀11Ab",
+        "﻿ Σ/Σ2  _A_",
+        " ABa﻿İ﻿2 /b/ aΣ",
+        "b/1 . _ab/./:Ab",
+        " a İ_.a_A.😀b2B",
+        "bA:bİ:0:A 😀Σ:",
+        ".😀.",
+        "1aB0.😀.2:A  _İ ",
+        "./B",
+        "ba 😀b😀B2B0b",
+        "﻿AΣ",
+        "b _2B",
+        ".",
+        "_a /b",
+        ".AΣ _😀.",
+        "b .İ.﻿01A1ab/ "
+      ],
+      "expected": [
+        ". :/Σ2bA1.AΣ😀 "
+      ]
+    },
+    {
+      "query": "1",
+      "labels": [
+        "Σ2b/1Σ/b   Σ",
+        "﻿ .0﻿2 ",
+        "_A﻿ b",
+        "b:0_a.A ",
+        " .ab0.2_aB0_",
+        "Σİ1/./b",
+        "﻿0: ",
+        "_😀_",
+        " a ",
+        "_/Σ",
+        "B😀B ΣaΣ0_A﻿",
+        ":",
+        "B/ 2_.Ab2_ ﻿:21",
+        " /ΣA .A:bA_",
+        "Σİ﻿2Σİ 0b0ΣaΣ_",
+        ":: Σ",
+        "bA   İBİ.İΣ2_",
+        ":İ.0﻿İ101",
+        " 😀 a1😀bAΣ",
+        "Σ😀Σ"
+      ],
+      "expected": [
+        "Σ2b/1Σ/b   Σ",
+        "Σİ1/./b",
+        " 😀 a1😀bAΣ",
+        ":İ.0﻿İ101",
+        "B/ 2_.Ab2_ ﻿:21"
+      ]
+    },
+    {
+      "query": "b 1/_",
+      "labels": [
+        "Σ",
+        ".2﻿a ",
+        ":",
+        "   😀﻿😀 01  😀.a﻿Σ",
+        "BAb1a1İB﻿Bİ:",
+        ":A1/_",
+        ".0: 1aB/Σ",
+        ".",
+        "  ﻿ b",
+        "BA:2: ",
+        ":/_aΣ/.😀1",
+        "b/﻿12  10B Σ",
+        "_2﻿",
+        ":0./_",
+        "ΣA:b bA: ﻿😀:",
+        "_😀bİ.",
+        "1😀  _ABa_0 0.",
+        "﻿2_/1İ﻿_ :a Ab2Σ",
+        "bAB Σ2b _😀 😀_2_ Σ",
+        "﻿Ab_a1b"
+      ],
+      "expected": [
+        "1😀  _ABa_0 0.",
+        "﻿2_/1İ﻿_ :a Ab2Σ",
+        "﻿Ab_a1b"
+      ]
+    },
+    {
+      "query": "B😀B",
+      "labels": [
+        "ba İ.ABa1::2Σ",
+        "ΣA1 B2BA_0:İ ",
+        "_😀Σ",
+        "﻿2  😀12 0_",
+        " a﻿",
+        "1/_21a_",
+        ".A﻿﻿﻿",
+        ".﻿",
+        "_2:/:2﻿",
+        "_2_😀:😀B0Σ",
+        ".İ_😀 0 0.",
+        ". ./b😀Σ2_0Σ0﻿😀1.",
+        "1İ:",
+        "_  /:abİBa..😀_Ab",
+        "Σ😀 AB",
+        "bA ",
+        "1a﻿2Σ",
+        ":/ΣAΣ/Bİ﻿/Σ😀.",
+        "_2: ﻿ :",
+        ".A 0 2 0b😀1 B _"
+      ],
+      "expected": [
+        ".A 0 2 0b😀1 B _",
+        "_  /:abİBa..😀_Ab"
+      ]
+    },
+    {
+      "query": "B0﻿",
+      "labels": [
+        "1😀  1a / 2 A1a ",
+        "Ba﻿/_/ A_",
+        "_/:a.",
+        " İΣ0Σ",
+        ":😀Σ😀b_😀_",
+        " A.İ:/ΣaB 2b",
+        " 😀.a﻿/ İ İ_",
+        ":0:0.AB0 ",
+        "_A:İ_2b/:😀.",
+        "﻿0Σ2 /B/_2.😀B",
+        "Σa_0:_0b2.",
+        ". Σ",
+        "_",
+        "bİΣ  2B",
+        "1_0:2bA_/10﻿😀1/.",
+        "ΣΣ0Σ Σ",
+        "Σ",
+        ".aΣABİΣA_/bA﻿",
+        ":ABİ1aΣ2_0b",
+        "_ 1😀Σ﻿01İ İ1/_ 1"
+      ],
+      "expected": [
+        "﻿0Σ2 /B/_2.😀B",
+        ":0:0.AB0 ",
+        "Σa_0:_0b2.",
+        ":ABİ1aΣ2_0b",
+        "1_0:2bA_/10﻿😀1/."
+      ]
+    },
+    {
+      "query": ":",
+      "labels": [
+        "b2bab ﻿0B2:01/ :",
+        "Σ0.",
+        "_0B/bA:/﻿😀.😀.012Σ",
+        " ",
+        "﻿b😀1 1AB2_",
+        ".  B .0:0B",
+        "B Σ/1",
+        "ba.",
+        "_Ab",
+        "Σ2:aΣ:2:aB/﻿😀_21",
+        "./B2bA1a﻿0Σ😀ba_",
+        "b/B",
+        "Σa﻿A1A./.Aba:",
+        "  .2﻿_01A﻿aΣ",
+        " :AB😀B2b/﻿ B😀Σİ.",
+        "12 😀Σİ _",
+        "B0ΣΣ",
+        "BA  BΣa: Σ",
+        "./_İΣ/﻿😀﻿",
+        "_AB .a A İBİ "
+      ],
+      "expected": [
+        "Σ2:aΣ:2:aB/﻿😀_21",
+        " :AB😀B2b/﻿ B😀Σİ.",
+        "_0B/bA:/﻿😀.😀.012Σ",
+        "BA  BΣa: Σ",
+        "b2bab ﻿0B2:01/ :",
+        ".  B .0:0B",
+        "Σa﻿A1A./.Aba:"
+      ]
+    },
+    {
+      "query": ":aB",
+      "labels": [
+        ":/bA:A:İ_2B",
+        "_",
+        "_/﻿İ_0B ﻿/﻿ab﻿",
+        " ",
+        " /Σ2b  a  ﻿/.İ:",
+        "_😀ΣİΣ0:a 2B2_0Σ",
+        "10﻿21 .0:",
+        "1",
+        "B01A 2Σ/_ .İb b",
+        "﻿",
+        "Ba_",
+        "﻿AbaBΣ",
+        "_/1AB2﻿",
+        " a İ1",
+        ":/b2./.A1AbA:",
+        "_0_/.:",
+        "1A:0﻿2Σ",
+        "10b2Σ2Σ",
+        " 😀:",
+        "B😀B﻿/1😀 0b"
+      ],
+      "expected": [
+        "_😀ΣİΣ0:a 2B2_0Σ",
+        ":/b2./.A1AbA:",
+        ":/bA:A:İ_2B"
+      ]
+    },
+    {
+      "query": ".A",
+      "labels": [
+        "/B01😀﻿ _İ.",
+        "1/bİbB/1İ1İB",
+        ".A﻿_İ_21😀 😀:İ1",
+        "B😀﻿İ_ B/B",
+        "BAΣ_AΣa_ :",
+        "_0 0.İ.2:2:/:b0 ",
+        ":İ:010b0﻿0 İ:ab",
+        " 2baΣİ﻿",
+        "b😀﻿😀Bİ:0b/:Σ:",
+        "﻿/Σ",
+        ":_/ AB.",
+        "b0:İΣİ İb2BaB21😀_",
+        ":Σ﻿01",
+        " ",
+        "BaB",
+        ":0Bİ ",
+        "b:İBabb2_/:0﻿/﻿",
+        ":a﻿_İΣ0 😀10﻿",
+        "11😀B0﻿1/﻿/ a:",
+        "B b"
+      ],
+      "expected": [
+        ".A﻿_İ_21😀 😀:İ1"
+      ]
+    },
+    {
+      "query": " b",
+      "labels": [
+        "b.a.﻿A﻿ :A.aB2B",
+        ".",
+        ". Σ 10_İ_2.",
+        "Σİ_İ1 :İ_01",
+        "﻿ 1😀 ﻿",
+        "12_2bA1",
+        ":1A_2  ﻿ _/bAbA:",
+        "_İΣ10:/﻿",
+        " / 2B b",
+        "Σ😀_😀Σ😀﻿😀_0B",
+        "BA_2 0﻿ b2.😀Σ",
+        "./ ",
+        ":İΣİB0:2: _.İ.İ﻿",
+        ":a. ﻿B😀 /:01",
+        "_A.İ 0﻿0B   B",
+        "BA.😀1",
+        ".0ΣA:İb😀:2bab",
+        "BBİb😀.",
+        "Ba.İΣ",
+        "Σ/1Ab0 "
+      ],
+      "expected": [
+        ":a. ﻿B😀 /:01",
+        "BBİb😀.",
+        ":1A_2  ﻿ _/bAbA:",
+        "b.a.﻿A﻿ :A.aB2B"
+      ]
+    },
+    {
+      "query": "BİB😀﻿",
+      "labels": [
+        ":a:",
+        "Σ😀:/:A_İB/﻿a. ﻿",
+        "b01/1😀B😀 /﻿2﻿0.A ",
+        " Σ _a_😀 01İ.İ_",
+        "﻿😀ΣΣa_",
+        "Bİ:2bİ_",
+        "Σİ  ﻿Ab",
+        "﻿2:😀B0﻿:0b/﻿",
+        "  .01İ﻿10 AΣ",
+        ":😀b/.😀﻿",
+        "1a._ 1",
+        "_2bA_a.2Σ2b0:",
+        "_2_0 /_. ﻿a_",
+        "1",
+        "Σ",
+        "B2﻿İ  _İ﻿A.0.A 0_",
+        ".0_",
+        "ΣİB",
+        " a1a﻿2 İ﻿",
+        "_ :a:a1"
+      ],
+      "expected": []
+    },
+    {
+      "query": "b",
+      "labels": [
+        "Σİ1aBİΣ2b .Aba_",
+        "Σ/b1ab",
+        "b. .😀B",
+        "B😀_2: Σ",
+        "bab😀:",
+        ":A_ab",
+        "﻿😀_İ:b😀Σ01😀_",
+        "./_😀.0:😀Bİ﻿",
+        ":2:2:İBa: B",
+        "Σ0.0Σİ_😀Σ ﻿",
+        "bA1.aΣ ﻿",
+        " 2_",
+        "b2:İ_B0B:İ.aBA:",
+        "b_ 10_ B",
+        "Σa﻿/1A:  İB0 21",
+        ". ./B2_2﻿😀bA1/Σ",
+        " 0Σ1AB0Σ",
+        " 0:",
+        "ΣA İB0:İ:",
+        " 😀1a﻿"
+      ],
+      "expected": [
+        "b. .😀B",
+        "B😀_2: Σ",
+        "bab😀:",
+        "bA1.aΣ ﻿",
+        "b2:İ_B0B:İ.aBA:",
+        "b_ 10_ B",
+        "Σ/b1ab",
+        ". ./B2_2﻿😀bA1/Σ",
+        ":A_ab",
+        "Σİ1aBİΣ2b .Aba_",
+        "ΣA İB0:İ:",
+        " 0Σ1AB0Σ",
+        ":2:2:İBa: B",
+        "﻿😀_İ:b😀Σ01😀_",
+        "./_😀.0:😀Bİ﻿",
+        "Σa﻿/1A:  İB0 21"
+      ]
+    },
+    {
+      "query": "b0 ",
+      "labels": [
+        "ABİB2B",
+        "bA /. _İ_2.0B",
+        "bba_Ab/.a﻿0bAB/B",
+        "﻿😀_2b0BABa1İΣ bİΣ",
+        "1aB/.0.AΣaΣ",
+        " A _İ:İ12:/B2  b",
+        "Σ  AΣ0B _😀:0b😀_ Σ",
+        "Σ/:Bİ./.",
+        "ΣİBİB/_0_ B  İ:",
+        "Σ0B",
+        " İΣ a./.a_",
+        ":A12b/_0_",
+        "Σ",
+        "﻿😀: _A1 Σ",
+        "1😀.A.",
+        "Σb0.AΣ",
+        "﻿a_/B",
+        "1A﻿",
+        "﻿a. :/ BA﻿0B😀_2 ",
+        ":😀B ﻿a12:Ab0B﻿İB"
+      ],
+      "expected": [
+        "﻿a. :/ BA﻿0B😀_2 ",
+        "Σb0.AΣ",
+        "bba_Ab/.a﻿0bAB/B",
+        ":😀B ﻿a12:Ab0B﻿İB"
+      ]
+    },
+    {
+      "query": ":",
+      "labels": [
+        "bİ_/﻿A:aΣa /1/Σ",
+        "﻿0:/﻿😀.2B2Σ/:2.",
+        " ﻿aΣİ_0.",
+        "_/B 1",
+        " 0 a 0﻿/ AB2﻿ Σ",
+        " _0﻿",
+        "B .İ1﻿2.Ab2BAΣ01",
+        ":İB2ΣΣ2.0﻿😀:😀 ",
+        "1 :﻿a1😀:İ.0ΣA﻿a﻿",
+        "Σ/b😀 2.😀 A12B",
+        ".A1/Σ",
+        "Σ0Σ2.0  B",
+        "10b:0B0Σ",
+        ":a.😀:/ba:.İ1/1/ ",
+        "Bb Σ .A:21 :212Σ",
+        "Σ😀_",
+        "_ _İ﻿",
+        "_😀b1",
+        "Σ2B B21",
+        "bA1İ abİ.a 2﻿ ﻿"
+      ],
+      "expected": [
+        ":İB2ΣΣ2.0﻿😀:😀 ",
+        ":a.😀:/ba:.İ1/1/ ",
+        "1 :﻿a1😀:İ.0ΣA﻿a﻿",
+        "﻿0:/﻿😀.2B2Σ/:2.",
+        "10b:0B0Σ",
+        "bİ_/﻿A:aΣa /1/Σ",
+        "Bb Σ .A:21 :212Σ"
+      ]
+    },
+    {
+      "query": "bA",
+      "labels": [
+        "😀b .0 ",
+        "B1",
+        "bİ aΣ2 a﻿ B",
+        "1_A.😀: _   Σ",
+        "_Ab/bA:0 ",
+        ":a_",
+        "_01a_",
+        "B😀﻿",
+        "_😀Σ:﻿İ:0 ",
+        "_01.a﻿a1Ab.0:",
+        " /_A:A:İ.",
+        "B😀﻿ 1a﻿",
+        "Σ",
+        "_2﻿",
+        "﻿abBa﻿/Σab0B2b",
+        "﻿a1:",
+        "Σ Σ/Σ/:a10 A_",
+        "ΣAB2 😀﻿2.01B0Σ",
+        "_İ1a.İ_2:a.AΣ",
+        "b"
+      ],
+      "expected": [
+        "bİ aΣ2 a﻿ B",
+        "B😀﻿ 1a﻿",
+        "_Ab/bA:0 ",
+        "﻿abBa﻿/Σab0B2b"
+      ]
+    },
+    {
+      "query": "ΣA",
+      "labels": [
+        "İΣa: b0bİ_😀.",
+        "ΣİB",
+        "1",
+        "B",
+        "BAΣABA ",
+        "_😀b0:A10.2B",
+        " 😀:0﻿😀.2Σ2_abb",
+        "b01/1A﻿B0 01A.a﻿",
+        "1A﻿/﻿ ﻿",
+        "BİΣ",
+        "﻿",
+        ".",
+        ":",
+        "_İB 1",
+        " 😀:A:a:0_A_a.:b",
+        "Σ2Σ",
+        "B",
+        ":/12B/_İ1",
+        "Ba.2 0_",
+        ":0Σ"
+      ],
+      "expected": [
+        "İΣa: b0bİ_😀.",
+        "BAΣABA ",
+        " 😀:0﻿😀.2Σ2_abb"
+      ]
+    },
+    {
+      "query": ". _a",
+      "labels": [
+        "😀_",
+        "b ﻿",
+        " 😀B/1İb2B01 b2B",
+        " 😀_/b",
+        "﻿😀.ab İ﻿  A:İ1  ",
+        "bİ12 😀1b",
+        ".2:0Σ ﻿😀  a_21_",
+        "b",
+        ".İb B2  b0:😀bA   ",
+        "b/B/bAΣ",
+        "﻿😀Σ😀1 b _2bA.ab",
+        "Σ",
+        ":0ΣAΣΣB Σ0﻿",
+        "1İ_0b😀_",
+        ".2.😀b/bA_İΣ",
+        "﻿ B",
+        "﻿2 1",
+        "_.a_",
+        "BAb/__/_ 1",
+        ".İb b😀ΣΣ01/:0﻿a1"
+      ],
+      "expected": [
+        "_.a_",
+        "﻿😀Σ😀1 b _2bA.ab"
+      ]
+    },
+    {
+      "query": "b",
+      "labels": [
+        ":",
+        "ΣA.İ_0_",
+        " a. AΣİ:/_",
+        "_aB",
+        "1B.1AB:a 😀 0.",
+        "b",
+        "_0.ab",
+        "B😀Σ/.0﻿",
+        "Σ0﻿",
+        "b .AB . ﻿",
+        "﻿ _﻿/1",
+        "Σ",
+        "b/﻿A_😀:0b0b😀. aB",
+        ":",
+        "﻿﻿_",
+        "1😀 ",
+        " ",
+        "B/_a1a:/Bİb0﻿b/:",
+        "1a﻿/:﻿/10 B/1﻿",
+        ":/B😀  :01 .2.2_"
+      ],
+      "expected": [
+        "b",
+        "B😀Σ/.0﻿",
+        "b .AB . ﻿",
+        "b/﻿A_😀:0b0b😀. aB",
+        "B/_a1a:/Bİb0﻿b/:",
+        ":/B😀  :01 .2.2_",
+        "_aB",
+        "1B.1AB:a 😀 0.",
+        "_0.ab",
+        "1a﻿/:﻿/10 B/1﻿"
+      ]
+    },
+    {
+      "query": "12.",
+      "labels": [
+        "﻿/_",
+        "﻿BAB0_AB2.aB",
+        ".",
+        "B",
+        "bA﻿1_/1A_ΣAΣ",
+        "baΣ",
+        "bİ﻿ ﻿/ 21😀:b😀﻿😀_",
+        ".0ΣAΣaΣΣ 1a ",
+        " .",
+        ":﻿İb:😀Σ2b2﻿01😀b",
+        "1a12_/  A1/B",
+        "1İΣ.",
+        "_2﻿0.AB _/b/.",
+        ":😀 /B",
+        "b 1A:",
+        " İB",
+        ".😀12b0_",
+        ":2:a:😀B2.",
+        "﻿İ.2﻿01",
+        " 😀Σİ1İ."
+      ],
+      "expected": []
+    },
+    {
+      "query": " İ",
+      "labels": [
+        " b Σ b😀_",
+        "B/ İB21a:/.😀_İΣ",
+        ":01/﻿AB/Σ01",
+        ":/bİ﻿b2.",
+        "ΣA. _2B0./:",
+        "﻿İΣ :0 ./Σ ",
+        "1AB:İ_İ﻿/.",
+        "﻿😀﻿Ab",
+        "1",
+        "1  😀1 B2Σ",
+        "_/:",
+        "B😀Bİ_😀 ab bA ",
+        "_/_İb _/ ",
+        "﻿😀BBAΣ.😀11😀 AΣ",
+        "Σ :😀:2: :2:😀1/:",
+        "1a:0 /:﻿😀_0B/.",
+        "B😀.2Σİ﻿İ 😀.a﻿a:",
+        ".",
+        "B2 A1",
+        "b2_İ.0BB"
+      ],
+      "expected": [
+        "﻿İΣ :0 ./Σ ",
+        "B/ İB21a:/.😀_İΣ",
+        "_/_İb _/ ",
+        "b2_İ.0BB",
+        "1AB:İ_İ﻿/.",
+        ":/bİ﻿b2.",
+        "B😀Bİ_😀 ab bA ",
+        "B😀.2Σİ﻿İ 😀.a﻿a:"
+      ]
+    },
+    {
+      "query": "1/Σ0",
+      "labels": [
+        "AΣ/ /: . _",
+        "﻿0101  ",
+        "﻿/b b2B😀_😀: _",
+        "﻿2Σ /ΣA﻿",
+        "b2_B0﻿ :/  B",
+        "﻿İ_AB😀Σ2ba.2_",
+        "bİ..0:b2_Σİ1.",
+        "ΣA_0﻿0:",
+        "B😀Σ .aΣ2_21_",
+        "﻿0﻿0.İB",
+        "_/ 😀Σa.a:A﻿2 2﻿0b",
+        "﻿😀10bA_2B :/.😀﻿",
+        "_😀_2b😀_İ İ_A ",
+        "_A 😀﻿ ﻿😀.2b0:0B",
+        "./1A ",
+        ":﻿0﻿",
+        "1  2:a aΣa10_2_",
+        ":",
+        "bA.0 😀﻿",
+        ":İ_"
+      ],
+      "expected": [
+        "1  2:a aΣa10_2_"
+      ]
+    },
+    {
+      "query": ".2",
+      "labels": [
+        "0_😀:﻿1 _bA_",
+        "﻿",
+        "b010 /1/ /1İBΣ",
+        "﻿:A İ 0. ﻿0:A﻿ 1",
+        "1 1 Bab ﻿İΣab_/b",
+        " ",
+        "Σ😀b",
+        "bΣ",
+        "﻿",
+        "Bb_İ 2b/b1",
+        "_ :.İba﻿İ ",
+        "B",
+        "﻿",
+        "﻿ ﻿ bA﻿",
+        "Σ/_10﻿/.İ_2Σ",
+        "1",
+        "B _😀.a1 BΣ a1/﻿",
+        "Σ😀B2_😀 😀1 ﻿/Σ😀:",
+        ".﻿01",
+        "﻿"
+      ],
+      "expected": [
+        "Σ/_10﻿/.İ_2Σ"
+      ]
+    },
+    {
+      "query": " /./_",
+      "labels": [
+        "﻿2Σ2_0﻿2Σ_",
+        " ",
+        "b0b01/_",
+        "b2_0 ",
+        " 2 ",
+        "12﻿A﻿2b",
+        "﻿abΣ",
+        ".Ab/﻿aBa.",
+        ".2_/﻿ .",
+        "  ./1😀b0Σ",
+        "B/ba_İΣ😀_a1İ /_",
+        " 2.",
+        "Σİ12:2Σİ:İ﻿2b",
+        "1bİb :İ.",
+        "_",
+        " İ1/:ab",
+        ".ABaΣ2_0bİ:b0B b",
+        "Σ1İ﻿a:",
+        "b2.A1﻿/bA:2.",
+        "1a .212 "
+      ],
+      "expected": [
+        ".2_/﻿ .",
+        ".ABaΣ2_0bİ:b0B b"
+      ]
+    },
+    {
+      "query": ":😀.",
+      "labels": [
+        "_2B.2 0Σ",
+        ":A1/1İ1",
+        "﻿A_A_😀_İΣ/﻿/:2B",
+        "10.a﻿A﻿İ1aΣİ﻿😀 ﻿",
+        ":a_a_/1AΣ0_😀Σ Σ",
+        "1AΣ ba:0 a1",
+        ".İ.0.İ: 1a.a﻿01😀1",
+        "1",
+        "1a_😀 /.Ab0b",
+        "12 ",
+        "_ ﻿0.2.0b/Ba.2 /B",
+        "Σ",
+        ":😀B﻿AB",
+        ":A﻿",
+        "ΣA_2 2BAB",
+        ":İΣ Σİ /./Σ😀 ",
+        " 0 0bB ﻿",
+        "B a10﻿A.A1İ.1 ",
+        ".01/B/Σ",
+        "b0bB0_21A_ :"
+      ],
+      "expected": []
+    },
+    {
+      "query": "ΣİBA",
+      "labels": [
+        ":a  1",
+        "BA İ﻿ .A1/:A 0B2.",
+        ":2.abA_ Σa1",
+        " ",
+        ". .0 ΣA:01",
+        ":2. :/B 1a﻿",
+        ".",
+        "1 B Bİ ",
+        "﻿",
+        ". b .a_😀:",
+        "B2_a /_0b",
+        ":2.2_ 😀B",
+        "  😀BAB b/﻿a_",
+        "1",
+        ".:",
+        ".B0_",
+        "b:0Σ1 :21",
+        ". Σ",
+        "bA / 2.A.A:0﻿",
+        "B0.b2 2BΣ"
+      ],
+      "expected": []
+    },
+    {
+      "query": "Σ😀 21",
+      "labels": [
+        "Σİ.İ1A1İ 😀.2 😀b",
+        "_aΣ",
+        "Bİ. :b ﻿",
+        "BA 😀 0b",
+        ".😀_Ab😀Bb2BİB",
+        "_😀:İ .😀1/b/ ",
+        ".2Bİ.0.😀1",
+        "1A_A1   ﻿/Σ",
+        "b",
+        "1İb _0 İ10_",
+        "Σa.0:: b",
+        ".aΣ",
+        "Σ😀:2 😀Σ",
+        ".0﻿21😀_/ ",
+        "Σ",
+        "BA.aB2b ﻿AΣ",
+        ".A1 1İB/﻿A﻿2_ .",
+        ": ΣA1 10ΣBA_0./﻿",
+        "10bA_İ﻿A﻿/Σ/:",
+        "﻿😀bİ 0Σ BA:İ./_2:"
+      ],
+      "expected": []
+    },
+    {
+      "query": "b _A﻿",
+      "labels": [
+        "_",
+        "1",
+        "﻿a:/1  A1 :",
+        "b😀B:İbABİΣ/1",
+        ":2.İ:İ A﻿İ_0Σ",
+        " İb",
+        "Σ2﻿﻿",
+        "./﻿A1 :﻿😀ΣİbA ",
+        ".212﻿ :",
+        "Σ😀﻿",
+        "_2B1😀 ",
+        ".",
+        "12./b2b2_A_21",
+        "B😀1/_",
+        "Σ0:/: .aΣ BaΣİ﻿",
+        "Σab0 A:0Σİ /B",
+        "b2.a.  A:",
+        " 2:/B😀1a:😀1",
+        "1 1A_aΣ2:a 2 a_.",
+        ": ﻿b b0:"
+      ],
+      "expected": [
+        "12./b2b2_A_21"
+      ]
+    },
+    {
+      "query": "ΣaΣ",
+      "labels": [
+        ":",
+        "Ba﻿",
+        "b/ 0_a:/. :ab2b",
+        "B😀./B _2﻿ B",
+        "1A. 1",
+        ".İ.ΣaBABİ﻿İb😀:",
+        "1İ 😀.:İ1😀Σ0B",
+        "_a /.10_ _aB",
+        " ",
+        "﻿2.",
+        "b2﻿2.İ   / İ.",
+        "Σ😀_/BA.",
+        " a﻿0:/1😀bİB011/:",
+        "B/1İ:2b😀1İ_/1",
+        "﻿İ_",
+        ": ﻿😀_/b21/_ab",
+        " ab/_aBİ1a.ab",
+        "﻿İΣİ.😀1",
+        " .😀B",
+        ":/bİBa_A1İB"
+      ],
+      "expected": []
+    },
+    {
+      "query": "B😀 ",
+      "labels": [
+        "bA﻿0bİ..0_0﻿😀B",
+        ".a./﻿",
+        "Σ0b B Σ",
+        "Σ/10.ab Σ",
+        "12:0﻿ ﻿2Ba /B2ΣA.",
+        "B0.😀1İ ",
+        "﻿0 ",
+        "_ _/1",
+        " 😀:",
+        "b/:😀Σ",
+        "B😀: b😀Bİb0 AΣ/ ",
+        ".A :2 ",
+        "Σ/10﻿İ /﻿a:/﻿",
+        ":/_1😀B   1İ:A:",
+        "Σİ:A:2b",
+        "_B01a 2:/:a ﻿😀1",
+        "_:2﻿a﻿",
+        "1a A.:/﻿A1Σ",
+        "1Ab0ΣA1İB0BAΣ :/_",
+        "_"
+      ],
+      "expected": [
+        "bA﻿0bİ..0_0﻿😀B",
+        "_B01a 2:/:a ﻿😀1"
+      ]
+    },
+    {
+      "query": " 2Σ_",
+      "labels": [
+        ":.1/.😀:a_01",
+        ":",
+        "_İΣ",
+        "b😀﻿B2Σİbİ1",
+        "﻿ Σ2﻿0﻿😀B2 ",
+        "Σ2ba﻿﻿A﻿İ1İ﻿😀1",
+        "_Σ :2 ",
+        "Ba_A﻿/Σ😀﻿/1İb0Σ",
+        ".İ 2 0:İb",
+        "Σa:A_/ İ1",
+        "12:😀B Σa_0Σ",
+        "  :21😀_0﻿",
+        ".AΣİB0 0﻿2 1AB",
+        "  ./_0B0_2Σ",
+        "Σ 1 ﻿",
+        "Ba﻿İ 0BA:A1",
+        "1 _/1/ΣAΣA.0: :",
+        ":2Ba 0 / /_A.2B",
+        " İb😀 ",
+        ":0b😀1_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "_ ﻿ ",
+      "labels": [
+        "2:",
+        "Σ",
+        ".",
+        ":İΣA﻿0b2ΣİΣ / 😀.",
+        ".İ:İ:aΣΣ01",
+        " 0B ﻿0./Σ/_B",
+        "ba. .",
+        " 😀1a:",
+        " A:",
+        " İb2Σ0Σ 😀121Abİ_",
+        "Σ/b0 İ:.  ",
+        " 0b2_a_a1İ1b",
+        "Σa.",
+        "BİBA1",
+        ":/BA:😀﻿😀_😀1aBa101",
+        "B",
+        "﻿/ ",
+        ":A1😀10B .2:",
+        "1",
+        "12B﻿İ_😀1😀﻿0b:"
+      ],
+      "expected": [
+        " 0B ﻿0./Σ/_B",
+        " 0b2_a_a1İ1b",
+        "12B﻿İ_😀1😀﻿0b:",
+        ":/BA:😀﻿😀_😀1aBa101",
+        " İb2Σ0Σ 😀121Abİ_"
+      ]
+    },
+    {
+      "query": ".😀﻿21",
+      "labels": [
+        "1/:21a:﻿ :A.0b",
+        " 2.﻿1",
+        ":A:😀:2 ",
+        "ba_İb0 A1 ﻿",
+        "BaΣ",
+        "bA_0.2 0﻿0_/_./﻿",
+        "﻿",
+        "﻿2 a_/.A.0:/b",
+        "b2.0  _ 1/Σ😀b _0b",
+        "101/:İ:",
+        ":A:/:/_",
+        ":İ﻿ Σ😀_a 2. B",
+        ":0Σ/_A 😀1",
+        ":_aΣİbİ﻿/:AB",
+        "Σ😀﻿",
+        "b/BA﻿",
+        " b😀.AΣB😀.ab0 ",
+        "b0 A:😀:/b",
+        ".😀Σ",
+        ":"
+      ],
+      "expected": [
+        "b2.0  _ 1/Σ😀b _0b"
+      ]
+    },
+    {
+      "query": "1",
+      "labels": [
+        "_/ ",
+        "bİ./B0.",
+        ".a10.İ:1İ.2 a1A1",
+        "﻿ b😀B/.a:2:İ  ﻿",
+        ".﻿2B _😀:İ1 B",
+        "_0b1AΣ2 .İΣaΣ",
+        "BAbAΣ/﻿ B",
+        "B b./: ﻿2_İB",
+        "_😀.",
+        "﻿0BA:2.2﻿2﻿/.a:😀.",
+        "bİ1aΣ0 0ba ",
+        " /Σİ﻿a_",
+        "Σ😀_0: :ab",
+        "ba_/.2_AB2B",
+        "_0Σ﻿0 _İ:0__",
+        "_﻿",
+        "bA aBAΣ21AB2﻿",
+        "Σ/b1﻿İ_  İ. :1",
+        ":",
+        "1a:ΣA:😀b 1/ İ1"
+      ],
+      "expected": [
+        "1a:ΣA:😀b 1/ İ1",
+        ".a10.İ:1İ.2 a1A1",
+        "bİ1aΣ0 0ba ",
+        "_0b1AΣ2 .İΣaΣ",
+        "Σ/b1﻿İ_  İ. :1",
+        "bA aBAΣ21AB2﻿",
+        ".﻿2B _😀:İ1 B"
+      ]
+    },
+    {
+      "query": "./_A.",
+      "labels": [
+        " İ_İ_bİ ",
+        "1İ.:01",
+        ".",
+        "B2﻿210:İ.2Σ",
+        "_:İb😀_😀.2_ B/B",
+        ".0_0ΣA  .😀 😀﻿a﻿",
+        "b😀ΣİB",
+        "Σİ 😀Σa10 01İ﻿",
+        "_/﻿İ_  _",
+        " ",
+        "bA﻿İ﻿2﻿ b2Σ",
+        "Σ😀:/Ba 2_b0baBAb",
+        ":😀﻿a_B 1",
+        "B😀:A_",
+        "  :21😀B 12b2 a:",
+        "﻿a:",
+        "B😀Σİ:A  10B",
+        " ",
+        "12:2.a__b/ aΣ",
+        " İ_"
+      ],
+      "expected": [
+        ".0_0ΣA  .😀 😀﻿a﻿"
+      ]
+    },
+    {
+      "query": "_aΣ21",
+      "labels": [
+        "Σ  2.2ΣΣ",
+        "﻿a:😀Σ ﻿a﻿😀b  0Σ",
+        "1ab Σ",
+        "_İ a1/﻿",
+        "B2_A A / a1İ﻿A.",
+        "_  İb .aB   : _",
+        " İ1",
+        ":_",
+        ".",
+        "Σ/﻿2ΣİΣ ",
+        "Σ .İ_",
+        "B😀 2﻿",
+        " /﻿",
+        ".😀﻿1😀 ",
+        "b2  ﻿1",
+        "Σ😀:",
+        "b",
+        ":/﻿A﻿_A:/b.a ",
+        ":",
+        ": Σ"
+      ],
+      "expected": []
+    },
+    {
+      "query": ":/1",
+      "labels": [
+        "Σ/b/.A.a:",
+        "Σa﻿0.",
+        "B😀B😀1a1",
+        "Σ😀_/BAΣ😀ΣA_2 ",
+        "_",
+        "Σİ_2B BB b",
+        "ΣaΣ2B2B _😀1 ΣaΣ",
+        "1İ:/Ba:a1b😀﻿İ:",
+        "﻿a﻿2.﻿ B2bAB😀:2Σ",
+        "1😀.",
+        " 😀b0_2_21",
+        "1😀  B:a﻿A.İB",
+        "_😀 😀Σ﻿İB : BaΣ",
+        " İ:/./:/_",
+        ":😀﻿😀ba.İ_😀.A_2.",
+        ":/Σ",
+        "Σ0Σb",
+        " ",
+        ":A_abb/﻿aΣ",
+        "Σ0Σ0BaBİ "
+      ],
+      "expected": [
+        "1İ:/Ba:a1b😀﻿İ:",
+        "1😀  B:a﻿A.İB"
+      ]
+    },
+    {
+      "query": "_İ",
+      "labels": [
+        "0.😀_A./﻿",
+        " /B/ A A ABA a ",
+        "﻿010.😀Σ/.2:",
+        " 2:",
+        " İ.2:abİ B",
+        "B",
+        " ",
+        "BΣΣİ_0:.😀﻿1/ ",
+        "1😀_/ /1",
+        "B2.😀bİ1Σ0./1/1",
+        "bA.",
+        "bİ.2:/B2 ",
+        "_A_A.a﻿",
+        "bB2﻿/B/101",
+        "﻿",
+        "﻿AB Σ/BAΣ bİ1",
+        ":A:",
+        "1a1aΣ﻿/.",
+        ".0 0﻿a_A abΣ B",
+        "b ΣAb/."
+      ],
+      "expected": []
+    },
+    {
+      "query": "_ABİ",
+      "labels": [
+        "aΣ2 ",
+        ":A1/B",
+        "b/:/.  ",
+        " a:/_2.Σ",
+        "b0:😀.a ",
+        ". .  ",
+        "_",
+        ":İ_  aBa a_A.",
+        "  .B/12.İB",
+        ":0: B/::İ_  ",
+        "b2 /.İ1:😀BA:",
+        "B",
+        "﻿İ:A﻿",
+        "1A.",
+        "b . ./ΣAB",
+        "Bb/﻿",
+        "b/:A.😀Σ😀ΣAΣA.",
+        "_ :aB0:",
+        ":",
+        ":a_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "﻿İ ",
+      "labels": [
+        "A.2b",
+        "b0b﻿😀 ",
+        "Σ﻿ :İΣ 1",
+        "b",
+        "bİΣİ_😀B _2﻿ :",
+        "Σ Σ😀﻿",
+        "Σ😀Σ",
+        "_",
+        "﻿/Σİ﻿Ab",
+        ".",
+        "Σ",
+        "baB2 İΣa.😀 :A:😀 ",
+        "B A﻿a 2 A.İ1",
+        "1 :İ  Σa_/Σİ.aB",
+        "_",
+        " /﻿ A_ .",
+        "b",
+        "B 1😀:😀_210.0b_.",
+        "_a﻿2 İΣ2 ",
+        ".İ.aba_/:a﻿1"
+      ],
+      "expected": [
+        ".İ.aba_/:a﻿1",
+        "baB2 İΣa.😀 :A:😀 ",
+        "Σ﻿ :İΣ 1",
+        "B A﻿a 2 A.İ1"
+      ]
+    },
+    {
+      "query": "ΣA:😀",
+      "labels": [
+        "😀B0 /b/:: 12ΣB",
+        "﻿",
+        "BİΣ/:2Σ/﻿",
+        "﻿İ./bA1İ:A1",
+        "﻿😀:﻿aB 1",
+        ":😀bb012:İ﻿😀:/:",
+        ".Σ/.0:😀B",
+        "b/bİ﻿İ_2_/.😀b",
+        "B/.İ:ab😀 ",
+        "﻿",
+        "bİb/b2b",
+        "Σ bİ﻿😀:A1İb",
+        "B/BA10:2B/b2B😀 ",
+        " 😀Σ .",
+        "b😀﻿ :",
+        " /BB",
+        "_1",
+        "10_😀b0BA 12_",
+        "._2ba10_ Σ2B/ ",
+        " 0B2.0  b/:A_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "_İ﻿",
+      "labels": [
+        " 0.",
+        " aBaΣİ: : _İ:",
+        ":A1",
+        "_a.İb",
+        "1/:",
+        "Σ",
+        "1a_0B2. _b/ΣİΣa1",
+        "﻿İ aΣ.2:A /:İΣİ ",
+        "ΣA 0b1",
+        ":😀 / 0 ",
+        "1😀_aΣ﻿A.a_a:a﻿/ ",
+        "B",
+        " a A﻿",
+        "Σ﻿b2_  0Σ0ΣA:",
+        "﻿0_ ﻿",
+        " İ: Ba 0_ b",
+        "10_Ba1/_0BaBa1",
+        "Σ",
+        "﻿A﻿ab0  Bb2  :İ_",
+        "﻿ "
+      ],
+      "expected": [
+        " aBaΣİ: : _İ:",
+        "_a.İb",
+        "1a_0B2. _b/ΣİΣa1"
+      ]
+    },
+    {
+      "query": " ",
+      "labels": [
+        "_😀1A﻿2Bİb0Σ0_0﻿",
+        "_",
+        "1/ΣAbA.2Σ",
+        "B/﻿aΣ/_:01﻿",
+        "..😀B0.AB",
+        "Σ﻿a1",
+        "B😀b2_a﻿/﻿abb",
+        "_İb _:/Σİ_İ﻿",
+        "b0Ba.A: ..😀﻿",
+        ": _",
+        "Σ2..İ_İ: ﻿",
+        "Σa﻿",
+        "_ Σ😀﻿0_a﻿/B",
+        "1",
+        ":",
+        "Σ😀./_Aba:ABAb:",
+        "_😀Σ.",
+        "bb/_ ﻿﻿0:😀_",
+        "b",
+        "ΣİΣa.a:2B0bAb2 /b"
+      ],
+      "expected": [
+        "_😀1A﻿2Bİb0Σ0_0﻿",
+        "_",
+        "1/ΣAbA.2Σ",
+        "B/﻿aΣ/_:01﻿",
+        "..😀B0.AB",
+        "Σ﻿a1",
+        "B😀b2_a﻿/﻿abb",
+        "_İb _:/Σİ_İ﻿",
+        "b0Ba.A: ..😀﻿",
+        ": _",
+        "Σ2..İ_İ: ﻿",
+        "Σa﻿",
+        "_ Σ😀﻿0_a﻿/B",
+        "1",
+        ":",
+        "Σ😀./_Aba:ABAb:",
+        "_😀Σ.",
+        "bb/_ ﻿﻿0:😀_",
+        "b",
+        "ΣİΣa.a:2B0bAb2 /b"
+      ]
+    },
+    {
+      "query": "Σ2.İ",
+      "labels": [
+        "AΣA  :😀B/b b",
+        "b0:İ:İΣ0bA1İ﻿/10b",
+        " 1/ 😀1a.",
+        "bab",
+        "BB",
+        "1﻿",
+        "b😀:/﻿",
+        " İ:2Σ😀﻿ab",
+        "bİb/b",
+        "﻿﻿/﻿😀Σ ﻿2_😀B﻿",
+        ":",
+        "Ba_2ΣİΣ/:İΣ",
+        "_İ.😀B.",
+        "B",
+        ":2B0: BA ",
+        "﻿0﻿a /:A﻿.😀1",
+        "﻿",
+        "B2﻿./:a.",
+        "Σb b :",
+        ":  😀1😀_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "_A.",
+      "labels": [
+        "_😀B./:😀:",
+        "Σ1",
+        "B/.İ﻿a.0﻿aB",
+        " 2Σ/:😀  BA.😀10baB",
+        ":İ:A_A1",
+        "1a.2.",
+        " b",
+        ".İ. b:.",
+        "_aΣ",
+        "1İ ",
+        ".İb😀10B/B/1ab_2 ",
+        ":/_aB😀Σ0./Σ",
+        ":İb/  B",
+        "﻿😀﻿2_İba101İBA_",
+        "Σ2.",
+        ":😀b2_/b21:İ:İ﻿",
+        "Σ",
+        "bab :/./. _😀Σ2B﻿",
+        "bA _😀b0_",
+        "1ABİΣ😀﻿﻿😀.0_"
+      ],
+      "expected": [
+        ":/_aB😀Σ0./Σ"
+      ]
+    },
+    {
+      "query": "./﻿İ",
+      "labels": [
+        "A  1_😀:0Σ😀 2 2Σ",
+        "B _ab",
+        " ΣΣ/1/ 2Σ",
+        " aba.",
+        "BİΣ",
+        "Bİb/b0Σ",
+        "b/./.İBa_B2Σ _😀b",
+        " 2_",
+        "B",
+        "_/::A İ _AΣaΣ ﻿",
+        ": b😀_",
+        "ΣΣİb",
+        "Bİ_😀:b0. B0﻿",
+        " 2﻿0B2Bİ﻿0:A_/./.",
+        "Σ ﻿0Σa a_",
+        "1/b",
+        ".İ1",
+        ". .İ./1",
+        "﻿İ10:İ:",
+        "_0 İba:/ /10."
+      ],
+      "expected": [
+        ".İ1",
+        ". .İ./1",
+        "b/./.İBa_B2Σ _😀b",
+        "_0 İba:/ /10.",
+        " 2﻿0B2Bİ﻿0:A_/./.",
+        "Bİ_😀:b0. B0﻿"
+      ]
+    },
+    {
+      "query": "B",
+      "labels": [
+        "1A1😀Σ0_",
+        "﻿1",
+        "_012Σ İ.",
+        ": ﻿İ./:",
+        "﻿0﻿A﻿abİb0b",
+        "1Ab0b  ",
+        ".",
+        " ab",
+        "B _.😀:a﻿/_",
+        "  B",
+        "b",
+        "Ba:😀b😀﻿a10.aB",
+        "1",
+        "1 _0 😀ba﻿.0.",
+        "B",
+        "1:0. ﻿ab2Bab/.﻿",
+        "b010﻿2﻿0b0b",
+        ":1A__",
+        "﻿İ.0_:/Σ2:2b",
+        "BAB😀b😀1A aΣ Σ"
+      ],
+      "expected": [
+        "b",
+        "B",
+        "B _.😀:a﻿/_",
+        "Ba:😀b😀﻿a10.aB",
+        "b010﻿2﻿0b0b",
+        "BAB😀b😀1A aΣ Σ",
+        "  B",
+        "1Ab0b  ",
+        " ab",
+        "﻿0﻿A﻿abİb0b",
+        "1 _0 😀ba﻿.0.",
+        "1:0. ﻿ab2Bab/.﻿",
+        "﻿İ.0_:/Σ2:2b"
+      ]
+    },
+    {
+      "query": "﻿a﻿0 ",
+      "labels": [
+        "_😀Σa1aB b0 İΣ",
+        "bB0. :/﻿0﻿ :İB",
+        ":a A  ﻿aB0ΣA﻿ _",
+        "  :0.",
+        "b",
+        "bİB0B",
+        "B01B Σ😀:",
+        "  bA_a_/b",
+        "b",
+        "Σİ﻿/B2_",
+        " Ab:",
+        "b",
+        "﻿ .  A:01/﻿İ1İB0Σ",
+        "b",
+        "B0:a.😀Σb0﻿011",
+        ":2_AΣ1a1",
+        "B",
+        ".İB b0.a﻿b/B0./B",
+        "B _A ",
+        ". ΣA﻿😀ΣAΣaB😀1 BA﻿"
+      ],
+      "expected": [
+        "﻿ .  A:01/﻿İ1İB0Σ",
+        "B0:a.😀Σb0﻿011",
+        ":a A  ﻿aB0ΣA﻿ _",
+        ".İB b0.a﻿b/B0./B",
+        "_😀Σa1aB b0 İΣ"
+      ]
+    },
+    {
+      "query": "ba: ",
+      "labels": [
+        "a﻿0bA:/ΣA: _",
+        "_İ1aB0Ba1 ﻿A:aΣ",
+        ":A:0Σ :0Bİ﻿0BİB",
+        "_b0:a12Σ﻿/1/.😀b",
+        "﻿0B﻿😀: .",
+        "1İ_a /.",
+        "BaΣ A:İ﻿Σa_",
+        "Σİ.2.",
+        "1bİbİ﻿İΣ2bA:",
+        ".2:Ab 2Σ/:😀:0:",
+        "ΣAB2Σ/ ",
+        "Ba.2 ABA.AΣ",
+        ":😀BaΣ2B.",
+        "_A. 1😀:İ /:/ ",
+        "_0Σ😀﻿/:😀_/12BbB",
+        "b 1İ﻿Σ",
+        ".0Σ",
+        ". :.",
+        ".",
+        "b😀_: 😀bİB b😀:İ1"
+      ],
+      "expected": [
+        "BaΣ A:İ﻿Σa_",
+        "a﻿0bA:/ΣA: _",
+        "_İ1aB0Ba1 ﻿A:aΣ",
+        "1bİbİ﻿İΣ2bA:"
+      ]
+    },
+    {
+      "query": "BaB b",
+      "labels": [
+        ".AbİΣ.",
+        "1a.01İ_😀B.İ ",
+        " İ1A_",
+        "b2﻿_/ΣΣa.2.",
+        "_İB😀.:",
+        ".😀.",
+        "Σ0 Ab Σ😀.0B0﻿/.A_",
+        "_İ1😀.😀Σİ﻿",
+        "Bab0BAB",
+        "B😀b _2 A_2Σ",
+        "BA_2﻿0ΣİΣ/b ﻿0Σ",
+        "_A.﻿",
+        "1 b  😀:.😀:﻿2Σ",
+        ":/bb12 ",
+        "101İ﻿ ﻿",
+        "1A.. .a_😀_2 a ",
+        "b 1A:2: ﻿",
+        "1a1",
+        " 2Σİ./b0 ",
+        "B b0B01A_😀12﻿.0b"
+      ],
+      "expected": [
+        "Bab0BAB",
+        "BA_2﻿0ΣİΣ/b ﻿0Σ",
+        "B b0B01A_😀12﻿.0b"
+      ]
+    },
+    {
+      "query": "Σ0 /B",
+      "labels": [
+        ".",
+        "  1/﻿ B/ 2:1",
+        ". Bİ1",
+        "﻿﻿0:İΣ😀baΣ",
+        "Σ😀_İB 10bAΣ 1/.",
+        ":0.2 A1İ:",
+        "_Σ:İ.0 /b😀﻿2_Σ",
+        ". Bİ.😀: :aB0B﻿",
+        "b",
+        "_A_",
+        " Ab/bİ_ bBΣ/ ",
+        "B😀.2bİB/: Σ2Σ",
+        "Σ😀_﻿2Σ1",
+        ".İ.2:./.. 1",
+        "Σ",
+        ":AB _01İbİ.İB ",
+        " Ab😀 Σ 0b",
+        "1",
+        "_2_aB0Σ/BaΣ/:21",
+        "1"
+      ],
+      "expected": [
+        "_Σ:İ.0 /b😀﻿2_Σ",
+        " Ab😀 Σ 0b",
+        "Σ😀_İB 10bAΣ 1/."
+      ]
+    },
+    {
+      "query": " ",
+      "labels": [
+        "B/b﻿/﻿A﻿ab😀1",
+        "﻿ΣaBA1/B",
+        "1 b😀_0 0B",
+        "  B1/ ",
+        "B/_1_İ:İΣABB",
+        ".:/ ",
+        "Σ0.:",
+        "﻿A﻿a10. _Ab",
+        "Σ😀﻿😀.",
+        "ΣaΣ/._a.İBa_0__",
+        "b/b  İbİΣ",
+        "_Σ",
+        ":",
+        "B😀﻿0﻿2Σ😀12_",
+        "1İ 1a. _2:",
+        "_0B2_2Bb/﻿0.😀:",
+        "11İ_0B",
+        ".😀b2b:/:2Bİ.2﻿",
+        "B0. _A.2 ",
+        ":210 "
+      ],
+      "expected": [
+        "B/b﻿/﻿A﻿ab😀1",
+        "﻿ΣaBA1/B",
+        "1 b😀_0 0B",
+        "  B1/ ",
+        "B/_1_İ:İΣABB",
+        ".:/ ",
+        "Σ0.:",
+        "﻿A﻿a10. _Ab",
+        "Σ😀﻿😀.",
+        "ΣaΣ/._a.İBa_0__",
+        "b/b  İbİΣ",
+        "_Σ",
+        ":",
+        "B😀﻿0﻿2Σ😀12_",
+        "1İ 1a. _2:",
+        "_0B2_2Bb/﻿0.😀:",
+        "11İ_0B",
+        ".😀b2b:/:2Bİ.2﻿",
+        "B0. _A.2 ",
+        ":210 "
+      ]
+    },
+    {
+      "query": "Bİb:",
+      "labels": [
+        ":ba:0_ b",
+        "B012.İBİB",
+        ".0:2﻿  BA_",
+        "﻿İ./_",
+        "_😀﻿ ab😀:AΣ😀1AΣ",
+        "..AB",
+        "Σ/﻿2_ /.İ.",
+        "_01😀.0 ",
+        "b",
+        "1😀﻿Ab2b0: .01b",
+        "﻿aΣİb/:A 2 :",
+        ":a 😀b😀_",
+        "Σ2.a﻿aB",
+        "1😀b😀1😀_a._",
+        ".A./﻿İ ",
+        ":0B😀./1İ :",
+        " a 2_A﻿. 1İΣA.",
+        "Σ ﻿İBA._A. ﻿A1Σ",
+        "Σİ aB0Σ0_0: b",
+        "b/ İΣ b2 b  "
+      ],
+      "expected": []
+    },
+    {
+      "query": "bB",
+      "labels": [
+        "_😀_İ.2Bİ1aΣİ1 _.",
+        "1",
+        "  1",
+        "﻿  2_",
+        "Σ2﻿İb",
+        "_A10:AΣa: ﻿😀Σ/bab",
+        " A:😀.😀_a.0B2﻿/Σ :",
+        "_ :/Σİ12 2﻿a﻿ Σ",
+        "B0Σ",
+        "1a﻿/:İ.ab",
+        "_a﻿😀.A.",
+        ":",
+        "Σİ 2B😀 _/ / 😀﻿",
+        "Bİ:0Σ",
+        "b",
+        "﻿",
+        "﻿😀_﻿A:0:  😀B😀.01",
+        ": _😀1İB/﻿2_01İ ",
+        "﻿2BA1/B2﻿A:aΣ",
+        "Σİ:2.😀1  "
+      ],
+      "expected": []
+    },
+    {
+      "query": ".😀",
+      "labels": [
+        "0B😀  Σ😀_",
+        ":2. 10:İBİ1 ΣA:",
+        "  ﻿",
+        "b _",
+        "b0_",
+        "1﻿B😀_/B0 a ",
+        "Σ ﻿ Σ😀b",
+        "﻿İ_AΣ2b baBa1",
+        "1😀Ba 0b😀b😀Σ",
+        "B😀 😀.ab/﻿0﻿ bİ :",
+        "  :21ab/10Σ",
+        ".2:/b 2_",
+        "1Ab",
+        ": ba.B😀﻿İb",
+        ":😀_2﻿B😀 ",
+        " 2_0B/﻿ A.A﻿:",
+        "Σ01a:😀_01",
+        "b:",
+        "babİ_/12_",
+        "B: B"
+      ],
+      "expected": [
+        ": ba.B😀﻿İb"
+      ]
+    },
+    {
+      "query": "b",
+      "labels": [
+        "A./Σa.",
+        "1b 2B 1/_",
+        "_AbAba_2.A_İB",
+        "Σ Σ",
+        " 😀_Ba.",
+        ".:A.AB2.",
+        ":😀:aB01",
+        "_2:😀12_",
+        "Σ . 1",
+        "10﻿ab0Σ0b 1A:İb",
+        " ",
+        "﻿😀1a 😀bA﻿😀Σİb😀 ",
+        "Σa:/:/BA:0./Bb",
+        ": 1😀_İ:/Σ",
+        "﻿😀﻿ Σa:b 2 a﻿",
+        ".😀:/ ",
+        "_ :AbA﻿",
+        "Σİ: ﻿0:",
+        ":A:",
+        " /bA﻿"
+      ],
+      "expected": [
+        "1b 2B 1/_",
+        "﻿😀﻿ Σa:b 2 a﻿",
+        "Σa:/:/BA:0./Bb"
+      ]
+    },
+    {
+      "query": "_İ﻿",
+      "labels": [
+        ".﻿",
+        " 21:İBAΣ",
+        "Σ",
+        "﻿ _2﻿AB",
+        "_ B😀b ﻿ .İ.",
+        " a.",
+        "Σa 😀bA_a﻿İ_1/b:",
+        "b😀:a﻿😀_a﻿_/ΣA﻿ Σ",
+        "B😀1/B/﻿😀_/:😀_a:",
+        "101aΣ2BA1😀:AΣİ /:",
+        "B01😀 _/ 0:İ_A_a1",
+        "B﻿",
+        ":İ:😀﻿2:01😀B  😀﻿A﻿",
+        ". Σ b21/Σ01",
+        "Σ .abAB.İ_0b0:",
+        ".0ba:0_/Σ/_0 /.",
+        "Σ2b0﻿",
+        " A_AB_a:_",
+        "12_a1B2 01B b0.",
+        ".AB"
+      ],
+      "expected": [
+        "_ B😀b ﻿ .İ.",
+        "Σa 😀bA_a﻿İ_1/b:",
+        "B01😀 _/ 0:İ_A_a1"
+      ]
+    },
+    {
+      "query": "B😀.:",
+      "labels": [
+        ":A﻿",
+        " a:0﻿",
+        "b11 ΣaBİ﻿a_",
+        "﻿İB01İ.aΣ😀b2 ",
+        "_/Σa 0ΣA /Σ😀﻿",
+        ".İΣA  ﻿",
+        "Σ Bİ:a. baBa_",
+        ":😀10.İ_0:",
+        "101Σ",
+        ": :a﻿ :0 /﻿Σ/b",
+        "Σ",
+        "BB b0﻿ .01 Σ😀Σ/﻿",
+        ": Σ_A 0 0:",
+        "b ΣA_ABİ_a_2B0_",
+        " A1:/Σ😀Σİ1﻿/1",
+        "﻿A:/1 ﻿2_A_2b",
+        "b2﻿2B",
+        "_ _ .AB0ΣAbAΣ2. 1",
+        ".2bA﻿/B😀 Σ",
+        ":"
+      ],
+      "expected": []
+    },
+    {
+      "query": "1",
+      "labels": [
+        "b/B B",
+        "1 ﻿",
+        ".B",
+        "Bb2﻿1İ1A:a.",
+        "B01ABa﻿2ΣA﻿😀:",
+        ":2Σ ﻿2 1",
+        ".a12b",
+        "1/b_0:1 Σ",
+        "ΣA﻿0 2﻿",
+        "1A1",
+        "B😀BaB😀ba﻿0bA:A﻿A.",
+        "1/ 0.",
+        "1😀 ",
+        "1b",
+        "b  ab😀B/﻿",
+        "BA﻿.Σ2 ",
+        "﻿Ab",
+        ".:İ﻿a_﻿ :İ﻿ B",
+        "﻿0﻿0.😀b ﻿2B/1 .",
+        ".😀 /_"
+      ],
+      "expected": [
+        "1 ﻿",
+        "1/b_0:1 Σ",
+        "1A1",
+        "1/ 0.",
+        "1😀 ",
+        "1b",
+        "﻿0﻿0.😀b ﻿2B/1 .",
+        "B01ABa﻿2ΣA﻿😀:",
+        ".a12b",
+        "Bb2﻿1İ1A:a.",
+        ":2Σ ﻿2 1"
+      ]
+    },
+    {
+      "query": "1",
+      "labels": [
+        "B/ İb2﻿a﻿İΣ/.",
+        "BAB2_😀b😀1İ1a﻿ Ba﻿",
+        "Σ😀_a_İΣAΣ0_0 ",
+        "10:",
+        ".😀﻿aBa. ﻿😀1ab  ",
+        "_2.😀_İ﻿a_2_",
+        "b0﻿",
+        ".A1 :/Σ  ",
+        "_ ﻿a_0Σİ1",
+        "_a﻿_Bİ.0b B",
+        " ",
+        "B😀 ab",
+        "﻿ABİ﻿ 0:a12B",
+        "﻿/bA.210 ",
+        "bA12b﻿2Σ 2﻿a1",
+        "1A:",
+        "﻿21",
+        "b/﻿/1/  b ",
+        "_İ﻿2bA ",
+        "1_2_a  b"
+      ],
+      "expected": [
+        "10:",
+        "1A:",
+        "1_2_a  b",
+        "b/﻿/1/  b ",
+        ".A1 :/Σ  ",
+        "bA12b﻿2Σ 2﻿a1",
+        "﻿21",
+        "﻿/bA.210 ",
+        "_ ﻿a_0Σİ1",
+        "BAB2_😀b😀1İ1a﻿ Ba﻿",
+        "﻿ABİ﻿ 0:a12B",
+        ".😀﻿aBa. ﻿😀1ab  "
+      ]
+    },
+    {
+      "query": "﻿",
+      "labels": [
+        ": ﻿a:",
+        ".0﻿ /:😀﻿A_",
+        "b",
+        "1😀_İ ﻿2BA_",
+        " a:2B😀:",
+        "﻿ 1AB.a Ab/﻿A1",
+        "ΣAB",
+        " a Σ",
+        ".İ1AΣ2_A 012.0Σ",
+        "﻿0﻿a﻿",
+        "B😀 😀ba1😀﻿2b/B/./﻿",
+        ".😀B0B/:0 İ﻿İ.İ.",
+        "bİ:ab😀_İ İ1😀1",
+        "ΣABa A.",
+        "﻿Ab﻿",
+        "﻿2_",
+        "b😀:ABAΣ  a﻿ ﻿2_0.",
+        "_ ΣaΣ2BA A ",
+        ".012Σ:0_",
+        "Σ _a_"
+      ],
+      "expected": [
+        ": ﻿a:",
+        ".0﻿ /:😀﻿A_",
+        "b",
+        "1😀_İ ﻿2BA_",
+        " a:2B😀:",
+        "﻿ 1AB.a Ab/﻿A1",
+        "ΣAB",
+        " a Σ",
+        ".İ1AΣ2_A 012.0Σ",
+        "﻿0﻿a﻿",
+        "B😀 😀ba1😀﻿2b/B/./﻿",
+        ".😀B0B/:0 İ﻿İ.İ.",
+        "bİ:ab😀_İ İ1😀1",
+        "ΣABa A.",
+        "﻿Ab﻿",
+        "﻿2_",
+        "b😀:ABAΣ  a﻿ ﻿2_0.",
+        "_ ΣaΣ2BA A ",
+        ".012Σ:0_",
+        "Σ _a_"
+      ]
+    },
+    {
+      "query": ".",
+      "labels": [
+        ".İBbİB",
+        "Σ",
+        ".2﻿A_",
+        "﻿0Σ😀Σ BabİΣ/bA_",
+        ".2﻿",
+        "Σ2.a1AB",
+        "B  01😀_/:a﻿ BİΣİ.",
+        "_aΣ",
+        " ",
+        "_/.",
+        "1﻿ ﻿0Σ😀1a:2.2:",
+        "﻿a.A.",
+        "1İ.A_  ",
+        " İΣA.0 a.A_A_",
+        "_2 ",
+        ".2Σ😀1A_",
+        "﻿a  :İ:😀﻿",
+        "_😀Σİ10.0Σ",
+        "_",
+        "Σ😀Σ😀:İ./_"
+      ],
+      "expected": [
+        ".İBbİB",
+        ".2﻿A_",
+        ".2﻿",
+        ".2Σ😀1A_",
+        "_/.",
+        "Σ2.a1AB",
+        "﻿a.A.",
+        "1İ.A_  ",
+        " İΣA.0 a.A_A_",
+        "_😀Σİ10.0Σ",
+        "Σ😀Σ😀:İ./_",
+        "1﻿ ﻿0Σ😀1a:2.2:",
+        "B  01😀_/:a﻿ BİΣİ."
+      ]
+    },
+    {
+      "query": "﻿A_ ",
+      "labels": [
+        "A a İb2B2b",
+        "B/.İ﻿2_/B",
+        "_",
+        "b0ba.A﻿ B",
+        "_   ﻿2_ ./﻿  0.",
+        "1  /﻿😀Σ.İ_",
+        ":ab😀:A A1😀1",
+        "﻿2bab/_A.😀Σ",
+        ".1.A:a_",
+        " ",
+        "10_ab2b😀Ba.2B0:a:",
+        "﻿a.aB",
+        "b😀Bİb_AΣ:😀:İ.",
+        "_",
+        ".😀./b _0.😀 .",
+        "_İ_A_0121bA:A.",
+        "b",
+        "Σab0Σ😀:",
+        "b12_",
+        ".2_ b😀1a1b/﻿"
+      ],
+      "expected": [
+        "_İ_A_0121bA:A.",
+        "﻿2bab/_A.😀Σ",
+        ".1.A:a_"
+      ]
+    },
+    {
+      "query": "Bb😀",
+      "labels": [
+        "﻿",
+        "_A.A a_b",
+        ".a İ ",
+        " A 😀:İb0b/: :0_İ ",
+        ".",
+        "1a﻿aΣ",
+        ":aB0b0:İ: 1b/B01",
+        "bA﻿",
+        "1 1İ1/﻿A1 _0:",
+        "1İ_a 2b",
+        ".0B0./.",
+        "Σİ 01Abİ :",
+        "Σ:2.a1",
+        "Bİb",
+        "Σ😀Bİ1",
+        "_İ﻿0 😀babab😀 0_/1",
+        "_0﻿AB Σ😀_",
+        ".",
+        "Σ",
+        ":2."
+      ],
+      "expected": []
+    },
+    {
+      "query": " 0./",
+      "labels": [
+        ".a1",
+        ".😀Σ",
+        "_İ﻿2:A 2.ABa﻿",
+        "﻿10_  2:A 😀.Σa.",
+        "b.😀_  ",
+        "1İ__0 İ_",
+        ".2:İ.0﻿",
+        ".a_",
+        "Σ/:A10bİ:/Σa.ab2_",
+        "B2BA﻿ : Bİ﻿2:1",
+        "Bİ.B/B0Bİ_0﻿a﻿",
+        "_ Σ",
+        "b",
+        "10 / İB2.0b",
+        ".0112Σİ1A﻿aBA.a_",
+        "ΣabΣİ1a:/.B😀.",
+        "_İ_",
+        "Σ_01😀::2Σ",
+        "bİ1 ﻿0.2B0B",
+        "Bİ İΣΣ😀_😀B2 abA "
+      ],
+      "expected": [
+        "bİ1 ﻿0.2B0B",
+        "10 / İB2.0b",
+        "Σ/:A10bİ:/Σa.ab2_",
+        ".0112Σİ1A﻿aBA.a_",
+        "﻿10_  2:A 😀.Σa."
+      ]
+    },
+    {
+      "query": "b2",
+      "labels": [
+        "/Σ2_ ﻿😀: ﻿2b😀B😀.0 ",
+        "B0B",
+        ".😀Σ0B 1a.A1",
+        "﻿:2b",
+        "B😀.2﻿ :a1/.0 ",
+        "Babİ:_",
+        "﻿",
+        "Σ2b 1😀1/1A_😀﻿aΣİB",
+        " 0ΣabΣ/1aB",
+        ".a  ﻿",
+        "Bİb/b😀BAΣİ İ﻿b",
+        " /﻿0  1AΣAb",
+        "Σ😀B :😀﻿: . b",
+        "_😀1",
+        "B😀B0b😀_AB",
+        ".0.aΣ2﻿İ 😀B",
+        "_21aΣ :",
+        "_/_2Σ0: bİ A a:2Σ",
+        " 0b2_",
+        "Σa_"
+      ],
+      "expected": [
+        "B😀.2﻿ :a1/.0 ",
+        "﻿:2b",
+        " 0b2_",
+        "_/_2Σ0: bİ A a:2Σ",
+        "Σ2b 1😀1/1A_😀﻿aΣİB",
+        ".0.aΣ2﻿İ 😀B",
+        "/Σ2_ ﻿😀: ﻿2b😀B😀.0 "
+      ]
+    },
+    {
+      "query": " ",
+      "labels": [
+        "_😀Σ/ _/.0:",
+        "Σa_0b",
+        ":",
+        "﻿a_😀Σ",
+        "b😀b😀1Σa AΣ",
+        "1😀.ab0.😀Σ/b",
+        "Σ😀B/1 111😀10_A:",
+        "Σİ﻿İ:İ﻿",
+        "1a_/Σ😀ΣA_",
+        ".😀Bab",
+        "b",
+        "_😀b2:İΣ0:İ12 ",
+        "_A:/Σ _İ.2b",
+        "B01AΣ😀b",
+        "_",
+        "1😀1İ﻿  bİb/Σ",
+        "_ _a 😀﻿",
+        "BA: ﻿İ﻿A﻿a1  ",
+        ".",
+        "b A1"
+      ],
+      "expected": [
+        "_😀Σ/ _/.0:",
+        "Σa_0b",
+        ":",
+        "﻿a_😀Σ",
+        "b😀b😀1Σa AΣ",
+        "1😀.ab0.😀Σ/b",
+        "Σ😀B/1 111😀10_A:",
+        "Σİ﻿İ:İ﻿",
+        "1a_/Σ😀ΣA_",
+        ".😀Bab",
+        "b",
+        "_😀b2:İΣ0:İ12 ",
+        "_A:/Σ _İ.2b",
+        "B01AΣ😀b",
+        "_",
+        "1😀1İ﻿  bİb/Σ",
+        "_ _a 😀﻿",
+        "BA: ﻿İ﻿A﻿a1  ",
+        ".",
+        "b A1"
+      ]
+    },
+    {
+      "query": "_İb2",
+      "labels": [
+        "2ba 😀﻿AΣ0﻿😀﻿ ./ ",
+        "_😀 0 /:😀:01/1:İ ",
+        "Σa1Ab",
+        "﻿",
+        ".A /Bİ./﻿İ.0Σ/1/ ",
+        "b/ba_/:A﻿0b",
+        "﻿İb/b/bİΣ/:",
+        "1",
+        "﻿  2  _:İ:",
+        "﻿0b ﻿2.0bb",
+        "bab21",
+        "﻿ B/ ",
+        "Σ2.A:😀1",
+        ".010:İ İBa.",
+        "ΣaΣİ1",
+        "BaΣ",
+        ".Σ2﻿2.2:",
+        "BİBİ:A_",
+        "10﻿İ1 b😀_a﻿ Σ Σ",
+        "./1/:﻿:"
+      ],
+      "expected": []
+    },
+    {
+      "query": "﻿2",
+      "labels": [
+        "AΣB😀﻿a1a_/ 😀.",
+        "Σ 2B  _21A1",
+        ": BbB _",
+        "Σ ﻿😀 ",
+        "_ Σa:",
+        ":/./ 😀.",
+        "bİ.:",
+        "﻿2BA_2 ",
+        "1😀10:  ab0﻿a./Σ",
+        ":İ10: b😀B😀: Σ _",
+        " 0b _0 :0_😀Σ",
+        ":😀.2Σ2:0 2_Ab21",
+        "B",
+        "1 : .İ./  B Σ",
+        "1",
+        "﻿😀﻿01İΣ /﻿0﻿12b",
+        " 0b",
+        "_2:2b/Σİ_2:İ1",
+        ".",
+        "_"
+      ],
+      "expected": [
+        "﻿2BA_2 ",
+        "_2:2b/Σİ_2:İ1",
+        "Σ 2B  _21A1",
+        ":😀.2Σ2:0 2_Ab21",
+        "﻿😀﻿01İΣ /﻿0﻿12b"
+      ]
+    },
+    {
+      "query": " Ab0 ",
+      "labels": [
+        "b2﻿",
+        "Σ/:😀:  😀:2 😀_/﻿",
+        "B😀.İ: B2.İ_",
+        "ΣİB﻿ Σ",
+        " Abİ_0﻿ABA.😀.2:a_",
+        "b",
+        " ",
+        "_/ 0 A﻿2b",
+        "ΣA1.İ﻿AB",
+        "Σ ba1AΣ😀 ",
+        "Σ  İB2bA1a ",
+        "Σİ:0 😀1bA﻿0.",
+        "Σİb0﻿",
+        "1İ /1",
+        " 0:Σ0 İΣ😀B",
+        "b/﻿0Σ",
+        "Bİ﻿ _İ_A﻿",
+        "﻿1 ﻿0 0Ba.a_A﻿İ.",
+        ": ﻿_😀﻿",
+        "Σ0 AΣİΣb Σ😀_b B"
+      ],
+      "expected": [
+        " Abİ_0﻿ABA.😀.2:a_",
+        "_/ 0 A﻿2b",
+        "Σ0 AΣİΣb Σ😀_b B"
+      ]
+    },
+    {
+      "query": "﻿A1😀",
+      "labels": [
+        "_0:",
+        "_1A1",
+        ".0b2Σ2_/_a.A:0Σ",
+        " ",
+        "10b0b",
+        "b/:😀:2b😀 0.",
+        "_:/BA İbA1",
+        ".😀b",
+        "Σİ_aΣ",
+        " a1A﻿",
+        "b2﻿İb",
+        "10 ",
+        "B/b/_İΣ😀.",
+        "﻿b _",
+        "Σ/ /﻿İ﻿İ_İ. 1İ﻿",
+        "1Ab/﻿A /10_010 ",
+        "B",
+        "1😀﻿a_21ABİ:",
+        "b😀bİ:😀Σ",
+        "Σİ_/.😀Σ./.0:"
+      ],
+      "expected": []
+    },
+    {
+      "query": "b2",
+      "labels": [
+        "   b/. b.",
+        "B😀_ B",
+        "﻿😀﻿",
+        " AΣA_",
+        "﻿ ﻿/_2 😀: _/﻿",
+        ".aΣ",
+        "_2 ",
+        ".A1",
+        "﻿/:2_ABA_0B",
+        "﻿.012B/.İ:",
+        "b .",
+        "﻿/:😀B0:İ1",
+        "Σa.😀bİ1 ﻿2_2_",
+        "Σ/﻿aΣ01A﻿İ /_21",
+        "baΣa ",
+        "1010Σ2B2_.",
+        "_1 ﻿",
+        "b b01",
+        "B😀﻿0BA1",
+        "B😀b01😀_a.😀 2Σ01B"
+      ],
+      "expected": [
+        "1010Σ2B2_.",
+        "﻿/:2_ABA_0B",
+        "﻿.012B/.İ:",
+        "Σa.😀bİ1 ﻿2_2_",
+        "B😀b01😀_a.😀 2Σ01B"
+      ]
+    },
+    {
+      "query": "_",
+      "labels": [
+        "B01İ_/.0 İ1",
+        " /1",
+        ".01",
+        " 1﻿A﻿: .01",
+        " 😀b/:2b0Σ212bAΣa:",
+        "  .abİ1A1  b0B😀﻿",
+        ":😀:0_.2 /_",
+        "﻿AΣİ A﻿.a:😀b",
+        ".😀bΣ2 ",
+        "Σİ:0﻿😀B010Σ",
+        "b01/ 😀:2Σ",
+        " ",
+        "Ba1",
+        "_ Σ/. Ba_/_1😀101",
+        "_İb _a:/Σ😀B2 1",
+        ".",
+        "_/121İ﻿İ1./B/_",
+        "_ab/b😀./BA:2﻿Σ",
+        "b_A: ﻿/Σ:😀:1A﻿",
+        "﻿_"
+      ],
+      "expected": [
+        "_ Σ/. Ba_/_1😀101",
+        "_İb _a:/Σ😀B2 1",
+        "_/121İ﻿İ1./B/_",
+        "_ab/b😀./BA:2﻿Σ",
+        "b_A: ﻿/Σ:😀:1A﻿",
+        "﻿_",
+        "B01İ_/.0 İ1",
+        ":😀:0_.2 /_"
+      ]
+    },
+    {
+      "query": "b",
+      "labels": [
+        "﻿/b ﻿2.",
+        "Σ_B/_",
+        "_İ.",
+        "  Ba_ΣA1A 0B",
+        ":/B",
+        ".İ.01😀:😀﻿a.2Ba﻿",
+        "﻿  AB2 😀_",
+        " 0 aBİΣ2BA.A_",
+        "Σ2_0:0B2_/_2Σ",
+        "Bİ_A 😀1/﻿2b",
+        "﻿2 😀./b b/﻿ Σ",
+        "﻿ ﻿_A:_😀Σ",
+        "﻿ :😀 01 b😀b0_/b",
+        "BΣ",
+        "Σ0 0﻿B ﻿0. _A ",
+        " ",
+        "_/b B😀B0_",
+        " /_",
+        ".2:a﻿﻿_ _İ.😀_2Σ",
+        "ΣA.0b0: _ ﻿"
+      ],
+      "expected": [
+        "Bİ_A 😀1/﻿2b",
+        "BΣ",
+        "﻿/b ﻿2.",
+        "  Ba_ΣA1A 0B",
+        ":/B",
+        "_/b B😀B0_",
+        "﻿2 😀./b b/﻿ Σ",
+        "﻿ :😀 01 b😀b0_/b",
+        "Σ_B/_",
+        "﻿  AB2 😀_",
+        " 0 aBİΣ2BA.A_",
+        "ΣA.0b0: _ ﻿",
+        "Σ2_0:0B2_/_2Σ",
+        "Σ0 0﻿B ﻿0. _A ",
+        ".İ.01😀:😀﻿a.2Ba﻿"
+      ]
+    },
+    {
+      "query": "b",
+      "labels": [
+        "B.İ_B2:/:",
+        ".aΣ",
+        "1İ:/_/b",
+        ":Ab Σab😀﻿A./_İba_",
+        "b2. 0.A ",
+        ":/  baΣ/﻿a_2Σ",
+        "1a:2 😀b😀B A ",
+        "1A1/.  A:/B _",
+        ".😀_2Σa.2﻿",
+        ":﻿/1﻿2 2 ",
+        "Σa.0b2.a Ab",
+        ".21aB b0﻿ 1A B",
+        "_/:",
+        "Σ2B",
+        "ΣaB😀b0﻿a﻿😀:/B21/ ",
+        "B .aB😀:",
+        ":😀1😀﻿😀B0_0b😀B",
+        "ΣB😀BABA AΣ😀Σ21B",
+        "1/baB",
+        ":a﻿ ﻿"
+      ],
+      "expected": [
+        "B.İ_B2:/:",
+        "b2. 0.A ",
+        "B .aB😀:",
+        "1/baB",
+        ":/  baΣ/﻿a_2Σ",
+        "1İ:/_/b",
+        "1A1/.  A:/B _",
+        ":Ab Σab😀﻿A./_İba_",
+        "Σ2B",
+        "ΣaB😀b0﻿a﻿😀:/B21/ ",
+        "ΣB😀BABA AΣ😀Σ21B",
+        "Σa.0b2.a Ab",
+        ".21aB b0﻿ 1A B",
+        "1a:2 😀b😀B A ",
+        ":😀1😀﻿😀B0_0b😀B"
+      ]
+    },
+    {
+      "query": "Σ/:İ",
+      "labels": [
+        "İ.",
+        "1aΣA:İ 😀:bA1",
+        "Ba_/b B 1AB",
+        "1",
+        "10B😀 a 😀b0ba.",
+        "1a / 2﻿İ AB😀_0﻿",
+        " 😀.İ:0﻿0Σ ",
+        " 2BΣİB0.İ_A  Σ0:",
+        "b",
+        "b",
+        "_😀_",
+        "BB ﻿/﻿/﻿",
+        "_﻿2Σ0.",
+        "Σa﻿a.21/ ",
+        "BaΣİΣ2﻿😀﻿😀Bİ_",
+        "b/﻿A﻿/B0:",
+        "B😀: _İ﻿ 1A1/_İb",
+        "Σ ._a 01😀.",
+        "Σa.",
+        ".01 bΣB😀﻿b"
+      ],
+      "expected": [
+        "1aΣA:İ 😀:bA1"
+      ]
+    },
+    {
+      "query": "b0",
+      "labels": [
+        "bA:/﻿﻿baba AΣ0:",
+        "﻿A1 1😀:aΣ/﻿0.a.a.",
+        "﻿2: ΣA_a 2_ 1",
+        "B0./﻿A1",
+        "ΣA_ ﻿a_0.A_2b",
+        "Ba1 12B",
+        "./.A  1",
+        "bİBA﻿  ",
+        "B0B😀:",
+        "1/Bİ./ A:a. .",
+        "1",
+        "_ Bİ.A_01😀.Ab/:😀 ",
+        "BA1İ_",
+        ":/10Σ",
+        "1bA.0 ",
+        "_2_/_",
+        "BİΣ .0﻿/b",
+        "b😀.",
+        "B0_İ:0b/.0:😀ΣİΣab",
+        ":2.2b0 _b2BaΣ"
+      ],
+      "expected": [
+        "B0./﻿A1",
+        "B0B😀:",
+        "B0_İ:0b/.0:😀ΣİΣab",
+        "BİΣ .0﻿/b",
+        "_ Bİ.A_01😀.Ab/:😀 ",
+        "1bA.0 ",
+        ":2.2b0 _b2BaΣ",
+        "ΣA_ ﻿a_0.A_2b",
+        "bA:/﻿﻿baba AΣ0:"
+      ]
+    },
+    {
+      "query": ".İ 0",
+      "labels": [
+        "2_a_A 01212.",
+        "B0﻿a__b0Σ:",
+        "B😀_  a12Σİ﻿ b",
+        " ",
+        " abaΣİ﻿",
+        "Σ",
+        ":İ:2 .:ab😀﻿",
+        ":  A﻿😀_",
+        "_/1A_ 12B ﻿İ﻿",
+        " .2﻿aBİ1  ./﻿",
+        "1 b0:ab:2Σ2Σ",
+        "_/:İ:",
+        "Σ/1İB0:Σ0﻿",
+        ".01😀_/:İ 0b b :",
+        "B0b  A_a ",
+        "1Abİ﻿﻿/_Ab21A1",
+        ":﻿ B Bİ_2﻿/.",
+        "b",
+        "bA_😀BAΣ_ /. .",
+        "_İ1BΣ B21A_😀Σ"
+      ],
+      "expected": [
+        ".01😀_/:İ 0b b :"
+      ]
+    },
+    {
+      "query": "1/_",
+      "labels": [
+        ".a.0Σ _",
+        "BA 2 ",
+        "1abA  :0babΣ",
+        ":0:",
+        "Σİ.b2Bbab",
+        "Σ .İ AΣaB2.😀.",
+        ":İ10 /.İ1",
+        "Σ",
+        ":",
+        "b/.0:A:",
+        "1a.aB b.2Σ0:İ_",
+        "ΣAb",
+        "Σ0B😀Bİb0 İ_ B",
+        ".İΣ2.😀b😀  /.a:a ",
+        "1﻿",
+        "﻿ Ba1😀Σ😀:",
+        ".😀./12./_.",
+        ".",
+        ".2 /1/1",
+        "1  İ1_   b"
+      ],
+      "expected": [
+        ".😀./12./_.",
+        "1  İ1_   b",
+        "1a.aB b.2Σ0:İ_"
+      ]
+    },
+    {
+      "query": ".",
+      "labels": [
+        ":b :İ.",
+        "__010:/  Σ",
+        "BA_ B",
+        "Σ0:",
+        "﻿01/ 😀1/b",
+        ":😀101😀B2﻿0:",
+        ". . :",
+        ":/:A:😀 010Σ Σ",
+        "ΣAΣb0_/B0. :",
+        "_😀bİ_/12.2:0﻿0b",
+        ".😀1 ./b0:İ 😀_2 ",
+        ".😀:2Σİ﻿İ_",
+        "﻿01",
+        ".",
+        ".b😀Σ B",
+        "  :😀BİΣ/1",
+        "1😀:/_😀.😀_",
+        "_İ ab2 İ﻿2Σ_İBA ",
+        "1 b İb﻿0_😀﻿a_aΣ",
+        "Σ 12 "
+      ],
+      "expected": [
+        ".",
+        ". . :",
+        ".😀1 ./b0:İ 😀_2 ",
+        ".😀:2Σİ﻿İ_",
+        ".b😀Σ B",
+        ":b :İ.",
+        "1😀:/_😀.😀_",
+        "ΣAΣb0_/B0. :",
+        "_😀bİ_/12.2:0﻿0b"
+      ]
+    },
+    {
+      "query": ".İ:0 ",
+      "labels": [
+        "  Σ0﻿2:aB/1/Σ",
+        "_2:😀1ABA﻿2.",
+        "_0Σ0b",
+        "B2:😀_😀bİ:",
+        "_2_ ._aΣB10b/_",
+        "  :Σ Σİ:İ1﻿A_ :",
+        "﻿",
+        ":01/b",
+        "_0_/bAba1aBİ:",
+        ":😀 😀 ",
+        "Σ . ﻿😀.İ_2:/b😀b:",
+        "﻿a.İ_1A ",
+        " Σ/ /﻿İ .0Σ/./B",
+        ".a:a. . :",
+        "  1/b/_aΣAΣİ:B",
+        "Ba.A_a﻿2 😀:",
+        ". ﻿ 1:2ΣAB",
+        ":😀Σ/Σa_",
+        ":21A_0 İ:İB",
+        ":_  :1a__"
+      ],
+      "expected": []
+    },
+    {
+      "query": " a",
+      "labels": [
+        "😀﻿:/﻿AΣ😀ba İ ",
+        ":AΣ2﻿İ﻿/.A_İ﻿AΣ/b",
+        ".2Σ",
+        "_/_",
+        "B😀B",
+        "Σ2B.0b",
+        " 2b B",
+        "Σa_ 1  ",
+        ".A A 2 Ab😀b",
+        ":a1/ İ.1A_/ 21",
+        ":",
+        "b/ aΣA.İΣa.",
+        "B  _0baB",
+        ":2Σ",
+        "1İ1/Σ b0.😀Σ",
+        " 2bΣ B😀b0b0_ .",
+        "bİΣ21İ İ_",
+        " /BAB2BB",
+        "bbİb2Σ😀Σ0B😀bB😀B",
+        "BAba1A﻿a﻿2BaΣ2 "
+      ],
+      "expected": [
+        ":AΣ2﻿İ﻿/.A_İ﻿AΣ/b",
+        ".A A 2 Ab😀b",
+        ":a1/ İ.1A_/ 21",
+        "b/ aΣA.İΣa.",
+        "😀﻿:/﻿AΣ😀ba İ ",
+        "Σa_ 1  ",
+        "BAba1A﻿a﻿2BaΣ2 ",
+        " /BAB2BB",
+        "B  _0baB"
+      ]
+    },
+    {
+      "query": "_ _",
+      "labels": [
+        " 0.",
+        "1 İ.2.0bİ_/Σ",
+        "B😀Σ",
+        "_😀:",
+        "BİΣ /:",
+        " 😀.😀1a_A_😀Σ",
+        "_ .",
+        ".İ﻿2_ B:",
+        "﻿b😀_/ ",
+        "_ _",
+        " 😀:/1 .",
+        "_0 ",
+        "BA 0﻿/Σ/﻿a_A.",
+        "B😀B😀Ba_/ 0:😀﻿aΣ",
+        "﻿A1/  b😀﻿/12﻿A﻿",
+        " İ_😀﻿010:",
+        "﻿İB B/B :Σ😀1",
+        ":  / 0Σİ_",
+        "b😀1 2_a﻿İ:AΣ",
+        "Σa10Σa.😀﻿AB"
+      ],
+      "expected": [
+        "_😀:",
+        "_ .",
+        "_ _",
+        "_0 ",
+        " İ_😀﻿010:",
+        ".İ﻿2_ B:",
+        "﻿b😀_/ ",
+        "b😀1 2_a﻿İ:AΣ",
+        " 😀.😀1a_A_😀Σ",
+        "B😀B😀Ba_/ 0:😀﻿aΣ",
+        ":  / 0Σİ_",
+        "BA 0﻿/Σ/﻿a_A.",
+        "1 İ.2.0bİ_/Σ"
+      ]
+    },
+    {
+      "query": "﻿/:ab",
+      "labels": [
+        "Σb2b",
+        "_İΣ",
+        "ba_😀Σ. _ b2:",
+        "b",
+        " 2b",
+        " /: B😀_İ: ",
+        "Σ﻿",
+        "_0﻿İ 0﻿ _",
+        "_",
+        "Σ2﻿A﻿2b2BAB😀﻿ :",
+        "1",
+        "Σ : 1😀 İb",
+        ".21a﻿",
+        "B😀 😀﻿",
+        " :İ12:a.😀. ﻿😀B",
+        "_",
+        ".:0b0B😀 İΣ/Σ :",
+        "b Σ0:",
+        "_2bİ_A.İB",
+        "ΣABb_a. bA.A﻿"
+      ],
+      "expected": [
+        " :İ12:a.😀. ﻿😀B"
+      ]
+    },
+    {
+      "query": ":/Σ",
+      "labels": [
+        "12﻿ _0_0_",
+        " :A_/Σ",
+        "BaBA1a﻿",
+        "Σİ1/Σ/:aB_a10 ",
+        "b",
+        "b:İBA:",
+        "﻿012﻿😀_  😀_aBİΣ😀 ",
+        "﻿A﻿aΣ :/_😀.A﻿ /:",
+        ":ΣB😀Σ😀_2_2b",
+        "1AΣ  ",
+        "_😀1😀1a﻿ bİb",
+        "Σ😀b0_/﻿İ1😀_a 0.",
+        "B/Σ2BİBa:😀1/BİΣ2b",
+        " İ.2 😀./: :0.",
+        " AΣ Σİ_😀B0b😀﻿İ_",
+        " /1AΣ",
+        "  Σ",
+        "_A /_/B ﻿0﻿/﻿/b  ",
+        ".",
+        "_a﻿😀1İb😀b"
+      ],
+      "expected": [
+        "Σİ1/Σ/:aB_a10 ",
+        ":ΣB😀Σ😀_2_2b",
+        " :A_/Σ",
+        "B/Σ2BİBa:😀1/BİΣ2b"
+      ]
+    },
+    {
+      "query": ":😀. _",
+      "labels": [
+        "   İ:İ 0_0﻿",
+        ". _",
+        "12Bİ1/ ",
+        "BA_",
+        "B2./ba Aba. _",
+        ": ﻿aB2B😀B10:21a:",
+        ":a aΣ2﻿A_😀Σ😀.İb",
+        "_0Σ",
+        ":/_ab/_😀10.",
+        "﻿/1 _",
+        ":A ",
+        " A﻿😀_aΣA 0Σa﻿0.2.",
+        "_ Σ/  1 bİ1a:0b",
+        "1.😀_",
+        "_0﻿B",
+        "Σİ 2﻿",
+        "bB0 2:A_/:0_aΣ",
+        "Σ0.aBİbΣ2b",
+        "_/1",
+        "."
+      ],
+      "expected": [
+        ":/_ab/_😀10.",
+        ":a aΣ2﻿A_😀Σ😀.İb"
+      ]
+    },
+    {
+      "query": " Ab",
+      "labels": [
+        ":1",
+        "B",
+        ". ﻿﻿A﻿a1/B B",
+        " 2bA 2_0:A1",
+        "Σ",
+        "﻿",
+        " AB.2B2:😀.",
+        "_/  _A1abAb😀1😀﻿İΣ",
+        "BA1İB2:",
+        "baΣ0b😀Σ2b",
+        "  .0b0_0Bİ_1😀Σ2Σ",
+        " A﻿/ 212_",
+        "﻿2.AΣaΣ/Σ2b",
+        "ΣA10Σ😀.İΣA./b/Σ/b",
+        "Σ",
+        "bİ﻿ Σ",
+        "baΣ.2b_aΣ0.",
+        " a /.",
+        "Bİb",
+        " Ab"
+      ],
+      "expected": [
+        " AB.2B2:😀.",
+        " Ab",
+        ". ﻿﻿A﻿a1/B B",
+        "_/  _A1abAb😀1😀﻿İΣ",
+        "﻿2.AΣaΣ/Σ2b",
+        "baΣ0b😀Σ2b",
+        "BA1İB2:",
+        "baΣ.2b_aΣ0.",
+        "ΣA10Σ😀.İΣA./b/Σ/b"
+      ]
+    },
+    {
+      "query": "B B😀",
+      "labels": [
+        "😀b0Σ0﻿",
+        "1Ab.",
+        "12.010  B_ _",
+        ":",
+        "B2B2 A.Σ",
+        "ΣAB",
+        "﻿İ1/  ﻿ Σ/﻿😀B",
+        "1bbA_A_😀:Σ",
+        "b😀B",
+        ":a_ 😀:2Σa.😀_",
+        "ΣΣ0_AΣ",
+        "_ 0.  2 a1😀﻿01/.",
+        "﻿. 1😀Σ2﻿:",
+        "1İB ﻿😀_😀B",
+        ":  ",
+        ".İΣ",
+        "ΣİΣİΣ B",
+        ":",
+        "_0:01 ΣA.2_",
+        "_"
+      ],
+      "expected": [
+        "b😀B",
+        "1İB ﻿😀_😀B",
+        "1bbA_A_😀:Σ"
+      ]
+    },
+    {
+      "query": ":A_",
+      "labels": [
+        "_ b",
+        " abİ﻿0.2b",
+        " İbİ./﻿ab",
+        "b😀.İ1😀﻿﻿1😀:İba:",
+        "Σ2B😀:2B :",
+        "Σ0﻿ BAbA﻿",
+        ". bİB Σİ:Aba_/Σ ",
+        "_😀B 1 1 2b",
+        "Σa1/﻿İbb",
+        ".A_/b/ A﻿BA 😀.a1",
+        "Σ😀Σa﻿2.İ.a1",
+        " İΣ0:İBAΣ😀 ",
+        "_",
+        "b ./Σ😀1 BA﻿ BaΣaΣ",
+        "  b/b",
+        "ba1﻿ ﻿İ1",
+        "1a1İ:😀:İ_b",
+        "1_A.0﻿/1A ",
+        ":2Σ0 2_ _a﻿",
+        ".😀B😀Σ2.İ1İ.Σ"
+      ],
+      "expected": [
+        ". bİB Σİ:Aba_/Σ "
+      ]
+    },
+    {
+      "query": "ΣA:",
+      "labels": [
+        "Σ😀bİ﻿2B",
+        "B0﻿",
+        "B_0b2﻿",
+        "_0Σİ.",
+        "_A ba﻿0B 1/:",
+        ": bA:.İB/.01",
+        " /:😀B2b0:Bab",
+        ":A A﻿A:a.aΣA ab",
+        ":0:/: /_İΣa ",
+        ":_0.",
+        "b21",
+        ":A 😀b2:AbA. B2 ",
+        ":﻿2babAbA﻿",
+        ":0_İ_",
+        "b2.2b/1A  1",
+        "﻿😀Σ😀: . ﻿İ.0.",
+        "b0﻿0Σ0﻿2:😀b 1",
+        " İ 0 a1😀  BaΣAb",
+        "b",
+        "B/."
+      ],
+      "expected": []
+    },
+    {
+      "query": "Σ2_İ",
+      "labels": [
+        "İbab/b0 İ1AB0_2bΣ",
+        ".A_a./b0_2Σa﻿0:2﻿",
+        " a İ /b😀﻿",
+        "b😀Σ babİ_/b",
+        ".😀﻿A:a İΣ😀:",
+        "1/b  İ1B",
+        "1a_",
+        "B0:😀BA_0 0:a_1",
+        "B2_ ./ /1",
+        "﻿😀﻿/:A /b2.",
+        "Σ😀./B",
+        "b😀1",
+        "babAΣ",
+        "_Ab1",
+        "101 ",
+        "Σ/:/1B :/﻿",
+        "  ﻿2ba./1﻿",
+        "Bİ:0﻿0:/Σ😀_Ab",
+        ":😀12_0_aB_",
+        "./﻿😀﻿abAbaΣaB"
+      ],
+      "expected": []
+    },
+    {
+      "query": ":  0",
+      "labels": [
+        "0BA1İB/ A1A﻿2﻿/ 😀B",
+        "﻿2Ba﻿a.01",
+        "12:",
+        "Bİ   B",
+        "1A_ b ..b/1/ A1",
+        ".İ1😀bΣ",
+        " 2Σa.a:2:Ab😀 ",
+        "B _0.İ:﻿/Ba1A_",
+        "12b2﻿A:İba1",
+        " 2﻿21/:2  Σ",
+        "﻿İ﻿/1aB2Bİ a:0_😀1",
+        "Bİ /.😀:AB😀﻿/ 😀.",
+        "_/_B﻿/ 2  b",
+        "Σ ﻿2Σ2Bİ ",
+        "_İ﻿İ﻿a A_AB",
+        "﻿Σa /.",
+        "Ba.01A: ./bAB",
+        "Σ/B ﻿.0﻿a1a1ab0Σ",
+        "﻿😀1😀:",
+        "﻿2: _İ﻿210_0.1"
+      ],
+      "expected": [
+        "Ba.01A: ./bAB",
+        "B _0.İ:﻿/Ba1A_",
+        "﻿İ﻿/1aB2Bİ a:0_😀1",
+        "﻿2: _İ﻿210_0.1"
+      ]
+    },
+    {
+      "query": ".",
+      "labels": [
+        "B:A :AΣ0:İ﻿a1b",
+        "_a﻿0bABb😀_AΣ/ ",
+        ":a a 2:İ﻿😀12Σ",
+        "﻿",
+        "Σ",
+        "Σa a:. BİB _İ_/Σ",
+        ".A1A ΣAB",
+        "_",
+        "1Σ21AΣ B",
+        "./Bİ﻿0 a_İ İ_İ.",
+        "1 A﻿aBAB/b😀Σ2.",
+        "1A12Σ0_ _",
+        "﻿a﻿a ",
+        "Σ",
+        "﻿1",
+        ".Σ😀B",
+        "b .İ:0_21/B",
+        "b :2 2b _",
+        "b0 İb/12BA﻿abA_",
+        "﻿0121😀:İΣ"
+      ],
+      "expected": [
+        ".A1A ΣAB",
+        "./Bİ﻿0 a_İ İ_İ.",
+        ".Σ😀B",
+        "b .İ:0_21/B",
+        "Σa a:. BİB _İ_/Σ",
+        "1 A﻿aBAB/b😀Σ2."
+      ]
+    },
+    {
+      "query": "Σa_0",
+      "labels": [
+        "A 2﻿:0101😀b",
+        "B/.A_2:2Σ",
+        "_0B2_aΣ/  .a.",
+        "B2﻿/:0.😀_",
+        "﻿😀B/B",
+        ":😀:0Σ😀:2b",
+        ".😀_A_0Σ0_2Σİ:A_/1",
+        ".A.A:a__ B",
+        "﻿ :  A İΣ",
+        "b😀b",
+        "Σ",
+        " 😀1İ:A: :  a﻿aBİb",
+        "﻿ B2 2b﻿",
+        "ΣİB😀Ba :_😀 B/:",
+        "./﻿bİΣ21a_﻿aΣ0Σ",
+        "1İΣİb0﻿2B2Σ",
+        "BAB😀﻿2﻿ :b ﻿0.A1",
+        "b😀﻿aΣ/B_😀:İb2Σ😀 ",
+        "B2bA_01aΣ0.",
+        "Bİb"
+      ],
+      "expected": []
+    },
+    {
+      "query": "ΣA",
+      "labels": [
+        "01İB",
+        "Σa:😀Σ0B_😀b :",
+        ".İ_A﻿a Ab .😀 İ ",
+        "1İ1a1aB😀﻿İ﻿  😀﻿ ﻿",
+        "﻿a﻿0Σ2:aΣ😀./bİΣİ.",
+        "b0_",
+        ":1İ:İb",
+        " 😀﻿b:/__😀Σ.",
+        "1/1A﻿/.İ:2 ",
+        "_﻿:_:/bAbA.",
+        "﻿0.0.A1 _0baB :",
+        "BΣa: _",
+        ".😀Σ",
+        "Σa./.aΣ",
+        "b/_2﻿2101AB",
+        "﻿😀_A:İb😀:A_ B/﻿B",
+        "1 ΣAΣ",
+        "Σ bA:﻿2.0B",
+        "1/1",
+        ".a1😀:İ_A1"
+      ],
+      "expected": [
+        "Σa:😀Σ0B_😀b :",
+        "Σa./.aΣ",
+        "1 ΣAΣ",
+        "Σ bA:﻿2.0B",
+        "﻿a﻿0Σ2:aΣ😀./bİΣİ.",
+        "BΣa: _"
+      ]
+    },
+    {
+      "query": ":AΣ",
+      "labels": [
+        "b_a_İ﻿  b2b😀_😀B",
+        "b/.",
+        ".a﻿ b :A 2 2  b21",
+        "BA:",
+        ".21ab2b",
+        ":İBΣ",
+        "_",
+        ":/﻿İB/Σİ﻿",
+        "B😀1A:2b ﻿ 1",
+        ":/.",
+        "B Bab0b😀﻿😀 İ1",
+        "b 12Ba_",
+        " 0.2:A﻿2﻿/1",
+        "B 2﻿0ba1😀b :",
+        "ΣAb0B b﻿",
+        "﻿A:/b0_0b﻿",
+        "Σ﻿0b2b/:0﻿",
+        ".😀12 AB😀B/ ",
+        "_A_A1İBİ 2:",
+        "Σ ΣA1😀 "
+      ],
+      "expected": []
+    },
+    {
+      "query": "_",
+      "labels": [
+        "Ba﻿İ_/b",
+        "﻿_:0b/_ b",
+        "Ba_",
+        ":2﻿2ΣA1AΣA:😀10BA.",
+        "b😀﻿İ﻿a1İ﻿Ab0_A_",
+        "1a_ 12_21﻿İ 2 1",
+        " 1 .aΣa /bİ_İB",
+        ".b﻿ 1A  Σ0 ",
+        "_0B0Σ😀﻿abA./Σ😀.",
+        "b/BΣ B .12_a ",
+        "﻿İ. ﻿",
+        "1A﻿İ1a:",
+        "ba﻿İ﻿",
+        ":_",
+        "Bİb😀  .1",
+        "1B",
+        ".",
+        "  ﻿A.a1/:0Σİb😀B",
+        "Σ0_a.İ﻿😀 Σ",
+        "12﻿a 😀:0﻿"
+      ],
+      "expected": [
+        "_0B0Σ😀﻿abA./Σ😀.",
+        "﻿_:0b/_ b",
+        "Ba_",
+        "1a_ 12_21﻿İ 2 1",
+        ":_",
+        "Σ0_a.İ﻿😀 Σ",
+        "Ba﻿İ_/b",
+        "b/BΣ B .12_a ",
+        " 1 .aΣa /bİ_İB",
+        "b😀﻿İ﻿a1İ﻿Ab0_A_"
+      ]
+    },
+    {
+      "query": "Σ😀_",
+      "labels": [
+        "B/﻿0_a.0﻿",
+        "1",
+        ".İ_",
+        " 0_aΣ",
+        ":",
+        "ba1/﻿/ba.2B",
+        "baΣA_a1",
+        " 0_😀﻿2﻿B1/ 0b😀Σ",
+        " 2.İ_ b2﻿Ab",
+        "Σ21A.aB/. Σ/1",
+        "B/.ab 1﻿",
+        "﻿",
+        "::",
+        ":0.  a_0B",
+        "B😀﻿😀1",
+        "_İ.A  B",
+        "B😀.2 İb",
+        "12bb😀 a1",
+        "_ab0 ﻿İ﻿ :😀Σ",
+        "﻿"
+      ],
+      "expected": []
+    },
+    {
+      "query": ".   b",
+      "labels": [
+        " İ1ab0:0:😀_",
+        "B0. 1",
+        ":/B0﻿ ﻿ 1a_A:aB",
+        "Σaba﻿İ İΣA_aBİBb",
+        "bİ 0_İbAB",
+        "Σ1.İb/_😀﻿0. b0b",
+        ":2 0_/ΣİB1﻿",
+        ".B:/:",
+        ": _/.İB/_/_",
+        ". BΣ",
+        "1_ 12 a:A_",
+        ".",
+        "12﻿İb .",
+        ":",
+        "﻿0_a.aΣ",
+        "Σ2Σ0.A.İ﻿",
+        ".😀﻿01aB",
+        ":/:/1 ﻿",
+        "b😀:A1İ.aΣ2.1",
+        ".aΣa﻿😀.AB0B01"
+      ],
+      "expected": [
+        ". BΣ",
+        "B0. 1",
+        ".B:/:",
+        ".😀﻿01aB",
+        "b😀:A1İ.aΣ2.1",
+        ".aΣa﻿😀.AB0B01",
+        ": _/.İB/_/_",
+        "12﻿İb .",
+        "Σ1.İb/_😀﻿0. b0b"
+      ]
+    },
+    {
+      "query": "_",
+      "labels": [
+        "0:",
+        "B/ΣA1:İΣ",
+        "1",
+        ". 2_/B0b😀:2ba:ab",
+        "B😀:😀.0 2baBa_",
+        "﻿ :😀. Σ.A İ. Σ",
+        "B😀﻿2﻿",
+        ".İ1/.0﻿2Σa1😀﻿21A_",
+        "1a.İ_😀 21a_/:A İ1",
+        ". Σ😀./.0Σ1",
+        "1😀ΣaBİb0B",
+        "﻿a:A﻿😀﻿/:/Σ b",
+        ":aB/﻿a﻿/B😀1",
+        ". 1 B😀B .0.",
+        "  Σ/ İ﻿a:0b",
+        ". .  a:İ:/B0B/﻿",
+        "b😀.﻿a:a.",
+        "bA.a ",
+        "  B/.ab2Σ.a1",
+        "1 B😀_2_a﻿"
+      ],
+      "expected": []
+    },
+    {
+      "query": ":A.2:",
+      "labels": [
+        ".İΣ﻿/.0Σ2_😀_İΣaΣ",
+        "﻿A1ΣA﻿İb/ ",
+        ".İB/10 😀 😀1",
+        "1 :2Σ0Σ😀:",
+        "Σa.İ.0.😀:",
+        "_😀Σ",
+        "12.😀b/B",
+        "B",
+        "bİ:aBB",
+        ":a AB2 2ba﻿AΣaBİ ",
+        ":a1/_A.a:",
+        " ﻿😀.a1 ﻿/Σ0b",
+        "_a_",
+        "b01/Σ Ba_😀b  /b😀B",
+        "b",
+        "b/10ba﻿A ",
+        ":ba İ.",
+        "b1A﻿2: :😀B0﻿a﻿0_",
+        " AΣ😀_",
+        ".İ./Σab  /B2Bİ:a "
+      ],
+      "expected": []
+    },
+    {
+      "query": "_/.0",
+      "labels": [
+        "A.0bİ./ A:😀 İbAb/B",
+        "1",
+        "_/:ab.A﻿A1Bİ:",
+        "Σ1 :",
+        "B1A.😀bİ12_BaB",
+        ".",
+        "bA1😀:İ 0_   1",
+        "B/10_0B😀b0Σ😀  :",
+        "b",
+        "Σ/:",
+        "1aΣİb Ba:2B2:/.",
+        "B0B😀b😀﻿İ1😀1",
+        ".aba1/1 bA:A.2﻿",
+        "1😀_aΣ1Σ😀:A ",
+        "﻿AΣ﻿/_0BİB😀1/_",
+        "_Ab/_/B😀﻿ :/.",
+        "b/.",
+        ":Ab😀B2BΣ",
+        " 01😀BB ",
+        "b"
+      ],
+      "expected": []
+    },
+    {
+      "query": " /﻿0b",
+      "labels": [
+        "1/Ba ",
+        "101😀b2./B",
+        "Σab😀B  ",
+        "﻿İb21A﻿İΣ😀b ΣB",
+        "﻿0ba:😀1😀:0:",
+        "bİ:0 İB/b0Σ0_",
+        " İ1A:a a_/﻿İB",
+        "_0 2:/ a.0B/b﻿a:",
+        "b",
+        "b😀b2:/BA1",
+        " 0﻿",
+        "1",
+        ": 😀.",
+        "b B😀: B",
+        ":a_",
+        ".İ1",
+        "_😀.",
+        "_",
+        "10Ba:/ 0.a:b",
+        ". ﻿😀b12Σİ:A:A﻿"
+      ],
+      "expected": [
+        "﻿0ba:😀1😀:0:",
+        "10Ba:/ 0.a:b",
+        "bİ:0 İB/b0Σ0_",
+        "101😀b2./B",
+        "_0 2:/ a.0B/b﻿a:"
+      ]
+    },
+    {
+      "query": "BA",
+      "labels": [
+        "21/﻿İb:😀ba:",
+        "ba1Σ0ba.0 /  :a:",
+        "b :A_ B1 :",
+        "Σİ.😀﻿AbİΣ",
+        "  bA  ",
+        " ",
+        "_",
+        "bİb2B2.aB😀ba 2_",
+        "﻿😀:2 aBaB0B",
+        "﻿2Σ",
+        "1A:ab/﻿  ",
+        ". ",
+        "_/B Σ",
+        "_  ",
+        ": _A﻿İ 2:İ:İ1",
+        "ΣA.İΣΣ😀:a:İ İΣ .",
+        "bAB _",
+        "﻿İB2_2_",
+        "..B0_",
+        "﻿a:İΣ/ 0:_2B0B"
+      ],
+      "expected": [
+        "ba1Σ0ba.0 /  :a:",
+        "bAB _",
+        "b :A_ B1 :",
+        "  bA  ",
+        "bİb2B2.aB😀ba 2_",
+        "﻿😀:2 aBaB0B",
+        "21/﻿İb:😀ba:"
+      ]
+    },
+    {
+      "query": "_ ",
+      "labels": [
+        "İΣ A﻿",
+        "B0Σ",
+        "B2Σ",
+        "ΣΣ21ba:",
+        "  Σ ΣB😀 bB2_2﻿",
+        "b/1",
+        "﻿0 ",
+        "﻿İΣa﻿",
+        "B  b0_/: ﻿2.",
+        ":0B﻿😀Σ 2.aB0.  ",
+        "BA.2_ _/bAB0Σ/_",
+        "_2﻿2B",
+        "B/B2B  a1Abİ:a.",
+        "_ ﻿A﻿",
+        " 😀:0Σ😀_A.:İ﻿",
+        " 😀b",
+        " ",
+        ".İ1",
+        ".İ﻿ ﻿2. 0.İ:_",
+        ".0BA..2bİB ﻿"
+      ],
+      "expected": [
+        "_2﻿2B",
+        "_ ﻿A﻿",
+        "BA.2_ _/bAB0Σ/_",
+        "B  b0_/: ﻿2.",
+        " 😀:0Σ😀_A.:İ﻿",
+        "  Σ ΣB😀 bB2_2﻿",
+        ".İ﻿ ﻿2. 0.İ:_"
+      ]
+    },
+    {
+      "query": "1a",
+      "labels": [
+        " ﻿A1",
+        "Σ2 ",
+        " / 21",
+        "BA_ :A1İbb/Σ",
+        "_2B😀1 _",
+        "b0_0:0ΣA 0:a﻿",
+        "_",
+        "b_😀.😀ba1AB2.",
+        "_😀﻿A: b:AΣ10Σ",
+        ".😀:﻿b/ 0.😀./b😀 ",
+        "  A_",
+        ":A﻿ _ ﻿😀12b",
+        "﻿﻿ b b",
+        "_ .0_b2:",
+        ":_A:😀1a:",
+        "﻿",
+        "Σ😀b",
+        "bAb b _😀﻿İb/﻿",
+        "1 1B😀:1İ.😀Σ",
+        "bİ:0bb :/﻿"
+      ],
+      "expected": [
+        " ﻿A1",
+        ":_A:😀1a:",
+        "b_😀.😀ba1AB2.",
+        ":A﻿ _ ﻿😀12b",
+        "_😀﻿A: b:AΣ10Σ",
+        "BA_ :A1İbb/Σ"
+      ]
+    },
+    {
+      "query": "ba﻿",
+      "labels": [
+        "A:a:/B",
+        "b:İ_:a /Σ2Σ",
+        "Σ/:",
+        "_0:İb  2B",
+        ":😀:a.1 İ﻿",
+        "B/ ",
+        "b",
+        "...0B/﻿😀﻿",
+        " 2_0. Σ/:😀Σ21",
+        " ",
+        "_ Σ",
+        "1 .aΣA:a﻿0b0_  /.",
+        " 2Σ😀b",
+        "1ab A_0 :😀 ",
+        ":2: ΣİB/﻿aB",
+        " a﻿A1A.2_",
+        "_a: ./_ ﻿ Σİ:",
+        "./:2ΣB0. Σ",
+        "_İ1😀.İ.a1abİ:😀:ab",
+        "_/:aΣA_Aba.2Σ😀:/b"
+      ],
+      "expected": [
+        "b:İ_:a /Σ2Σ",
+        "1ab A_0 :😀 "
+      ]
+    },
+    {
+      "query": "﻿ABA ",
+      "labels": [
+        "b😀Σİ:a:2B0.",
+        "Σİ a1010.İ _a1",
+        "b",
+        "B/  1",
+        " ",
+        "Bİ. ab ﻿İ: 10.1",
+        ". ﻿0 0Ba_210b0Σ😀﻿",
+        ".",
+        "1 :/b",
+        " İ1İ﻿",
+        " a.0:/Σ:_2Σ Σ",
+        "1😀Σ  AΣ2: 1😀 ",
+        " İΣ b012Σab😀BA.İ:",
+        "10. 1a:İ1/Σ",
+        "B",
+        ".Ba:A1 B",
+        "_A﻿1.İB.",
+        ".😀B﻿İ 0BAb2 ",
+        "Σ0.0_ :😀12.a﻿ ",
+        "_ B😀﻿ b"
+      ],
+      "expected": [
+        " İΣ b012Σab😀BA.İ:"
+      ]
+    },
+    {
+      "query": " A1",
+      "labels": [
+        "ΣA﻿",
+        " /b :İb .İB ",
+        "B😀:/_😀Ba_a﻿A:ABa﻿",
+        "﻿aΣ İ﻿2b😀﻿A_",
+        "﻿b211 BAb",
+        "_",
+        " /Σ b😀1😀.a1",
+        ":a_2_/ .aB😀﻿ 10B",
+        " İΣ.0ΣAB😀.2_",
+        ":a﻿",
+        "B0bA1/ 2B",
+        ":./.",
+        "BİBA:.İΣ",
+        "﻿A:0Ba:2bİΣab b",
+        "./  ΣAΣ﻿0Σ",
+        " 😀:a.aΣA:0Σ﻿0﻿",
+        ".😀b/Σİ /Σ0b",
+        "b2 ",
+        ".İ_A﻿2_",
+        "﻿😀﻿ab"
+      ],
+      "expected": []
+    },
+    {
+      "query": "﻿  ",
+      "labels": [
+        "2_1",
+        "__010 /121 b1😀.",
+        "Σa.:A﻿aΣ2b",
+        "112_ B2Σ012﻿😀.",
+        "1İ.",
+        "1A_10. 12 İ:aΣ",
+        ".😀Bb/b0Σ",
+        "﻿0ΣAB.İ.",
+        "﻿a__/Σ",
+        " 😀 İ_ 10:2.2Σ",
+        "1/1a:a.2BA.",
+        "12:_😀:",
+        "10﻿",
+        "b b0_﻿/﻿a.",
+        "﻿",
+        "﻿/1 A.İ.",
+        "_İ  :",
+        " A1",
+        "B ﻿a﻿İ.",
+        "B2B😀_AΣ 1ab"
+      ],
+      "expected": [
+        "__010 /121 b1😀.",
+        "2_1",
+        "Σa.:A﻿aΣ2b",
+        "1A_10. 12 İ:aΣ",
+        "﻿a__/Σ",
+        "12:_😀:",
+        "b b0_﻿/﻿a.",
+        "112_ B2Σ012﻿😀.",
+        "﻿/1 A.İ.",
+        ".😀Bb/b0Σ",
+        "﻿0ΣAB.İ."
+      ]
+    },
+    {
+      "query": "_0:2",
+      "labels": [
+        "A 😀bİ﻿😀Σa1a ",
+        "_/ Ab/B_Ab1A﻿1",
+        ":",
+        " a.İ﻿ İ1",
+        "BA1A1İΣ/:",
+        "bΣA12B/_",
+        "Σ😀Σ:2 😀 0Σ",
+        "﻿😀_a ",
+        "_2Σa 0.2﻿😀.aΣ",
+        "b2B😀./BAb0:",
+        "_",
+        "﻿a.😀B😀B😀:İ.2﻿0_😀b",
+        "b2﻿😀.aΣ2:",
+        "bB﻿",
+        "_2.a.2﻿ .a ",
+        "_a1 .0b",
+        ".:A12.",
+        "B2:2b2 ",
+        ": 1",
+        "1.AB0. __0bAB"
+      ],
+      "expected": []
+    },
+    {
+      "query": "Σ0 İ_",
+      "labels": [
+        ". 1:0﻿ b/b/Ba1😀B",
+        "B12:a. b ﻿",
+        " AΣİ  ba﻿",
+        "﻿/Bİ_AbB",
+        ".İ.İ 2.😀﻿😀:",
+        "bİΣİ 01B :",
+        " 1_/﻿a_",
+        "./.abA.",
+        ":bİ1/1/b",
+        ". :😀 ﻿",
+        "::/ΣBAbA:😀1Ab",
+        "Σa_ Σ😀﻿2B",
+        "_İ﻿İ1İ:A﻿0﻿ B0:",
+        "ΣA1İ İ:  ",
+        "B😀﻿:İ.1",
+        "1AΣİ﻿2Σ",
+        ":AΣ0﻿1 _ 12ΣAb",
+        " ",
+        "_",
+        "1İ_/:İ﻿a1/BA:2b2b"
+      ],
+      "expected": []
+    },
+    {
+      "query": "1 ",
+      "labels": [
+        "İbaΣ/_ b0Σ/_",
+        "B12b😀12.a 😀 ",
+        "Σ0.2ΣΣ/1İ ",
+        "b A.a:2b",
+        "1a﻿İ_2B _Σ",
+        "b2_﻿  2_İ1",
+        "Σİ﻿ :/_İ_a_",
+        "b😀baB0 ab0﻿ .A_",
+        " AΣ/ İ:/bİΣ",
+        ".0.2﻿1",
+        "1😀﻿A ",
+        " 😀12Σ ﻿ .İ1 _ Σ",
+        ".21İBabİ:",
+        "﻿ B2.0 /.",
+        " /B😀b:/ : 1﻿/b",
+        "_😀 A./ 2﻿İ_a.",
+        "Σaba_",
+        "_A /_",
+        "1😀﻿İ /﻿/ ",
+        "Bİ /1😀B"
+      ],
+      "expected": [
+        "1a﻿İ_2B _Σ",
+        "1😀﻿A ",
+        "1😀﻿İ /﻿/ ",
+        "Bİ /1😀B",
+        "Σ0.2ΣΣ/1İ ",
+        " /B😀b:/ : 1﻿/b",
+        "B12b😀12.a 😀 ",
+        ".21İBabİ:",
+        " 😀12Σ ﻿ .İ1 _ Σ",
+        ".0.2﻿1",
+        "b2_﻿  2_İ1"
+      ]
+    },
+    {
+      "query": ": ",
+      "labels": [
+        "01/B",
+        ".   Σ2Σ2 0﻿İΣİ ",
+        "b0b",
+        "B2baBİ.",
+        "bİ:0_😀B:İ.",
+        "b:  2﻿2./:",
+        "_a_/1",
+        "﻿21/bİBa1İ:",
+        "b/b b/_a_İb b0 /_",
+        "1İ1İ﻿İB﻿",
+        "﻿😀_",
+        "./:İ::a 😀1😀﻿/_",
+        "﻿01Ab Σa11/b",
+        ":İ İ AB2 AΣ/Ba_",
+        "1İ_😀:0.😀. BaΣ",
+        ".A:0_İ_ Σ😀ΣaΣ😀:A.",
+        "﻿a1AB/Σ😀.2_İb",
+        "bA:0Σ2 AΣΣ",
+        "_A_/. 1a:",
+        "b ﻿aB"
+      ],
+      "expected": [
+        ":İ İ AB2 AΣ/Ba_",
+        "./:İ::a 😀1😀﻿/_",
+        "b:  2﻿2./:",
+        ".A:0_İ_ Σ😀ΣaΣ😀:A.",
+        "bA:0Σ2 AΣΣ",
+        "bİ:0_😀B:İ.",
+        "1İ_😀:0.😀. BaΣ",
+        "_A_/. 1a:",
+        "﻿21/bİBa1İ:"
+      ]
+    },
+    {
+      "query": " ",
+      "labels": [
+        "1bA:2_0. 1😀 2 ",
+        "﻿ a Ab/_ 1a1",
+        "b1 Σ",
+        "12 İ.",
+        ":0Σ .0.İΣ2B0B/11",
+        "﻿2 Ab0ΣİBİ12__2.",
+        " 2.",
+        ".0 😀﻿:",
+        "b😀1 1😀1/10:0:İ﻿",
+        " 😀 2:",
+        ": a /. 1İ_0.",
+        "B 2Σ/bb01 .😀B ﻿",
+        "Σ1:😀1 _0﻿a﻿Ab0Σ",
+        "1",
+        "B/﻿2  .A B😀_",
+        "1",
+        "ΣA﻿﻿1İ10 /:a:0﻿",
+        " a.AB",
+        "1İ:.a.2b😀 a.",
+        "﻿1AΣ"
+      ],
+      "expected": [
+        "1bA:2_0. 1😀 2 ",
+        "﻿ a Ab/_ 1a1",
+        "b1 Σ",
+        "12 İ.",
+        ":0Σ .0.İΣ2B0B/11",
+        "﻿2 Ab0ΣİBİ12__2.",
+        " 2.",
+        ".0 😀﻿:",
+        "b😀1 1😀1/10:0:İ﻿",
+        " 😀 2:",
+        ": a /. 1İ_0.",
+        "B 2Σ/bb01 .😀B ﻿",
+        "Σ1:😀1 _0﻿a﻿Ab0Σ",
+        "1",
+        "B/﻿2  .A B😀_",
+        "1",
+        "ΣA﻿﻿1İ10 /:a:0﻿",
+        " a.AB",
+        "1İ:.a.2b😀 a.",
+        "﻿1AΣ"
+      ]
+    },
+    {
+      "query": "1 bİ:",
+      "labels": [
+        "1   1/_aB2b 1 :A.",
+        "b2Bİ1B1/bA 0﻿",
+        "Σ  ",
+        "b",
+        "1 1 Σ0.0 İ_İΣa﻿😀.",
+        "121a﻿0B01  0B/_a ",
+        "Σ/b/:/Bİ..İΣ",
+        "bΣA:2./﻿/ΣAB/_",
+        " 2Σİ:",
+        "_. 1Σ",
+        "b😀ba_﻿abA:",
+        "_0﻿İ ",
+        "﻿ Σİ:/﻿😀:",
+        "_a /B21 : bA.",
+        ":😀   0_ ﻿2 /Σ",
+        "1a:_2Σ ",
+        "Σ/Σ",
+        "ΣAbİ1A﻿",
+        "Ba12Σ",
+        " 2﻿0B0 2 2 "
+      ],
+      "expected": []
+    },
+    {
+      "query": "1İB",
+      "labels": [
+        "﻿A .",
+        "_ _2Σ2 😀 A﻿",
+        " A:a1İB",
+        ".",
+        ".",
+        "1",
+        ":0﻿2b/:a:😀:İ:",
+        "bB",
+        "﻿/ İ1",
+        "﻿😀BA B",
+        ".😀B/ 😀.",
+        "_",
+        "B2﻿a.0_2 0Σ0_:/Σ",
+        "_A./Σ/_0bİ1A1",
+        "b/.İ:B",
+        "_İ./bAbb/﻿İ_1",
+        "B﻿İB😀b/.:2﻿İΣ",
+        " ",
+        "10 İΣİ:bAΣİ.",
+        "﻿😀﻿2Σ0b/12b😀1İb2 "
+      ],
+      "expected": [
+        " A:a1İB",
+        "10 İΣİ:bAΣİ.",
+        "﻿😀﻿2Σ0b/12b😀1İb2 "
+      ]
+    },
+    {
+      "query": "ba",
+      "labels": [
+        " 😀_İ.",
+        "_AΣ😀ΣΣ😀B﻿",
+        "./Σ :😀Σ",
+        "1 Σ 2﻿aΣa﻿A: 121",
+        ".0._0:",
+        " 😀 12:",
+        "b  ",
+        ":😀.0ΣaBİ﻿",
+        "Σ.a.😀1",
+        "b2﻿2Σ",
+        "﻿/.",
+        ":0Σ",
+        "_2 😀b",
+        "﻿0:İ:",
+        "Σ0 İ﻿2BaBa﻿Ab21",
+        "﻿İΣΣab0_2 ",
+        "b21/_ :İ 😀b Σ",
+        ".:😀﻿İ. Ba﻿a A﻿Σ",
+        " a İ  .",
+        ".B😀.b"
+      ],
+      "expected": [
+        ".:😀﻿İ. Ba﻿a A﻿Σ",
+        "Σ0 İ﻿2BaBa﻿Ab21"
+      ]
+    },
+    {
+      "query": " ",
+      "labels": [
+        "_A1A.﻿",
+        ".",
+        " 😀1 ﻿2:_İBAΣ",
+        "ΣaΣİΣ2:0ΣA﻿😀Σ0 ",
+        "Σ2 2:",
+        "./:",
+        "1/:Ab0﻿﻿",
+        "_A﻿a A1a1",
+        "B/: :😀12:/1😀b",
+        "B2bA:AΣ",
+        "1Σ0.A1İ ",
+        "﻿A﻿ B",
+        ":Ab",
+        "_",
+        "1",
+        "﻿",
+        "Σa1bİ1a_a﻿ :",
+        "_a .A.İB",
+        ".0: b B",
+        "Σ ba "
+      ],
+      "expected": [
+        "_A1A.﻿",
+        ".",
+        " 😀1 ﻿2:_İBAΣ",
+        "ΣaΣİΣ2:0ΣA﻿😀Σ0 ",
+        "Σ2 2:",
+        "./:",
+        "1/:Ab0﻿﻿",
+        "_A﻿a A1a1",
+        "B/: :😀12:/1😀b",
+        "B2bA:AΣ",
+        "1Σ0.A1İ ",
+        "﻿A﻿ B",
+        ":Ab",
+        "_",
+        "1",
+        "﻿",
+        "Σa1bİ1a_a﻿ :",
+        "_a .A.İB",
+        ".0: b B",
+        "Σ ba "
+      ]
+    },
+    {
+      "query": "_0 /",
+      "labels": [
+        "2_0:İ_a:2b",
+        "Σİ İ_ _/.😀﻿﻿2 2Σ",
+        "﻿2:/b2_012.",
+        " /_a_ 1😀b/﻿İ1",
+        "._0b./BAΣİ /b1",
+        "1/ A:",
+        "﻿21A./Σ0.21😀.",
+        "Σ2ba12./ 0_",
+        "B",
+        "1aΣAΣ/﻿0﻿_",
+        "_:",
+        "﻿a1a Σ",
+        "﻿ Bİ﻿:B😀1",
+        "Bİ﻿2:Ab/.😀B/Σ",
+        " AB/B0 😀.0B/_",
+        "ΣİΣ😀.",
+        "Σ0B0.😀.b/_😀:😀 😀b",
+        "﻿/1 1.😀.aΣ1",
+        "b",
+        "b b/BA1😀bİBA.😀Σa."
+      ],
+      "expected": [
+        "2_0:İ_a:2b",
+        "._0b./BAΣİ /b1",
+        "﻿2:/b2_012."
+      ]
+    },
+    {
+      "query": "b/_2",
+      "labels": [
+        "0_AΣ İb😀_/:İ.İB😀B",
+        "1Σ0b2.2121 _/B/1",
+        "Σa AΣ😀1😀_a﻿",
+        "  _2 İ1/﻿",
+        "﻿İ.Σ./:2Σ2﻿/B",
+        "b.B/B ./  .",
+        ".İB2. ﻿",
+        " A:2.2 A1",
+        "﻿",
+        "﻿İ 😀._2ΣB/b",
+        "10 /_İBa:😀12bAB",
+        "ΣΣa AΣ :😀_0b",
+        "b0ΣaB",
+        "_A Σ",
+        "b﻿aB0B",
+        "1B1bİ﻿2﻿aΣ",
+        "./.",
+        " /Σ😀B2B/1😀_",
+        "b",
+        "Σİ:2Σaba﻿/Σ😀_İ1"
+      ],
+      "expected": [
+        "﻿İ 😀._2ΣB/b",
+        "10 /_İBa:😀12bAB"
+      ]
+    },
+    {
+      "query": ":2",
+      "labels": [
+        "Ab",
+        "_Σ2.İ 😀Σİb",
+        " 0Σ 1İ:ab ﻿/:",
+        ".",
+        "Σ😀:/_AΣ/B/B﻿A::",
+        ":",
+        "Σ😀_a.:",
+        "ΣA  BİΣa 😀_ b0 0b",
+        "b .😀b",
+        ":😀Σ﻿",
+        "1",
+        "1",
+        "﻿2:😀﻿a_2:İ:İ_😀_ab",
+        ".0_İ İΣ Σ_Ab﻿aB",
+        ".a﻿",
+        "Σİb0﻿21/ B0bb ﻿",
+        "﻿2Σ/1",
+        "Σİ.B_A1  / 😀﻿",
+        "1/b😀_A12bİ1a_ 101",
+        "Σ2ΣİΣ.0Σ﻿"
+      ],
+      "expected": [
+        "﻿2:😀﻿a_2:İ:İ_😀_ab"
+      ]
+    },
+    {
+      "query": "b2Σ",
+      "labels": [
+        ".",
+        ": .İ.",
+        "Σ B",
+        "_2  ",
+        "b😀:😀1",
+        "Ba_2:İ1İ.A.",
+        "_2Σ0_A_/. : B01",
+        "Σ",
+        ".",
+        " 0.a:0./Σ",
+        "﻿",
+        ":2.😀Σ",
+        "_İ./b Σ😀:_a aΣ😀1",
+        "1 Σİ İ a  1:",
+        "Σ😀: _",
+        "﻿ _2_😀: :0_a1😀:",
+        "b212_A.ABİ12b0.0Σ",
+        "﻿2﻿a 😀1/Σ",
+        "_/Σ2Σ",
+        " İ1aΣ2./﻿0:"
+      ],
+      "expected": [
+        "b212_A.ABİ12b0.0Σ"
+      ]
+    },
+    {
+      "query": "﻿2:",
+      "labels": [
+        "﻿0_b2./ /_ b",
+        "b   _ Σ0B",
+        "Σ/1  AB0﻿B0./:",
+        " 2:a10BA:aBaΣ",
+        "Σ",
+        ":2Σ/ A.Σ",
+        " 😀1 :2_😀﻿😀b ﻿B",
+        "Σ _2B1",
+        ".Σİ.2 İB :1",
+        "B0﻿İ 2: 1İ1a﻿.",
+        "﻿﻿İ.😀.",
+        "B/:A:abİ. B   1AB",
+        "b/:2_B :İ:",
+        "﻿İ:İ﻿",
+        "_2B/.A: 1😀b2 2﻿/ ",
+        "b:/﻿😀_ .2B0Σ  ",
+        ". :İ:",
+        ":İBa_0_/1😀_😀ba.",
+        "1a12﻿0:😀.a. .",
+        "1Σ😀1:0﻿2Σ/b:"
+      ],
+      "expected": [
+        " 2:a10BA:aBaΣ",
+        "B0﻿İ 2: 1İ1a﻿.",
+        "b/:2_B :İ:",
+        ".Σİ.2 İB :1",
+        "_2B/.A: 1😀b2 2﻿/ ",
+        "1Σ😀1:0﻿2Σ/b:",
+        "1a12﻿0:😀.a. ."
+      ]
+    },
+    {
+      "query": " 😀1:",
+      "labels": [
+        "./ Σ  😀_2b .",
+        "1A_",
+        "1 ﻿Ab😀:a ABa.2B",
+        "BBΣ B ",
+        "1",
+        "﻿a:İ_",
+        "_﻿😀ΣA ",
+        "_/﻿2./. B/_",
+        "﻿  0﻿ .a10﻿ba﻿Ab",
+        "12:1 Σ ΣİBa.",
+        ".2﻿",
+        " 😀: b:/Σa_",
+        ". B﻿0Σ😀1ABİ﻿0Σ/ ",
+        "Σ2Σ/Σ/Σ.",
+        ". Bİ İ﻿",
+        "_😀  0BA﻿0_2b ",
+        "﻿ ﻿aBİ.2_ Σab/12B",
+        "b/:",
+        "﻿/_0: ﻿😀  1/ aBAΣ",
+        "﻿0B/B baB﻿﻿A﻿"
+      ],
+      "expected": []
+    },
+    {
+      "query": "b",
+      "labels": [
+        ":/Σ2:/:1",
+        " abA.2 aΣ .İ:b",
+        ".A_0.A.😀BΣ2Σ",
+        ".2Σ",
+        ":İΣ/BA:",
+        " 2_😀BAB",
+        " ",
+        ": İBİΣa1a.😀 ",
+        ":2﻿A a. ﻿/BA_İ1A1",
+        "BaΣ",
+        "BAΣA1😀 AB2. Σ",
+        "﻿",
+        "b😀b _ B😀:",
+        "ΣaΣ",
+        " 2_",
+        ".a﻿😀_ ﻿2b/_a ",
+        "B _",
+        "﻿2_: ﻿2 A﻿A:",
+        " 😀b2Σa.😀b0BaΣ",
+        ".a1"
+      ],
+      "expected": [
+        "BaΣ",
+        "BAΣA1😀 AB2. Σ",
+        "b😀b _ B😀:",
+        "B _",
+        ":İΣ/BA:",
+        ":2﻿A a. ﻿/BA_İ1A1",
+        " abA.2 aΣ .İ:b",
+        " 😀b2Σa.😀b0BaΣ",
+        " 2_😀BAB",
+        ": İBİΣa1a.😀 ",
+        ".A_0.A.😀BΣ2Σ",
+        ".a﻿😀_ ﻿2b/_a "
+      ]
+    },
+    {
+      "query": "B",
+      "labels": [
+        " İ﻿😀.",
+        ".😀.2.0B2B",
+        " Ab/:A﻿İΣ21A﻿İ10_",
+        "Σ/_/Σ😀b/﻿ B B",
+        "b _ bBa:0:b",
+        " /﻿ ﻿aBA:0b",
+        ":İ﻿_:/_",
+        "bb",
+        ": Σ",
+        ":2Bİb",
+        ":😀﻿aBa﻿1 .",
+        "1Ab😀_",
+        "10Ba﻿ 1",
+        ":😀_/12_/BA1İ:a_",
+        ":2ba1😀:/ ",
+        "bA.0Σ21A.0bİ:2 0b",
+        "Σ0BA:",
+        " A./_﻿ΣA:İ.1A1",
+        "bİ_0.😀1A1a:AΣ",
+        "_A﻿0B2 :2:Ab2_﻿"
+      ],
+      "expected": [
+        "b _ bBa:0:b",
+        "bb",
+        "bA.0Σ21A.0bİ:2 0b",
+        "bİ_0.😀1A1a:AΣ",
+        ":😀_/12_/BA1İ:a_",
+        " Ab/:A﻿İΣ21A﻿İ10_",
+        ":2Bİb",
+        "1Ab😀_",
+        "10Ba﻿ 1",
+        ":2ba1😀:/ ",
+        "Σ0BA:",
+        "_A﻿0B2 :2:Ab2_﻿",
+        ":😀﻿aBa﻿1 .",
+        " /﻿ ﻿aBA:0b",
+        ".😀.2.0B2B",
+        "Σ/_/Σ😀b/﻿ B B"
+      ]
+    },
+    {
+      "query": "Σ   ",
+      "labels": [
+        " /b",
+        ".AΣİΣa_01AB/:  ",
+        "﻿",
+        "_2ΣAΣİbİΣİ /_2﻿",
+        " 😀.😀Σ0 ",
+        "10﻿İΣİb😀_A.İBİ..",
+        " 01B/BA.A_A1😀.",
+        "10:aBaB😀:",
+        "_2﻿2.",
+        " İ 0 Aba﻿😀 /.aΣ",
+        "B2Bİ:2Σ😀 a.A﻿Σ",
+        "Σ/﻿A1.  2:0Σ0_",
+        "B .0:İ: B12b",
+        ".",
+        ".aB_2./﻿ :",
+        "_ab/﻿: B B2 AΣ😀1",
+        ":",
+        "﻿😀1",
+        ":😀 ",
+        "﻿ :"
+      ],
+      "expected": [
+        "Σ/﻿A1.  2:0Σ0_",
+        "B2Bİ:2Σ😀 a.A﻿Σ",
+        "10﻿İΣİb😀_A.İBİ.."
+      ]
+    },
+    {
+      "query": "B",
+      "labels": [
+        "Σ2.01A İ12:",
+        "﻿﻿0Σ",
+        ":a_",
+        "B😀B2﻿😀﻿😀12Σ2_",
+        "Σ😀Σ/b",
+        "1 ﻿0.A 😀﻿İ.B",
+        " a.0:/﻿ B",
+        "_ ΣaΣ212﻿İB0:İ.B",
+        ". ﻿_😀_0﻿ b😀 0B﻿",
+        "B ﻿Ab😀.😀 A﻿2bA:01",
+        "b/bİ﻿A_a /Σ/﻿",
+        "b",
+        "b ΣAB_İ ab2B😀1",
+        " ",
+        "B😀_b2 2: 1_",
+        " /Σab B0BΣ",
+        ":",
+        "B0B2Σab/ ",
+        "_😀Σ/1",
+        ":İ:İΣ2Σ  /1A.aΣ"
+      ],
+      "expected": [
+        "b",
+        "B😀B2﻿😀﻿😀12Σ2_",
+        "B ﻿Ab😀.😀 A﻿2bA:01",
+        "b/bİ﻿A_a /Σ/﻿",
+        "b ΣAB_İ ab2B😀1",
+        "B😀_b2 2: 1_",
+        "B0B2Σab/ ",
+        "Σ😀Σ/b",
+        " a.0:/﻿ B",
+        ". ﻿_😀_0﻿ b😀 0B﻿",
+        " /Σab B0BΣ",
+        "_ ΣaΣ212﻿İB0:İ.B",
+        "1 ﻿0.A 😀﻿İ.B"
+      ]
+    },
+    {
+      "query": " ",
+      "labels": [
+        ".a /b2b﻿😀 AB",
+        "1",
+        "_İ. .",
+        ".İ 2b/b0. _Σ_",
+        "b",
+        "﻿A:2Σ2_İ.İ:",
+        "_2 ",
+        "..aB0﻿",
+        "Σ İ./ İ1aΣΣA ",
+        "b2Σ",
+        "_0﻿",
+        " 2_",
+        "bİ﻿😀.",
+        "_ab2_/./.0B0B",
+        "﻿.",
+        " 01  AB",
+        ".",
+        "B ﻿",
+        " A 😀  bİ.0_AbΣ",
+        "1 :😀.İ:İ.😀.a12:😀."
+      ],
+      "expected": [
+        ".a /b2b﻿😀 AB",
+        "1",
+        "_İ. .",
+        ".İ 2b/b0. _Σ_",
+        "b",
+        "﻿A:2Σ2_İ.İ:",
+        "_2 ",
+        "..aB0﻿",
+        "Σ İ./ İ1aΣΣA ",
+        "b2Σ",
+        "_0﻿",
+        " 2_",
+        "bİ﻿😀.",
+        "_ab2_/./.0B0B",
+        "﻿.",
+        " 01  AB",
+        ".",
+        "B ﻿",
+        " A 😀  bİ.0_AbΣ",
+        "1 :😀.İ:İ.😀.a12:😀."
+      ]
+    },
+    {
+      "query": "Σ😀﻿İ",
+      "labels": [
+        "0Bİ:﻿😀.1",
+        "./ Σ/_A: _aΣ",
+        "﻿2bA_A:",
+        "b/bİBAΣa﻿2Bb",
+        ":İ:0 😀﻿ :/1aba_/:",
+        "﻿ ﻿0Σ0﻿A﻿İ﻿",
+        "Σ2baB2b.",
+        "﻿",
+        "﻿",
+        "﻿ Bİ_ab B😀﻿İB0b😀b",
+        "ba ",
+        " 2﻿ :/﻿",
+        ".😀12bİbA:a﻿Ab",
+        "b0:😀.İ1 ",
+        ". _.😀1😀1a A  B",
+        "Σ",
+        " Σ BΣ",
+        " ",
+        "b _:İ1😀1ABa:",
+        "10.😀 aΣ Σ2Σ2ΣİB/﻿"
+      ],
+      "expected": []
+    },
+    {
+      "query": " 2",
+      "labels": [
+        " 12_ _",
+        "﻿İ_a﻿İ 0b b",
+        "Σ😀Σ",
+        "1",
+        "B😀1aB😀﻿ 1/ba İ 0b",
+        "b/Σ😀_😀Σ😀1İ_ Σ/_İB",
+        "﻿İ ",
+        ".  A.2 A 0.aB",
+        ".",
+        "BA 01",
+        "Σ 1😀﻿21Σ2Ba:",
+        " A_",
+        "B_a1:1",
+        ".2﻿2b😀 ",
+        ".A_",
+        "B _İ.0 A﻿01",
+        "1 a a ",
+        "1😀B😀.Ab Σ0:😀1 ﻿/B",
+        "  Σ😀b0_",
+        "1 :İ1😀﻿"
+      ],
+      "expected": [
+        ".2﻿2b😀 ",
+        ".  A.2 A 0.aB",
+        "Σ 1😀﻿21Σ2Ba:",
+        " 12_ _"
+      ]
+    },
+    {
+      "query": "﻿  2_",
+      "labels": [
+        "Σ0B😀Σ",
+        ".😀b0B bİ121/BaΣ",
+        "﻿",
+        ".A.2_ 1",
+        "﻿a.A﻿😀﻿",
+        "1  ﻿ _/Σ",
+        ":a.",
+        "Σİ﻿ 1İ1aΣ",
+        "10B2 /1",
+        " AΣAB",
+        ":0.a﻿B/B",
+        " İ /.A1 BAΣA1",
+        "_ Σ 01A_/:",
+        "﻿2:2 0_ :2Ba:",
+        "B",
+        "1 .:😀1 B0_0:",
+        "BaBİΣaΣ😀.ABİ1",
+        "Σ0 İ.01😀 .",
+        ":😀bA_İ_",
+        " aΣİ1"
+      ],
+      "expected": [
+        ".A.2_ 1",
+        "﻿2:2 0_ :2Ba:"
+      ]
+    },
+    {
+      "query": "_/",
+      "labels": [
+        "0﻿0.İBa.2_İ10.2B",
+        "B0bİ:",
+        "b:",
+        " _a.İΣ2﻿😀1",
+        ".😀﻿2﻿ ./﻿2B",
+        "Σa:/:1İB0:İ.﻿2:",
+        " A1a﻿a_",
+        "_",
+        ":2b/:2./﻿",
+        "_.a:İ12_İB2bİ﻿",
+        "./:",
+        "﻿ ﻿",
+        "_İb",
+        ".😀Σ😀Bİ:İb😀Σİ /1_",
+        "Σ  .2Σ",
+        "b: .AΣa.a_",
+        "Σ 1:A:",
+        "1",
+        "1😀b  / ",
+        "12 0B2_Σ .A."
+      ],
+      "expected": [
+        "_",
+        "_.a:İ12_İB2bİ﻿",
+        "_İb",
+        " _a.İΣ2﻿😀1",
+        " A1a﻿a_",
+        "12 0B2_Σ .A.",
+        "0﻿0.İBa.2_İ10.2B",
+        "b: .AΣa.a_",
+        ".😀Σ😀Bİ:İb😀Σİ /1_"
+      ]
+    },
+    {
+      "query": "B/_İ",
+      "labels": [
+        "😀:a_",
+        "1😀 aB",
+        "_😀B😀﻿a﻿A 0﻿a﻿İ﻿İ_",
+        "1",
+        "./:İ﻿Σ😀b😀b😀:😀b0.",
+        "Bİba:AbaΣ",
+        "  12_0.0﻿_/_İ  .",
+        "_ b2:😀b/B_İBA ",
+        "1",
+        ".😀_2﻿  /:2:",
+        ":",
+        ":A_2_/:",
+        "1Σa:2_",
+        " İB/  B2_ bİ1",
+        "Σ0_",
+        " 😀10Σb2b/ ",
+        "﻿A:İ_İ ",
+        "12:aΣİBabAΣA_2B",
+        ".a:2BaΣ0.",
+        "B:Σ😀 İB21"
+      ],
+      "expected": [
+        "_ b2:😀b/B_İBA ",
+        "_😀B😀﻿a﻿A 0﻿a﻿İ﻿İ_",
+        " İB/  B2_ bİ1"
+      ]
+    },
+    {
+      "query": "﻿ _",
+      "labels": [
+        ".01a aBa1İ﻿😀1",
+        ":",
+        "ba_aBİ1  A10﻿😀:",
+        ".2b:2Σ😀:AB",
+        ".ab0:/ /1 1",
+        ".2Ba ",
+        " a:a﻿a.a:01aΣ2﻿0b",
+        "1",
+        "B",
+        "1İ.😀Σ😀_A﻿2.",
+        "﻿İ a ",
+        "b😀b2Σ :  2B:1A_",
+        "B",
+        "  :😀 a_İb2BİBa_",
+        "﻿a::AΣ21 Σ2_/1 ﻿",
+        "_",
+        "1/Σ",
+        "1İB/_İ﻿2./bA:",
+        ":😀ΣİbΣ/﻿😀:/_/B0﻿",
+        ":a1a."
+      ],
+      "expected": [
+        "_",
+        "1İB/_İ﻿2./bA:",
+        ":😀ΣİbΣ/﻿😀:/_/B0﻿",
+        "ba_aBİ1  A10﻿😀:",
+        "  :😀 a_İb2BİBa_",
+        "1İ.😀Σ😀_A﻿2.",
+        "﻿a::AΣ21 Σ2_/1 ﻿",
+        "b😀b2Σ :  2B:1A_"
+      ]
+    },
+    {
+      "query": "1/.😀_",
+      "labels": [
+        ".İ A10b01.",
+        ":0b bİ .:",
+        ":😀﻿A_2  1😀 _",
+        "_İ_2_",
+        " /b1",
+        "1/1İ_2.😀_0.",
+        "b0Σ0.",
+        "_/  İ_😀bİ.",
+        ".😀﻿2Ba_",
+        "Σa1/BaBA.21",
+        "1İ /.2﻿2_/﻿AΣ",
+        ":A:/ ",
+        ".aΣ b/.İ:😀1",
+        "1A./:  İ_2:2b2﻿😀_",
+        " b2.:😀B",
+        "Ba:😀Bİ A. 12﻿ BΣ",
+        ".a1İ_ab﻿",
+        "1AΣA﻿aΣaΣ😀.",
+        " ",
+        "1😀1"
+      ],
+      "expected": [
+        "1/1İ_2.😀_0.",
+        "1A./:  İ_2:2b2﻿😀_"
+      ]
+    },
+    {
+      "query": "BA1 _",
+      "labels": [
+        ":ab😀B ﻿/﻿",
+        " A  :﻿😀BA_/1",
+        "﻿😀:/_İΣ ",
+        "1İ1B b01a:2B",
+        "﻿İ1İ12. b",
+        "Σ2b 1a1A11İB😀1",
+        ":😀﻿0﻿2 A ",
+        ".Ab😀_0 ",
+        ":﻿İBİ.AB",
+        ":",
+        "﻿ .",
+        " :01",
+        "_/Ba_İb",
+        "Ba._a  .",
+        "﻿01/Bİ.İ_",
+        " A_ B/B😀﻿AΣ0_",
+        "b  0.",
+        "_",
+        ".",
+        " İB"
+      ],
+      "expected": [
+        " A  :﻿😀BA_/1"
+      ]
+    },
+    {
+      "query": "﻿ 😀",
+      "labels": [
+        "/Σ/﻿/b",
+        "B B B😀_A﻿AΣ2BaB",
+        "  ﻿0_ Σ",
+        "b İ1",
+        ":/ 😀 /_2. 12﻿",
+        ".İbA1",
+        ":01",
+        ".İba.😀1/_",
+        " 😀_2Σ0Σ/:",
+        "1/1İ:😀1/:.a1😀Σ_",
+        "﻿",
+        "﻿ .a:😀Σ2.a﻿",
+        ":a﻿/.a 0﻿İ﻿",
+        "b2.",
+        " ",
+        "﻿",
+        " a_A.0B_😀.😀:/B/:",
+        "B0 ",
+        "B2b0B",
+        "_ABİ_a 12.2Σ"
+      ],
+      "expected": [
+        "1/1İ:😀1/:.a1😀Σ_",
+        " a_A.0B_😀.😀:/B/:"
+      ]
+    },
+    {
+      "query": "B",
+      "labels": [
+        "_2.",
+        "b/ 210_ B2 ",
+        "B ﻿ ﻿ 😀:",
+        ":A10:/.İ 0BA:İb",
+        "b :2﻿",
+        ":BB/.😀bA:",
+        ":0_/BB/Σ",
+        ".0Σ😀_/Ba1  .",
+        "Σa_2:",
+        ".",
+        "_",
+        "﻿2b",
+        ":",
+        "10B010﻿İb﻿0b",
+        "1 ﻿😀.aB1",
+        "_A.aB/b2﻿",
+        " a.😀.",
+        "Σ0Σ",
+        ".a1",
+        "b2﻿😀1😀﻿😀."
+      ],
+      "expected": [
+        "b/ 210_ B2 ",
+        "B ﻿ ﻿ 😀:",
+        "b :2﻿",
+        "b2﻿😀1😀﻿😀.",
+        ":0_/BB/Σ",
+        ".0Σ😀_/Ba1  .",
+        ":BB/.😀bA:",
+        "﻿2b",
+        "10B010﻿İb﻿0b",
+        "_A.aB/b2﻿",
+        "1 ﻿😀.aB1",
+        ":A10:/.İ 0BA:İb"
+      ]
+    },
+    {
+      "query": "B ",
+      "labels": [
+        "/::0 aΣ/1abA .😀b",
+        "Ba1İ﻿😀1/B",
+        "B12 İb B",
+        ".😀:A.A1aΣ0.",
+        "_",
+        "Ba﻿😀_",
+        "Σİ:İB21bab 1 Σ",
+        ":2 A_/﻿AΣİ﻿2B",
+        "  b/b 1İ b😀_",
+        "Σ2.",
+        "b.",
+        "Σ",
+        "1İ﻿İ﻿a_:",
+        " /b0./12:/b .1/b",
+        "Σ0:😀Σ0:İ﻿ 1aΣ",
+        "1😀Σa1",
+        "Σ:0: :İ: Σ",
+        ":A.ba. _ B",
+        "_İ  :a1",
+        "1"
+      ],
+      "expected": [
+        "Ba1İ﻿😀1/B",
+        "B12 İb B",
+        "Ba﻿😀_",
+        "b.",
+        "  b/b 1İ b😀_",
+        " /b0./12:/b .1/b",
+        ":A.ba. _ B",
+        "Σİ:İB21bab 1 Σ",
+        "/::0 aΣ/1abA .😀b",
+        ":2 A_/﻿AΣİ﻿2B"
+      ]
+    },
+    {
+      "query": "﻿",
+      "labels": [
+        " 😀: Σ.",
+        "B",
+        "_2Σ0b2Bİ:İbbİ:😀:",
+        "12bİ_😀b0Σ/B0Σ ﻿",
+        "1😀_😀B2b/ΣA.",
+        "b2.İb😀b0﻿2b",
+        ".",
+        ":b2: ﻿0b2_İB0.",
+        ". 121",
+        ":😀b/:",
+        "Σ0﻿ ba AbabA1",
+        "﻿/B😀 İB",
+        "_Ab",
+        "B",
+        "Σ/_2Σ0Σ",
+        "_2B",
+        "﻿İB",
+        "_İ  1",
+        ":İΣ/./1",
+        "﻿İ1."
+      ],
+      "expected": [
+        " 😀: Σ.",
+        "B",
+        "_2Σ0b2Bİ:İbbİ:😀:",
+        "12bİ_😀b0Σ/B0Σ ﻿",
+        "1😀_😀B2b/ΣA.",
+        "b2.İb😀b0﻿2b",
+        ".",
+        ":b2: ﻿0b2_İB0.",
+        ". 121",
+        ":😀b/:",
+        "Σ0﻿ ba AbabA1",
+        "﻿/B😀 İB",
+        "_Ab",
+        "B",
+        "Σ/_2Σ0Σ",
+        "_2B",
+        "﻿İB",
+        "_İ  1",
+        ":İΣ/./1",
+        "﻿İ1."
+      ]
+    },
+    {
+      "query": ".AbΣ",
+      "labels": [
+        "bİ﻿😀Σİ1a﻿İb2B/   ",
+        "b.0﻿2:0﻿",
+        ".2_0_/.A:2  :Ab0b",
+        " /_2B2_0.Ab Σ/﻿",
+        "ΣΣ0: Σ21😀 0B/﻿",
+        "Σ",
+        " /﻿0.0Bİ.0Σİ﻿0Σ0:",
+        "_İ:  ",
+        "Σİ﻿😀_0 /:",
+        " İ﻿A﻿2 a_a /:İ ",
+        "bA1a.😀B",
+        " a:2bab",
+        "B2﻿aΣ/.",
+        " A﻿/﻿😀b  /:",
+        "b.😀B0B2_bİ:_",
+        ".İ﻿a1/_2b",
+        "_0..BİB2﻿aBİb",
+        " ﻿2.A_/: ",
+        "Σ/:",
+        "﻿AΣ"
+      ],
+      "expected": []
+    },
+    {
+      "query": ".A:😀",
+      "labels": [
+        " Σ/_İ.2.😀  _2.",
+        "b😀:İb😀:a_",
+        " A:😀B😀Σ0﻿a﻿0:",
+        "﻿2:2 /12.İ 0 ",
+        "﻿İ /﻿A1",
+        ":😀1",
+        "﻿/.İΣ01/:a﻿😀﻿",
+        " Ab0b/_A_😀﻿0Σa12.",
+        "_2﻿/bab Σ",
+        "BABA.İ  :/_İ_AΣ",
+        ":😀_a﻿0101İΣA1",
+        ":Ab",
+        "﻿ 12﻿A.",
+        "_aB0:a﻿",
+        "bA.212Σ😀B1/B",
+        "bA_2Σ/_",
+        "B 1AΣ0B .😀b2 2b/1",
+        ".0Σ2 😀ΣA_/.A.",
+        "_ _a﻿:/ 0 /Σ",
+        "1"
+      ],
+      "expected": []
+    },
+    {
+      "query": "﻿",
+      "labels": [
+        " AΣ21Ab :2﻿",
+        "B",
+        "﻿AbAbA10./1a_İ1😀_",
+        "_İ﻿İ1A1İ 1",
+        "B😀ΣİBA.2Σa ",
+        "BA12ba﻿0.2Σ0_😀﻿",
+        ":a:B B2﻿/:/Bİ.",
+        "﻿İb2﻿a﻿2ΣAΣ/  Σ .",
+        "B",
+        ".İ:😀Bİ  ﻿2 / İ:",
+        "10 ",
+        ".İ:a. 1😀_İbİb/﻿",
+        "1😀﻿",
+        "ba a.2_ Σ0﻿2.",
+        "1A.a_a_0Σ/.",
+        " ﻿",
+        "BİΣ",
+        " 0_2_A İ.B",
+        "ba:B😀bA﻿",
+        ":/ 😀BAb.2﻿"
+      ],
+      "expected": [
+        " AΣ21Ab :2﻿",
+        "B",
+        "﻿AbAbA10./1a_İ1😀_",
+        "_İ﻿İ1A1İ 1",
+        "B😀ΣİBA.2Σa ",
+        "BA12ba﻿0.2Σ0_😀﻿",
+        ":a:B B2﻿/:/Bİ.",
+        "﻿İb2﻿a﻿2ΣAΣ/  Σ .",
+        "B",
+        ".İ:😀Bİ  ﻿2 / İ:",
+        "10 ",
+        ".İ:a. 1😀_İbİb/﻿",
+        "1😀﻿",
+        "ba a.2_ Σ0﻿2.",
+        "1A.a_a_0Σ/.",
+        " ﻿",
+        "BİΣ",
+        " 0_2_A İ.B",
+        "ba:B😀bA﻿",
+        ":/ 😀BAb.2﻿"
+      ]
+    },
+    {
+      "query": "B2_/ ",
+      "labels": [
+        "./ /B😀B  010:",
+        "Σ0BB0.Bİ.😀 Σ :",
+        "bİ1",
+        "112Σ😀b﻿",
+        "BAbİ.aBba.a.AB😀﻿",
+        "  :2 /﻿😀bAb 1A.2:",
+        "1/: b_",
+        "1",
+        "_İB",
+        "1aB😀:: ",
+        "﻿😀b",
+        "_😀 /B﻿a:/1",
+        "1😀b",
+        "﻿/:",
+        "B0_Bab/b 1.Abİ1",
+        "Σ21A:A 0﻿Ab A1/:",
+        ":😀﻿İΣ",
+        "﻿2 0Σ0﻿😀b/B:",
+        "1😀.İ_",
+        ".😀1/ 2_   12_"
+      ],
+      "expected": []
+    },
+    {
+      "query": "Σ0Bİ",
+      "labels": [
+        "/﻿2_",
+        "bİ./1",
+        "Σ",
+        "b/﻿😀.İ. 101",
+        "Σ﻿:a.B0 😀bİBA1",
+        "b0Σ2 /1.😀B/B0bAΣ",
+        "Ba Abİ_/12_ 1İbAΣ",
+        "﻿İ.😀﻿a 2ΣΣ",
+        " İb😀 a.a﻿: b   _",
+        ":İΣ",
+        " BB_2Σ",
+        "﻿ ﻿B2﻿2 aB2b",
+        "B_2:_A:1",
+        ":A.İ.2_A_",
+        "b 1 A ",
+        ".İ_İ﻿ B 1a ",
+        "12Σ/ΣaBİ10Σ01 bA ",
+        "bİb﻿/ / B",
+        ". 1😀.aB",
+        "B"
+      ],
+      "expected": [
+        "Σ﻿:a.B0 😀bİBA1"
+      ]
+    },
+    {
+      "query": ":😀Σ0",
+      "labels": [
+        "/Σİ.0.1ab",
+        "﻿0_A1AΣ1A_",
+        ".",
+        "Σ",
+        "Σb2 ab0_ .B",
+        "b",
+        "BA1a_ b",
+        "b 1A﻿/b_a.İ1",
+        "B2b.😀1",
+        "   ab/.0Σ2.",
+        "﻿ ﻿İ..",
+        "ΣAΣ😀B﻿/Σ",
+        "﻿0﻿2_",
+        "Σ :2.",
+        ".",
+        ":/_İ:/1/ 2BA.a_",
+        "1/ ",
+        ":0Σ/:",
+        "ΣİΣ/1 Σ😀 İ.İ.",
+        "1a_A12Bİ﻿"
+      ],
+      "expected": []
+    },
+    {
+      "query": "10",
+      "labels": [
+        "01AB0_AB2B",
+        "Σ2:İb2 0_0b",
+        "﻿A  Σ2Σ/Σ0:A ",
+        ":.😀10_İ﻿İ.0﻿a﻿2_",
+        "_ b/..",
+        "1",
+        "Σ",
+        ":0Ba:a1😀B😀.0Σ0﻿2 ",
+        ":0.0_aΣAΣ0 2b",
+        ":a﻿.2Σ0﻿0﻿😀101İ.",
+        "B Σ",
+        "Σ  _",
+        "﻿ .﻿2B",
+        "b/:2﻿  Σ😀1Ab",
+        ".İb0﻿",
+        "b😀1a﻿ İB0_2_21",
+        "b/b/:",
+        "././ /.aBa1Σ😀_",
+        " İ_İΣ😀.",
+        "﻿😀﻿/ İBBΣ0.İ.A:"
+      ],
+      "expected": [
+        ":.😀10_İ﻿İ.0﻿a﻿2_",
+        ":a﻿.2Σ0﻿0﻿😀101İ.",
+        ":0Ba:a1😀B😀.0Σ0﻿2 ",
+        "01AB0_AB2B",
+        "b😀1a﻿ İB0_2_21"
+      ]
+    },
+    {
+      "query": "_﻿İ﻿",
+      "labels": [
+        "1_A ",
+        "Bİ:/.😀./Σ/_/ ",
+        "_İ.😀﻿/ ",
+        "b",
+        "b0:",
+        "Σ:İ1😀Σ",
+        "B_Ab0:2 /B ﻿ Bİ.",
+        "  Bİ﻿",
+        "BAΣİ /B2:/:AΣ  ",
+        "B2b2_A1a:0.aB",
+        "﻿b2_ B",
+        ".Σİ_ _",
+        "1_. ﻿  B2b",
+        "b/:😀 A_İ ",
+        " 01/1",
+        "B_a:",
+        ".aB.AB",
+        ".ΣA:2:A 0B",
+        "1😀_",
+        "b0_/:/﻿01😀.AΣa."
+      ],
+      "expected": []
+    },
+    {
+      "query": "Σ b",
+      "labels": [
+        "ΣB",
+        "_ Σ😀B0﻿/:😀b_b",
+        ".2B2b",
+        "Σ_b bA 2.İ:",
+        "1 bb/_İbAb/ A_",
+        "1ΣΣ0Σ",
+        ".",
+        "Σ2Σ/:A.",
+        "1İ﻿",
+        ". .2﻿010 A1/1Σ",
+        ".A:/__2:a A /_a1",
+        "   İ_İ Σ ﻿",
+        " A. ",
+        "ΣAΣİb/ a﻿a a ",
+        "1",
+        ":2.",
+        ".😀b0:İB bΣa﻿0 _",
+        "﻿ _",
+        "﻿21_0:İ﻿/﻿Ab ﻿ab",
+        ":a1😀﻿"
+      ],
+      "expected": [
+        "ΣB",
+        "Σ_b bA 2.İ:",
+        "ΣAΣİb/ a﻿a a ",
+        "_ Σ😀B0﻿/:😀b_b",
+        ".😀b0:İB bΣa﻿0 _"
+      ]
+    },
+    {
+      "query": "ba",
+      "labels": [
+        "2:/:2﻿a:_",
+        "1AΣ/.İ:12.İB0Σ",
+        "1bİ 😀b",
+        "  1 _﻿ :İB2:a.",
+        "_:/bAb",
+        "﻿2_0.İ_a  ﻿2b",
+        "10B😀1/﻿İ.AΣ0 ",
+        "_aB/1 1 :😀b",
+        "b",
+        "_",
+        " 1.A 2:a:2 0B",
+        " AΣ",
+        ".",
+        "Σİ_😀Σ😀﻿aB",
+        "_A1 :a﻿",
+        "12bİ:/:😀B0.",
+        "_/:İΣ",
+        "b/Σ0B",
+        "﻿😀. ﻿/:",
+        "Σ😀1😀Σİ﻿0 AB😀1ABİ:"
+      ],
+      "expected": [
+        "_:/bAb",
+        "  1 _﻿ :İB2:a.",
+        "10B😀1/﻿İ.AΣ0 ",
+        "Σ😀1😀Σİ﻿0 AB😀1ABİ:"
+      ]
+    },
+    {
+      "query": "_A12_",
+      "labels": [
+        "12_ Σ/﻿ ﻿",
+        " 212 2:aΣA1😀_",
+        "1a﻿ ΣaB. Bab2Σ2B",
+        " a1 ﻿İ.A Ab :A:0Σ",
+        "﻿abA İ:İ 0﻿aΣİ_",
+        "1_😀1😀﻿  2﻿İ1ab",
+        "_AΣΣ2_A ./ A:",
+        "Σ _ _: :A./Σ",
+        "﻿😀B",
+        "﻿2 ﻿:/B",
+        ".İ_.İ1",
+        "    B",
+        "B😀.0﻿😀_",
+        "b0: Σa.",
+        "_/B/b bİ﻿/.İ1/.",
+        "﻿😀.",
+        "Σ/ 2_İ_",
+        "﻿",
+        "./Σİ1/﻿/ ",
+        "_ ./Σ"
+      ],
+      "expected": []
+    },
+    {
+      "query": ".AB0",
+      "labels": [
+        "/ /.2_😀ΣİΣA_",
+        "bΣİΣ/ ",
+        "b   2﻿İ 2_",
+        "_İ ab/Σ0.010Σ/Σ/:",
+        ":😀 2_2B2B",
+        "Ba﻿",
+        "B0Σ/.İ:/Σ/Σ0Σ",
+        "﻿.",
+        "ΣA.A Ab2: Σ ﻿A_İ.",
+        "_",
+        "_0 2_A 😀:AΣA:😀_:",
+        "ba:A_2:İ_a  b",
+        "ΣBAb Σ .A_/1",
+        "_ b2Σ21İ_",
+        "B",
+        "BİΣ",
+        ".",
+        " 0_😀:A. Σa_",
+        ":21İΣ0.2﻿ b",
+        "b .abA "
+      ],
+      "expected": []
+    },
+    {
+      "query": "_",
+      "labels": [
+        "/_",
+        " 2﻿ ./b/﻿A_😀﻿a ",
+        "B2 :2﻿0B😀1",
+        ":😀1😀bİ 😀.😀1",
+        " A﻿İ_A.",
+        " ",
+        "b",
+        ". b ",
+        "1/ ",
+        ":/1/ΣB😀.İΣ 1/﻿",
+        "Σ",
+        " İ_b/﻿",
+        ":1/ 21İ12B2 ",
+        "B😀b _A.0.aBA12 2Σ",
+        "b",
+        "﻿",
+        "  _ 1a:A﻿ Σ0 10Σ",
+        "1 1",
+        "B0b2﻿aB😀 😀b",
+        "﻿İΣB0Σ0:A:"
+      ],
+      "expected": [
+        " İ_b/﻿",
+        "  _ 1a:A﻿ Σ0 10Σ"
+      ]
+    },
+    {
+      "query": "Bbİ.",
+      "labels": [
+        "_0.a aB B",
+        "﻿0./Σ Σ2bİ1",
+        "﻿b2:😀﻿",
+        "_2 A:aΣ😀B/./﻿A_😀 ",
+        ".a. :01İ﻿aΣ/Σ/:",
+        ":ab0B2baΣ",
+        "b😀:_",
+        "Σ0:AbİΣ",
+        "﻿",
+        "_İb _aB",
+        "10bAb2﻿A1 Σ",
+        "Σ0Σ21 Ba:ABa_",
+        "Bİ_😀﻿😀b",
+        ":İ_/ aΣa﻿/b .",
+        " 01/  0. ba_01",
+        "_Abİ.ABİ.",
+        "_21😀_2B﻿aB",
+        " İ_/bA1İΣaB",
+        "﻿A 2_😀Σ😀.",
+        "b .2. _a10﻿A A:"
+      ],
+      "expected": []
+    },
+    {
+      "query": "bBİ",
+      "labels": [
+        "0b/:0﻿İB2b0﻿",
+        "10B",
+        "﻿ . B😀Σ2.😀 ",
+        " /Σ2_bİ 😀﻿",
+        "﻿aΣ2:İ﻿0_/:😀Σa.",
+        "b😀 ",
+        "baba 😀Σ2Σ",
+        ":İ 0BaΣ2﻿/  bA_0Σ",
+        "b😀ΣABaΣ21İ 0._a﻿",
+        "bA_A1/::İΣA.İ1",
+        "﻿AB😀.",
+        "B0﻿😀﻿😀Σ",
+        "b2﻿0_2bİ.",
+        ".0B  _",
+        " /.2:/  1",
+        "﻿Abİ1aB😀1A ",
+        " 21AB",
+        ":a 😀:😀:😀_a1a 0_",
+        ":😀Σİ.2Σ",
+        "Σ B"
+      ],
+      "expected": []
+    },
+    {
+      "query": "_İ",
+      "labels": [
+        "😀_21/11a1 B😀_",
+        " .2121😀b",
+        "b1😀B/b😀1İ﻿aΣİ1 Σ",
+        "b0:",
+        "./b😀:😀_1a:2 Ab2Σ",
+        "b Σ",
+        " A 😀.0:a_121",
+        "bİbİ1AB0_2B",
+        "﻿011İB2﻿ .",
+        " ",
+        "Σİb",
+        "﻿😀 😀.a_a.İb/Ba.İΣ",
+        "﻿İ 2 😀_😀BAB0 ",
+        "B2﻿A:Aba﻿ :İ :0.",
+        "B😀12﻿İ:: Σ1😀b .",
+        "_AB/b😀_İB",
+        "_😀121😀 😀﻿İ.﻿",
+        "Σ/ /﻿2_ 1",
+        "bA A1",
+        ".10﻿aB2BA﻿"
+      ],
+      "expected": [
+        "_AB/b😀_İB",
+        "﻿😀 😀.a_a.İb/Ba.İΣ",
+        "_😀121😀 😀﻿İ.﻿"
+      ]
+    },
+    {
+      "query": " /:",
+      "labels": [
+        "BaB",
+        "B﻿İ.aB",
+        "_a﻿ :21 B 1",
+        "12Σ0﻿/Bİ:2: Σ",
+        "Ba.",
+        "﻿İ._0_😀ΣAΣ",
+        "babaΣΣİΣ0﻿😀b/::",
+        "1",
+        "﻿",
+        "1a_/bİ  __",
+        "ΣA1A_😀.B",
+        "1A_a10./_ .😀_0.",
+        ".AΣB",
+        "_ Σ2.a_/:2:",
+        "Σ0b/  bA1/b😀B",
+        ":İ. 0b212.01",
+        "b0Bİ:",
+        ".😀﻿",
+        "_",
+        "b0:0ΣaBa /:21😀b"
+      ],
+      "expected": [
+        ":İ. 0b212.01",
+        "_a﻿ :21 B 1",
+        "_ Σ2.a_/:2:",
+        "babaΣΣİΣ0﻿😀b/::",
+        "b0:0ΣaBa /:21😀b",
+        "b0Bİ:",
+        "12Σ0﻿/Bİ:2: Σ"
+      ]
+    },
+    {
+      "query": "_1",
+      "labels": [
+        "Σ0b :😀 2B2.21",
+        "Σ😀BABA_😀_/:",
+        " A.AΣ😀1/Σ 1😀:0_/Σ",
+        ".2Σ/:😀:2Σ2:İ:a﻿21",
+        "BA A:BA:",
+        "1A﻿ _ .0﻿A1😀Σİ ab",
+        "B",
+        "_0_İ:",
+        ".😀_ 1/b/ ",
+        "::İ İ1",
+        ":😀B😀1İ 😀_aBAb/B",
+        "_  /Σ😀:0 İ:2.0Ba1",
+        "_İ: _0_2BBA_2 İB",
+        "﻿İ﻿/B/1/:A_a﻿",
+        "﻿/﻿",
+        "﻿0b _",
+        " ab",
+        "﻿",
+        "B0﻿2  BA_/b/:",
+        "﻿"
+      ],
+      "expected": []
+    },
+    {
+      "query": "﻿/",
+      "labels": [
+        "/b",
+        ":😀 A﻿😀bA./Σ",
+        "1a.İ A﻿21A1",
+        "1a1/﻿İ.a﻿01😀:b",
+        "﻿212_2 ",
+        "Σ:İ.a /b 😀.0Σ",
+        "_Σ😀B0.İ 0﻿😀.",
+        "Ba_2:😀B",
+        ":0baB_İ1😀BA_1a_",
+        ":/B b_1İ.",
+        "﻿2:😀:A 😀﻿",
+        "1/ b/_ 11İb",
+        "B😀b",
+        " A﻿_Ab0B/1/ 2b.",
+        "1 10B2:İΣAbA.",
+        "﻿2.İB2﻿Σ😀:",
+        "b",
+        ":21😀12_AΣ2ΣA﻿😀10Σ",
+        ":2.😀b😀: _a ",
+        "1Ab"
+      ],
+      "expected": [
+        "/b",
+        ":😀 A﻿😀bA./Σ",
+        "1a.İ A﻿21A1",
+        "1a1/﻿İ.a﻿01😀:b",
+        "﻿212_2 ",
+        "Σ:İ.a /b 😀.0Σ",
+        "_Σ😀B0.İ 0﻿😀.",
+        "Ba_2:😀B",
+        ":0baB_İ1😀BA_1a_",
+        ":/B b_1İ.",
+        "﻿2:😀:A 😀﻿",
+        "1/ b/_ 11İb",
+        "B😀b",
+        " A﻿_Ab0B/1/ 2b.",
+        "1 10B2:İΣAbA.",
+        "﻿2.İB2﻿Σ😀:",
+        "b",
+        ":21😀12_AΣ2ΣA﻿😀10Σ",
+        ":2.😀b😀: _a ",
+        "1Ab"
+      ]
+    },
+    {
+      "query": "Bİ﻿2",
+      "labels": [
+        "😀1a_ _a_A_",
+        " :",
+        ":A:/./﻿",
+        " 0 ",
+        "Σa:😀bİbİ:2BA_",
+        "bİ1/_😀b",
+        "﻿😀b1  .İ.1/_/ ",
+        "bBİ:/Σ😀Σ2.aB2﻿A1",
+        "1",
+        "﻿A﻿a_0.İBİΣ",
+        "﻿😀_/:İ.İ﻿",
+        "_0B/_0﻿😀Σ0b",
+        "._İ:a 😀B😀1  ",
+        "Ba  b😀.0:a_İ12_",
+        "B0B2.İ.AΣ",
+        "b0_",
+        "﻿0:/10 ",
+        "Σ😀Σ/Σ",
+        "BababA A﻿İ 21A1",
+        "b2:İ.a:😀1_0bA1"
+      ],
+      "expected": [
+        "b2:İ.a:😀1_0bA1",
+        "Σa:😀bİbİ:2BA_",
+        "BababA A﻿İ 21A1",
+        "B0B2.İ.AΣ",
+        "bBİ:/Σ😀Σ2.aB2﻿A1",
+        "Ba  b😀.0:a_İ12_"
+      ]
+    }
+  ]
+}

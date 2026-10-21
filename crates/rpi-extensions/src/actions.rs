@@ -70,12 +70,14 @@ pub struct UiDialogRequest {
 }
 
 struct UiDialogEntry {
+    owner: Option<crate::native::NativeOwner>,
     request: UiDialogRequest,
     answer: Option<serde_json::Value>,
     cancelled: bool,
 }
 
 struct UiDialogState {
+    retired_owners: std::collections::HashSet<u64>,
     attached: bool,
     pending: VecDeque<String>,
     active: HashMap<String, UiDialogEntry>,
@@ -88,6 +90,7 @@ struct UiDialogState {
 #[derive(Clone)]
 pub struct UiDialogMailbox {
     state: Arc<Mutex<UiDialogState>>,
+    changed: Arc<tokio::sync::Notify>,
 }
 
 impl Default for UiDialogMailbox {
@@ -99,7 +102,9 @@ impl Default for UiDialogMailbox {
 impl UiDialogMailbox {
     pub fn new() -> Self {
         Self {
+            changed: Arc::new(tokio::sync::Notify::new()),
             state: Arc::new(Mutex::new(UiDialogState {
+                retired_owners: Default::default(),
                 attached: false,
                 pending: VecDeque::new(),
                 active: HashMap::new(),
@@ -126,6 +131,7 @@ impl UiDialogMailbox {
             entry.cancelled = true;
             entry.answer = None;
         }
+        self.changed.notify_waiters();
     }
 
     pub fn is_attached(&self) -> bool {
@@ -182,9 +188,16 @@ impl UiDialogMailbox {
         if entry.cancelled {
             return Err(format!("UI request `{request_id}` was cancelled"));
         }
+        let answer = if entry.owner.is_some() {
+            rpi_plugin_sdk::dialogs::native::Dialog::parse(&entry.request.ui["nativeDialog"])?
+                .answer(&answer)?
+        } else {
+            answer
+        };
         if entry.answer.is_none() {
             entry.answer = Some(answer);
         }
+        self.changed.notify_waiters();
         Ok(())
     }
 
@@ -202,6 +215,7 @@ impl UiDialogMailbox {
         entry.cancelled = true;
         entry.answer = None;
         state.pending.retain(|id| id != request_id);
+        self.changed.notify_waiters();
         Ok(())
     }
 
@@ -213,6 +227,7 @@ impl UiDialogMailbox {
             entry.cancelled = true;
             entry.answer = None;
         }
+        self.changed.notify_waiters();
     }
 
     /// Cancel approval requests belonging to one tool without disturbing
@@ -235,15 +250,30 @@ impl UiDialogMailbox {
             .map(|(id, _)| id.clone())
             .collect();
         state.pending.retain(|id| !cancelled.contains(id));
+        self.changed.notify_waiters();
     }
 
     /// Poll a request and consume a terminal answer/cancellation. Pending
     /// polls are cheap and preserve the request for subsequent calls.
     pub fn poll(&self, request_id: &str) -> Result<serde_json::Value, String> {
+        self.poll_owned(request_id, None)
+    }
+    fn poll_owned(
+        &self,
+        request_id: &str,
+        owner: Option<&crate::native::NativeOwner>,
+    ) -> Result<serde_json::Value, String> {
         let mut state = self
             .state
             .lock()
             .map_err(|_| "ui dialog mailbox poisoned".to_string())?;
+        if state
+            .active
+            .get(request_id)
+            .is_some_and(|entry| entry.owner.as_ref() != owner)
+        {
+            return Err("UI request belongs to another owner".into());
+        }
         let terminal = match state.active.get(request_id) {
             Some(entry) if entry.cancelled => Some(serde_json::json!({
                 "status": "cancelled",
@@ -276,6 +306,13 @@ impl UiDialogMailbox {
     /// Supported operations are `open`, `poll`, `cancel`; `response` is also
     /// accepted as a convenience for hosts that proxy answers through JSON.
     pub fn handle(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
+        self.handle_owned(args, None)
+    }
+    fn handle_owned(
+        &self,
+        args: serde_json::Value,
+        owner: Option<crate::native::NativeOwner>,
+    ) -> Result<serde_json::Value, String> {
         let op = args
             .get("op")
             .and_then(serde_json::Value::as_str)
@@ -288,6 +325,20 @@ impl UiDialogMailbox {
                 .filter(|id| !id.trim().is_empty())
                 .ok_or_else(|| "missing non-empty `requestId`".to_string())
         };
+        if op != "open" {
+            let id = request_id()?;
+            let state = self
+                .state
+                .lock()
+                .map_err(|_| "ui dialog mailbox poisoned")?;
+            if state
+                .active
+                .get(&id)
+                .is_some_and(|entry| entry.owner != owner)
+            {
+                return Err("UI request belongs to another owner".into());
+            }
+        }
         match op {
             "open" => {
                 let id = request_id()?;
@@ -298,7 +349,30 @@ impl UiDialogMailbox {
                 if !state.attached {
                     return Err("ask_user requires an interactive UI".to_string());
                 }
+                if let Some(owner) = &owner {
+                    if state.retired_owners.contains(&owner.id) {
+                        return Err("native dialog owner is shutting down".into());
+                    }
+                    if state.active.len() >= 512
+                        || state
+                            .active
+                            .values()
+                            .filter(|entry| {
+                                entry
+                                    .owner
+                                    .as_ref()
+                                    .is_some_and(|known| known.id == owner.id)
+                            })
+                            .count()
+                            >= 64
+                    {
+                        return Err("native dialog capacity exhausted".into());
+                    }
+                }
                 if let Some(entry) = state.active.get(&id) {
+                    if entry.owner != owner {
+                        return Err("UI request belongs to another owner".into());
+                    }
                     return Ok(if entry.cancelled {
                         serde_json::json!({"status":"cancelled","requestId":id})
                     } else if let Some(answer) = &entry.answer {
@@ -325,6 +399,7 @@ impl UiDialogMailbox {
                 state.active.insert(
                     id.clone(),
                     UiDialogEntry {
+                        owner,
                         request: UiDialogRequest {
                             request_id: id.clone(),
                             tool_call_id: tool_call_id.clone(),
@@ -338,7 +413,7 @@ impl UiDialogMailbox {
                 state.pending.push_back(id.clone());
                 Ok(serde_json::json!({"status":"pending","requestId":id,"toolCallId":tool_call_id}))
             }
-            "poll" => self.poll(&request_id()?),
+            "poll" => self.poll_owned(&request_id()?, owner.as_ref()),
             "cancel" => {
                 let id = request_id()?;
                 self.cancel(&id)?;
@@ -358,6 +433,8 @@ impl UiDialogMailbox {
         }
     }
 }
+
+mod native_dialogs;
 
 /// Host-only, owner-bound UI writer. It contains no plugin callbacks or pointers.
 pub type SideQuestionSink =
@@ -847,6 +924,7 @@ impl ActionBridge {
         // sink. Never invoke it while holding the sink's lifecycle gate.
         for owner in owners {
             crate::native::retire_owner(owner);
+            self.ui_dialog.cancel_owner(owner);
             self.host.cancel_child_agents(owner);
             self.host.cancel_side_questions(owner);
         }
@@ -1430,6 +1508,85 @@ mod tests {
     struct MockHost {
         prompt: String,
         saw: Mutex<Vec<RuntimeActionId>>,
+    }
+
+    #[tokio::test]
+    #[ignore = "requires RPI_TEST_STUB_LIBRARY built with the native dialog fixture"]
+    async fn native_dialogs_cross_loaded_library_and_release_on_shutdown() {
+        let library = std::env::var_os("RPI_TEST_STUB_LIBRARY")
+            .expect("set the current fixture library path");
+        for mode in ["answer", "cancel", "shutdown", "invalidate"] {
+            let bridge = ActionBridge::new(
+                Handle::current(),
+                Arc::new(MockHost {
+                    prompt: String::new(),
+                    saw: Mutex::new(Vec::new()),
+                }),
+            );
+            let mailbox = bridge.ui_dialog_mailbox();
+            mailbox.attach();
+            let api = crate::HostApi::with_action_bridge(
+                "dialog-fixture",
+                Default::default(),
+                Arc::new(crate::NullDiagnostics),
+                bridge.clone(),
+            );
+            let worker = tokio::task::spawn_blocking({
+                let library = library.clone();
+                let api = api.clone();
+                move || unsafe {
+                    let library = libloading::Library::new(library).unwrap();
+                    let call: libloading::Symbol<
+                        extern "C" fn(rpi_plugin_sdk::PluginApi, u32) -> i32,
+                    > = library.get(b"plugin_stub_native_dialog").unwrap();
+                    call(
+                        api.build_vtable(),
+                        match mode {
+                            "answer" => 0,
+                            "invalidate" => 2,
+                            _ => 1,
+                        },
+                    )
+                }
+            });
+            let request = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+                loop {
+                    if let Some(request) = mailbox.take_pending() {
+                        break request;
+                    }
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(mailbox.poll(&request.request_id).is_err());
+            match mode {
+                "answer" => mailbox
+                    .respond(
+                        &request.request_id,
+                        serde_json::json!({"type":"input","value":"fixture-code"}),
+                    )
+                    .unwrap(),
+                "cancel" => mailbox.cancel(&request.request_id).unwrap(),
+                "shutdown" => api.begin_shutdown(),
+                _ => bridge.invalidate(),
+            }
+            assert_eq!(
+                tokio::time::timeout(std::time::Duration::from_secs(3), worker)
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                0,
+                "{mode}"
+            );
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while !mailbox.state.lock().unwrap().active.is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+        }
     }
 
     #[test]
@@ -2156,6 +2313,7 @@ impl Drop for ActionBridge {
         if let Some((owner, _)) = &self.plugin_identity {
             self.ext_status.remove_owner(*owner);
             self.services.remove_owner(*owner);
+            self.ui_dialog.cancel_owner(*owner);
             self.host.cancel_child_agents(*owner);
             self.host.cancel_side_questions(*owner);
         }

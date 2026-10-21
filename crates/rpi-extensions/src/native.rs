@@ -130,12 +130,15 @@ pub(crate) extern "C" fn request(
             let host = bridge.host.clone();
             let work_signal = signal.clone();
             let services = bridge.services.clone();
+            let dialogs = bridge.ui_dialog_mailbox();
             let operation = bridge.operation.clone();
             let tool_scope = bridge.tool_scope.clone();
             bridge.runtime.spawn(async move {
                 let work = async move {
                     if args["port"] == "services" {
                         services.request(owner, args, work_signal).await
+                    } else if args["port"] == "dialogs" {
+                        dialogs.request(owner, args, work_signal).await
                     } else {
                         host.native_request(owner, args, work_signal).await
                     }

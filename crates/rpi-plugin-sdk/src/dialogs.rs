@@ -1,5 +1,6 @@
 //! Transport-independent dialog semantics. Presentation kinds do not imply permission.
 use serde_json::Value;
+pub mod native;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PermissionOption {

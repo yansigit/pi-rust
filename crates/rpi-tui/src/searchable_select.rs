@@ -28,6 +28,7 @@ pub struct SearchableSelectList {
     description: Option<String>,
     input: Arc<Input>,
     list: Arc<SelectList>,
+    filter: fn(&SelectList, &str),
     focused: Mutex<bool>,
 }
 
@@ -35,18 +36,29 @@ impl SearchableSelectList {
     /// Wrap `list` with a search input. `title` / `description` are optional
     /// header rows (upstream's `SelectSubmenu` shows both).
     pub fn new(title: Option<&str>, description: Option<&str>, list: Arc<SelectList>) -> Self {
+        Self::with_filter(title, description, list, SelectList::set_filter)
+    }
+
+    /// A compatibility caller can preserve its own ranking without replacing the widget.
+    pub fn with_filter(
+        title: Option<&str>,
+        description: Option<&str>,
+        list: Arc<SelectList>,
+        filter: fn(&SelectList, &str),
+    ) -> Self {
         let input = Arc::new(Input::with_placeholder("Type to filter..."));
         // Every text edit re-filters the list. `Input::on_change` fires after
         // the state lock is released, so this can safely read the value.
         let list_for_change = list.clone();
         input.on_change(Arc::new(move |value: &str| {
-            list_for_change.set_filter(value);
+            filter(&list_for_change, value);
         }));
         Self {
             title: title.map(str::to_string),
             description: description.map(str::to_string),
             input,
             list,
+            filter,
             focused: Mutex::new(false),
         }
     }
@@ -66,7 +78,7 @@ impl SearchableSelectList {
     /// `initialSearchInput`).
     pub fn set_search_text(&self, text: &str) {
         self.input.set_value(text);
-        self.list.set_filter(text);
+        (self.filter)(&self.list, text);
     }
 
     /// Route a key to the list or the search box.
