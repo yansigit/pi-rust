@@ -48,6 +48,82 @@ fn append(origin: &str, action: &str) -> Value {
 }
 
 #[tokio::test]
+async fn location_is_bound_to_the_origin_and_does_not_claim_durability() {
+    use rpi_harness::session::jsonl::{JsonlSessionRepo, JsonlSessionRepoOptions};
+    use rpi_harness::session::memory::SystemClock;
+    use rpi_harness::session::sqlite::SqliteSessionRepo;
+    use rpi_tools::Durability;
+
+    let directory = tempfile::tempdir().unwrap();
+    let jsonl_repo = JsonlSessionRepo::with_env_cwd(JsonlSessionRepoOptions {
+        fs: Arc::new(rpi_tools::OsExecutionEnv::with_cwd(
+            directory.path().to_owned(),
+        )),
+        sessions_root: directory.path().join("sessions").to_str().unwrap().into(),
+        clock: Arc::new(SystemClock),
+        ids: Arc::new(CounterIdGenerator::new()),
+    });
+    let jsonl = Arc::new(
+        jsonl_repo
+            .create(&SessionCreateOptions::default())
+            .await
+            .unwrap(),
+    );
+    let jsonl_path = jsonl.jsonl_metadata().path;
+    let database = directory.path().join("sessions.db");
+    let sqlite = SqliteSessionRepo::open(&database).unwrap();
+    let sqlite_memory = SqliteSessionRepo::open(":memory:").unwrap();
+    let cases: Vec<(Arc<dyn SessionStorage>, Option<String>, Durability)> = vec![
+        (memory(), None, Durability::Ephemeral),
+        (jsonl, Some(jsonl_path), Durability::Durable),
+        (
+            Arc::new(
+                sqlite
+                    .create(&SessionCreateOptions::default())
+                    .await
+                    .unwrap(),
+            ),
+            Some(database.to_str().unwrap().into()),
+            Durability::Durable,
+        ),
+        (
+            Arc::new(
+                sqlite_memory
+                    .create(&SessionCreateOptions::default())
+                    .await
+                    .unwrap(),
+            ),
+            None,
+            Durability::Ephemeral,
+        ),
+    ];
+    let ports = Arc::new(SessionPorts::default());
+    for (storage, path, durability) in cases {
+        let origin = capture(&ports, storage.clone()).await;
+        storage.move_lane("main", None).await.unwrap();
+        let request = json!({"action":"location","origin":origin});
+        assert_eq!(
+            call(&ports, owner(), request.clone()).await.unwrap(),
+            json!({"path":path})
+        );
+        assert!(
+            call(&ports, NativeOwner { id: 18, ..owner() }, request.clone())
+                .await
+                .is_err()
+        );
+        let mut redirected = request;
+        redirected["path"] = "a-caller-selected-file".into();
+        assert!(call(&ports, owner(), redirected).await.is_err());
+        assert_eq!(
+            call(&ports, owner(), json!({"action":"sync","origin":origin}))
+                .await
+                .unwrap(),
+            json!({"durability":durability}),
+        );
+    }
+}
+
+#[tokio::test]
 async fn origin_operations_preserve_owner_branch_and_real_commit_receipts() {
     let ports = Arc::new(SessionPorts::default());
     let storage = memory();

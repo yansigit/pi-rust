@@ -1295,6 +1295,12 @@ pub struct SessionCreateOptions {
 /// single `LaneRecord` type instead of a parallel `NewLaneRecord` enum.
 #[async_trait::async_trait]
 pub trait SessionStorage: Send + Sync {
+    /// Host-owned persistence identity for native adapters, never a caller-selected path.
+    /// Absence does not prove durability; use `sync` for an explicit acknowledgement.
+    async fn location(&self) -> SessionResult<Option<String>> {
+        Ok(None)
+    }
+
     /// An atomic tree view, including revisions that change on branch navigation.
     async fn snapshot(&self) -> SessionResult<SessionSnapshot> {
         Err(crate::error::SessionError::storage(

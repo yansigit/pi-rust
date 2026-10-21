@@ -30,6 +30,9 @@ enum Request {
     Snapshot {
         origin: String,
     },
+    Location {
+        origin: String,
+    },
     Append {
         origin: String,
         custom_type: String,
@@ -229,6 +232,7 @@ impl SessionPorts {
             | Request::Append { origin, .. }
             | Request::JournalAppend { origin, .. }
             | Request::Sync { origin }
+            | Request::Location { origin }
             | Request::Release { origin } => origin,
         };
         let origin = {
@@ -256,6 +260,9 @@ impl SessionPorts {
         }
         let journal = matches!(request, Request::JournalAppend { .. });
         match request {
+            Request::Location { .. } => {
+                Ok(json!({"path":origin.storage.location().await.map_err(|e| e.to_string())?}))
+            }
             Request::Snapshot { .. } => {
                 serde_json::to_value(origin.storage.snapshot().await.map_err(|e| e.to_string())?)
                     .map_err(|_| "invalid session snapshot".into())

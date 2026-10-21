@@ -119,6 +119,20 @@ fn immediate<T>(
 
 #[async_trait]
 impl SessionStorage for SqliteSessionStorage {
+    async fn location(&self) -> SessionResult<Option<String>> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|_| SessionError::storage("SQLite connection poisoned"))?;
+        match db.path() {
+            Some("") => Ok(None),
+            Some(path) => Ok(Some(path.to_owned())),
+            None => Err(SessionError::storage(
+                "SQLite persistence location is unavailable",
+            )),
+        }
+    }
+
     async fn snapshot(&self) -> SessionResult<super::types::SessionSnapshot> {
         self.read(|inner| immediate(inner.snapshot()))
     }

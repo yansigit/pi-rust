@@ -49,6 +49,7 @@ native-request/context slots carry these operations; no C ABI structure changed.
 | --- | --- | --- |
 | `capture` | optional `lane` (default `main`) | Opaque `origin` handle and complete `snapshot` |
 | `snapshot` | `origin` | Complete current tree and revisions of that origin's storage |
+| `location` | `origin` | Host-owned backing `path`, or null; requires `sessions.location` |
 | `append` | `origin`, `customType`, optional `data` | Committed receipt; refuses a changed branch |
 | `journalAppend` | `origin`, `customType`, optional `data` | Committed receipt; preserves the original branch after navigation |
 | `sync` | `origin` | Explicit `durability` acknowledgement |
@@ -60,6 +61,15 @@ in committed receipts. Missing data and explicit JSON null remain distinct.
 Origins are scoped to the owning plugin, generation and child execution; expired
 children never fall back to the parent. Limits are 1,024 live origins per host,
 128 per owner and 16 MiB of custom entry data. Unknown fields are rejected.
+
+`location` resolves only the captured storage. It cannot accept a caller-selected
+path, switch to the newly active session or cross an owner/generation boundary.
+JSONL returns its absolute addressed file; SQLite returns its database path.
+Memory and temporary SQLite storage return null. The path is an identity/read
+descriptor, not permission to bypass the host's writes, and does not acknowledge
+durability. Consumers must still await `append` and `sync`. The Rust storage
+trait adds a default optional location method; C ABI layouts and versions stay
+unchanged. Other storage implementations may return no location.
 
 A cancelled waiter receives an error, while an already-started commit completes.
 Inspect the journal before retrying an uncertain operation. Appends serialize per

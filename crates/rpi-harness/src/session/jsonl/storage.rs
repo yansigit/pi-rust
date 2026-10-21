@@ -432,6 +432,19 @@ fn chain_onto_lane_leaf(mutation: SessionMutation, state: &SessionState) -> Sess
 
 #[async_trait]
 impl SessionStorage for JsonlSessionStorage {
+    async fn location(&self) -> SessionResult<Option<String>> {
+        self.require_certain()?;
+        let path = file_result(
+            self.fs.absolute_path(&self.metadata.path, None).await,
+            "Failed to resolve session location",
+        )?;
+        Ok(Some(
+            path.to_str()
+                .ok_or_else(|| SessionError::storage("session location is not UTF-8"))?
+                .to_owned(),
+        ))
+    }
+
     async fn snapshot(&self) -> SessionResult<super::super::types::SessionSnapshot> {
         let _tail = self.tail.lock().await;
         self.require_certain()?;
