@@ -5,6 +5,35 @@ use rpi_ai::{AssistantMessage, ToolCall};
 use serde_json::{json, Value};
 
 impl AgentHarness {
+    /// Commit presentation state and executable selection together; state never grants tool access.
+    pub fn select_native_tools(&self, names: Vec<String>, state: Value) -> HarnessResult<Value> {
+        if serde_json::to_vec(&state)
+            .map_err(|e| HarnessError::io(e.to_string()))?
+            .len()
+            > 16 * 1024
+        {
+            return Err(HarnessError::io("tool selection state exceeds 16 KiB"));
+        }
+        let mut inner = self.inner.lock().unwrap();
+        if inner.closed {
+            return Err(HarnessError::closed());
+        }
+        let mut selected = Vec::new();
+        for name in names {
+            if !selected.contains(&name)
+                && inner
+                    .tools
+                    .iter()
+                    .any(|tool| tool.tool.schema().name == name)
+            {
+                selected.push(name);
+            }
+        }
+        inner.select_tools(selected, state)?;
+        Ok(json!({"tools":inner.active_tool_names,
+            "selection":{"revision":inner.tool_selection_revision.to_string(),"state":inner.tool_selection_state}}))
+    }
+
     /// Freeze the same projection rules used by this execution's provider requests.
     pub fn session_context_options(&self) -> HarnessResult<SessionContextBuildOptions> {
         let snapshot = self.snapshot_config()?;

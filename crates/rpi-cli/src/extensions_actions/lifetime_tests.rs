@@ -123,13 +123,17 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
             assert_eq!(snapshot["sessionId"], "native-child");
             assert_eq!(snapshot["projectTrusted"], true);
             assert_eq!(snapshot["projectTrustResolved"], true);
-            host.native_request(
+            let receipt = host.native_request(
                 owner.clone(),
-                json!({"port":"tools","action":"setActive","tools":["read","missing","read"]}),
+                json!({"port":"tools","action":"setActive","tools":["read","missing","read"],"state":{"fixture":true}}),
                 Default::default(),
             )
             .await
             .unwrap();
+            assert_eq!(receipt["tools"], json!(["read"]));
+            assert_eq!(receipt["selection"], child.harness.native_context().unwrap()["toolSelection"]);
+            assert_eq!(receipt["selection"]["state"], json!({"fixture":true}));
+            assert_eq!(parent.native_context().unwrap()["toolSelection"]["state"], serde_json::Value::Null);
             assert_eq!(
                 child.harness.lane("main").get_active_tools().await.unwrap(),
                 vec!["read"]

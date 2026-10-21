@@ -168,3 +168,15 @@ registration filters, captured at startup/reload and inherited by children.
 Worker-owned presentation declarations apply the same filters without becoming
 executable host tools. A native package that relies on either capability must
 require it. No C ABI layouts or workspace versions change.
+
+`tools.selectionState` returns a committed `{tools,selection:{revision,state}}`
+receipt from `tools.setActive`; native context snapshots include `toolSelection`
+with the same selection object. Revisions are unsigned decimal strings to avoid
+JavaScript integer rounding. Optional `state` is bounded to 16 KiB of JSON and
+holds non-secret presentation metadata only; it never registers or enables an
+executable tool. Filtering, selection and state commit under the same harness
+lock. All legacy selection setters and registry replacement clear this state,
+including a repeated selection with identical names. Child harnesses start with
+fresh selection state. Receipts remain immutable after subsequent writes. Tool
+requests, guidance and inherited selections retain the selected order, ignoring
+unknown and duplicate names as Pi 1.3.0 does.

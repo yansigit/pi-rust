@@ -87,6 +87,7 @@ impl AgentHarness {
             "isIdle":!inner.active_run.as_ref().is_some_and(|run| run.lane == self.lane),
             "hasPendingMessages":pending,
             "toolRegistration":inner.resources.tool_registration,
+            "toolSelection":{"revision":inner.tool_selection_revision.to_string(), "state":inner.tool_selection_state},
             "tools":Self::active_tools(&inner.tools, &inner.active_tool_names).iter().map(|tool|tool.schema().name.clone()).collect::<Vec<_>>(),
             "sessionId":self.session.storage().metadata().id,
         }))
@@ -141,13 +142,9 @@ impl AgentHarness {
             ));
         }
         let snap = self.snapshot_config()?;
-        let mut tools: Vec<_> = snap
-            .tools
-            .iter()
-            .filter(|tool| {
-                let name = &tool.tool.schema().name;
-                name != "delegate_task" && snap.active_tool_names.contains(name)
-            })
+        let mut tools: Vec<_> = Self::selected_tools(&snap.tools, &snap.active_tool_names)
+            .into_iter()
+            .filter(|tool| tool.tool.schema().name != "delegate_task")
             .cloned()
             .collect();
         if let Some(names) = requested_tools {

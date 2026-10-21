@@ -305,3 +305,123 @@ async fn default_activation_expands_once_and_explicit_empty_updates_disable_all_
         .unwrap();
     assert_eq!(harness.inspect_tools().unwrap()[0]["active"], true);
 }
+
+#[tokio::test]
+async fn native_selection_receipts_are_atomic_and_external_selections_clear_presentation_state() {
+    let harness = AgentHarness::create(AgentHarnessOptions {
+        tools: vec![HarnessTool::new(DummyTool::new("alpha"))],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let state = serde_json::json!({"runtime":"fixture","tools":["recorded"]});
+    let first = harness
+        .select_native_tools(
+            vec!["alpha".into(), "unknown".into(), "alpha".into()],
+            state.clone(),
+        )
+        .unwrap();
+    assert_eq!(
+        first,
+        serde_json::json!({"tools":["alpha"],"selection":{"revision":"1","state":state}})
+    );
+    assert_eq!(
+        harness.native_context().unwrap()["toolSelection"],
+        first["selection"]
+    );
+    harness
+        .lane("main")
+        .set_active_tools(vec!["alpha".into()])
+        .await
+        .unwrap();
+    assert_eq!(
+        harness.native_context().unwrap()["toolSelection"],
+        serde_json::json!({"revision":"2","state":null})
+    );
+    assert_eq!(first["selection"]["revision"], "1");
+    assert!(harness
+        .select_native_tools(vec![], serde_json::json!("x".repeat(16 * 1024)))
+        .is_err());
+    assert_eq!(
+        harness.native_context().unwrap()["toolSelection"]["revision"],
+        "2"
+    );
+    harness.select_native_tools(vec![], state).unwrap();
+    harness
+        .set_tools(vec![HarnessTool::new(DummyTool::new("alpha"))], None)
+        .await
+        .unwrap();
+    assert_eq!(
+        harness.native_context().unwrap()["toolSelection"],
+        serde_json::json!({"revision":"4","state":null})
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_native_selections_return_their_own_committed_state() {
+    let harness = AgentHarness::create(AgentHarnessOptions {
+        tools: vec![HarnessTool::new(DummyTool::new("alpha"))],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let calls: Vec<_> = (0..16)
+        .map(|index| {
+            let harness = harness.clone();
+            tokio::task::spawn_blocking(move || {
+                let names = if index % 2 == 0 {
+                    vec!["alpha".into()]
+                } else {
+                    vec![]
+                };
+                let receipt = harness
+                    .select_native_tools(names.clone(), serde_json::json!(index))
+                    .unwrap();
+                assert_eq!(receipt["tools"], serde_json::json!(names));
+                assert_eq!(receipt["selection"]["state"], index);
+                receipt["selection"]["revision"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            })
+        })
+        .collect();
+    let mut revisions = Vec::new();
+    for call in calls {
+        revisions.push(call.await.unwrap());
+    }
+    revisions.sort();
+    assert_eq!(revisions, (1..=16).collect::<Vec<_>>());
+    assert_eq!(
+        harness.native_context().unwrap()["toolSelection"]["revision"],
+        "16"
+    );
+}
+
+#[tokio::test]
+async fn native_context_preserves_selection_order_and_ignores_duplicate_unknown_names() {
+    let harness = AgentHarness::create(AgentHarnessOptions {
+        tools: vec![
+            HarnessTool::new(DummyTool::new("alpha")),
+            HarnessTool::new(DummyTool::new("beta")),
+        ],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    harness
+        .lane("main")
+        .set_active_tools(vec![
+            "beta".into(),
+            "unknown".into(),
+            "alpha".into(),
+            "beta".into(),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(
+        harness.native_context().unwrap()["tools"],
+        serde_json::json!(["beta", "alpha"])
+    );
+}

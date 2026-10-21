@@ -1,0 +1,41 @@
+{
+  "status": "Atomic tool selection receipts and presentation state verified",
+  "platform": "Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "harness": {
+      "log": "/tmp/rpi-tool-selection-harness-final.log",
+      "sha256": "2b603de633f771de67131c0c85f1814cdb90555e277bcc3ce70ab24244fa792b",
+      "passed": 403
+    },
+    "context": {
+      "log": "/tmp/rpi-tool-selection-context-final.log",
+      "sha256": "5c5311d228c6de5761e8dfb9254dfb7a3ffb7f5ccfc64e96561ce71114946d52",
+      "passed": 1
+    },
+    "workspace": {
+      "log": "/tmp/rpi-tool-selection-workspace-final.log",
+      "sha256": "da3d74e275869de83a9b769e62b344e47e214c4784c2c1d7c41483d82b58e1d8"
+    },
+    "nativeLibrary": {
+      "log": "/tmp/rpi-cursor-tool-selection-dll-host.log",
+      "sha256": "c201a572557099459ed86011ee32c60679e691339750a60621284df6a2373379",
+      "passed": 3
+    }
+  },
+  "assertions": [
+    "Selections and bounded presentation state commit under one lock",
+    "Same-name legacy selections and registry replacement clear presentation state",
+    "Concurrent writes return their own committed revisions and values",
+    "Oversized state rejects without modifying selection or revision",
+    "Native child selection does not change parent state",
+    "Selected order reaches context, provider schemas, prompt guidance and child tools",
+    "Installed Cursor registration, commands, child ownership, reload and shutdown pass"
+  ],
+  "review": "Manual exact-diff review of all mutation callers, lock scope, overflow and size failure paths, selection ordering, inherited scopes, fixtures, docs and ABI compatibility",
+  "notTested": [
+    "Optional builtin bridge when builtins omitted",
+    "Full SDK/bridge/replay execution counts",
+    "macOS and Windows native loading"
+  ]
+}

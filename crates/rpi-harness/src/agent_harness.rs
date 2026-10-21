@@ -605,6 +605,8 @@ struct HarnessInner {
     model: Model,
     thinking_level: ThinkingLevel,
     active_tool_names: Vec<String>,
+    tool_selection_revision: u64,
+    tool_selection_state: serde_json::Value,
     tools: Vec<HarnessTool>,
     resources: AgentHarnessResources,
     stream_options: AgentHarnessStreamOptions,
@@ -643,6 +645,19 @@ struct HarnessInner {
     next_run_queue: SharedMessageQueue,
     /// Fast path only; durable context enqueue records remain authoritative.
     pending_context_lanes: std::collections::HashSet<String>,
+}
+
+impl HarnessInner {
+    fn select_tools(&mut self, names: Vec<String>, state: serde_json::Value) -> HarnessResult<()> {
+        let revision = self
+            .tool_selection_revision
+            .checked_add(1)
+            .ok_or_else(|| HarnessError::io("tool selection revision exhausted"))?;
+        self.active_tool_names = names;
+        self.tool_selection_revision = revision;
+        self.tool_selection_state = state;
+        Ok(())
+    }
 }
 
 // ===========================================================================
@@ -767,6 +782,8 @@ impl AgentHarness {
             model: options.model,
             thinking_level: options.thinking_level,
             active_tool_names,
+            tool_selection_revision: 0,
+            tool_selection_state: serde_json::Value::Null,
             tools: options.tools,
             resources: options.resources,
             stream_options: options.stream_options,
@@ -2051,8 +2068,8 @@ impl AgentHarness {
         }
         let active = active_names
             .unwrap_or_else(|| tools.iter().map(|t| t.tool.schema().name.clone()).collect());
+        inner.select_tools(active, serde_json::Value::Null)?;
         inner.tools = tools;
-        inner.active_tool_names = active;
         Ok(())
     }
 
@@ -3148,10 +3165,18 @@ impl AgentHarness {
 
     /// Defaults are expanded at construction; an explicitly empty set disables tools.
     fn active_tools(tools: &[HarnessTool], active: &[String]) -> Vec<Arc<dyn AgentTool>> {
-        tools
-            .iter()
-            .filter(|t| active.contains(&t.tool.schema().name))
+        Self::selected_tools(tools, active)
+            .into_iter()
             .map(|t| crate::image_tool::wrap(Arc::clone(&t.tool)))
+            .collect()
+    }
+
+    fn selected_tools<'a>(tools: &'a [HarnessTool], active: &[String]) -> Vec<&'a HarnessTool> {
+        let mut seen = std::collections::HashSet::new();
+        active
+            .iter()
+            .filter(|name| seen.insert(name.as_str()))
+            .filter_map(|name| tools.iter().find(|tool| &tool.tool.schema().name == name))
             .collect()
     }
 
@@ -3181,9 +3206,7 @@ impl AgentHarness {
         };
         let mut prompt = compose_system_prompt(base, skills, None, None);
         if resources.include_tool_guidance {
-            let active = tools
-                .iter()
-                .filter(|tool| active_tool_names.contains(&tool.tool.schema().name));
+            let active = Self::selected_tools(tools, active_tool_names);
             let mut snippets = Vec::new();
             let mut guidelines = Vec::new();
             for tool in active {
@@ -5154,8 +5177,7 @@ impl AgentLane for AgentHarness {
         if inner.closed {
             return Err(HarnessError::closed());
         }
-        inner.active_tool_names = names;
-        Ok(())
+        inner.select_tools(names, serde_json::Value::Null)
     }
 
     fn session_view(&self) -> Arc<dyn SessionTree> {
@@ -5488,8 +5510,7 @@ impl AgentLane for LaneHandle {
         if inner.closed {
             return Err(HarnessError::closed());
         }
-        inner.active_tool_names = names;
-        Ok(())
+        inner.select_tools(names, serde_json::Value::Null)
     }
 
     fn session_view(&self) -> Arc<dyn SessionTree> {
