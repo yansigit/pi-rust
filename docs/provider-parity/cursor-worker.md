@@ -1,14 +1,16 @@
 # Cursor retained adapter and worker transport
 
-Status: C01 transport foundation implemented. The Cursor native provider, four
-host ports, adapter persistence changes and packaged installation are still in
-progress. This is not a claim of Cursor inference or package parity.
+Status: C01 transport foundation implemented. Authoritative session snapshots,
+awaited adapter writes and Rust journal IO have since been added; native provider
+dispatch and packaged installation remain in progress. This is not a claim of
+Cursor inference or package parity.
 
 `rpi-package/packages/rpi-cursor-sdk/worker` retains all 461 tracked files from
 `fitchmultz/pi-cursor-sdk@f337dc4bb7cea936c52e69a7fe08e7e376c8467b`. Each original
-file is verified against its Git blob hash in `upstream.json`; the original
-source, tests and npm lockfile are unchanged in this chunk. New worker code and
-tests live under `src/rpi` and `test/rpi`. The SDK remains an external exact
+file's baseline Git blob hash is recorded in `upstream.json`. The initial transport
+chunk retained those files unchanged; subsequent commits patch the host boundaries
+and affected tests. The npm lockfile remains unchanged. New worker code and tests
+live under `src/rpi` and `test/rpi`. The SDK remains an external exact
 `@cursor/sdk@1.0.37` dependency, following the [distribution decision](cursor-sdk-distribution.md).
 
 ## Connection and ownership
@@ -69,9 +71,17 @@ and retained fork. The subsequent full run passed 1,637 tests with two upstream
 skips. The extra new control-order test is verified separately. The earlier
 failure remains recorded as an upstream fixture timing limitation.
 
+The package's `SESSION-PORT.md`, `tests/session-evidence.json` and
+`tests/journal-evidence.json` describe the subsequent session/journal work. Native
+cleanup uses committed durable receipts; cloud and usage writes await Rust IO.
+Journal tests include actual IPC, concurrent processes, failed syncs, torn tails
+and unchanged pinned Node writer comparisons. The retained suite now passes 1,663
+tests with two upstream skips, plus 53 Pi loader tests. These checks remain partial
+port evidence; the application dispatcher is not yet connected.
+
 Still required: installed native-library asset resolution and loading; actual
-adapter registration and request ownership; awaited authoritative session and
-file-journal ports; stable request headers/signals; tool execution/replay counts;
+adapter registration and request ownership; background session leases and
+history-authorized inherited journal reads; stable request headers/signals; tool execution/replay counts;
 all adapter feature groups; imports; SDK resource shutdown; packaged execution on
 Linux, macOS and Windows; and controlled live Cursor acceptance. No Cursor live
 usage or cloud mutation was performed for this transport work.

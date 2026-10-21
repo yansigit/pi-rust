@@ -94,8 +94,12 @@ further writes after an uncertain append; SQLite uses durable transactions and
 fresh state under its writer lock. CLI reopening shares live writers across
 session switches. [Storage evidence](host-storage-results.json) covers Linux
 backends, native library acknowledgements, owner-scoped shutdown and failure
-recovery. Cursor's separate provider file journals remain pending, so H10 is not
-complete.
+recovery. Cursor now has a Rust file-journal port and awaited adapter writes, with
+native cleanup using these committed session receipts. Full runtime dispatch,
+inherited-origin journal access and background lifetime integration remain pending,
+so H10 is not complete. The package's `tests/journal-evidence.json` records actual
+Rust/Node IPC, four-process locking, 16 pinned writer byte comparisons, failure
+injection and retained-suite checks.
 
 The Antigravity reference revealed two generic transcript requirements:
 `AssistantMessage.duration_ms` retains Pi 1.3.0's provider-measured duration,
