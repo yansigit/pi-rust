@@ -160,3 +160,90 @@ fn exported_context_handles_concurrent_credentials_errors_shutdown_and_old_hosts
         }
     }
 }
+
+extern "C" fn register_wrapper(
+    _: sdk::StbStringRef,
+    request: sdk::ProviderStreamRequestFn,
+    free: sdk::FreeStringFn,
+    data: *mut c_void,
+) -> i32 {
+    REGISTERED.with(|slot| *slot.borrow_mut() = Some((request, free, data as usize)));
+    0
+}
+extern "C" fn unused_delegate(
+    _: sdk::StbStringRef,
+    _: Option<sdk::ProviderStreamEmitFn>,
+    _: *mut c_void,
+    _: *const sdk::ProviderStreamControl,
+    _: Option<sdk::ProviderStreamCompletionFn>,
+    _: *mut c_void,
+    _: *mut sdk::StbString,
+    _: *mut c_void,
+) -> i32 {
+    1
+}
+extern "C" fn unused_continuation(
+    _: sdk::StbStringRef,
+    _: *const sdk::AuthRequestControl,
+    _: *mut sdk::StbString,
+    _: *mut c_void,
+) -> i32 {
+    1
+}
+
+#[test]
+fn captured_wrapper_state_is_isolated_and_retained_until_shutdown() {
+    let mut api = api();
+    api.register_provider_wrapper = Some(register_wrapper);
+    api.register_plugin_lifecycle = Some(lifecycle);
+    api.delegate_provider_stream = Some(unused_delegate);
+    api.provider_continuation = Some(unused_continuation);
+    let mut registrations = Vec::new();
+    for label in ["first session", "second session"] {
+        let state = Arc::new(label.to_string());
+        let weak = Arc::downgrade(&state);
+        sdk::provider::composition::register_with_factory(
+            &api,
+            serde_json::json!({"version":1,"id":label}),
+            move |_, _, _, _| {
+                Ok(rpi_ai::providers::faux::FauxProvider::new(
+                    rpi_ai::providers::faux::FauxScript::new().with_text(state.as_str()),
+                ))
+            },
+        )
+        .unwrap();
+        registrations.push((
+            REGISTERED.with(|slot| slot.borrow_mut().take().unwrap()),
+            HOOKS.with(|slot| slot.borrow_mut().take().unwrap()),
+            weak,
+        ));
+    }
+    for (registration, hooks, state) in registrations {
+        let (request, free, data) = registration;
+        let model = Model::new("m", "M", Api::Faux, "context-test", "http://localhost");
+        let json = serde_json::json!({"model":model,"context":Context::new(vec![]),"options":{},"__rpiContinuation":{"version":1,"id":"owned","generation":"session"}}).to_string();
+        let mut out = sdk::StbString::empty();
+        assert_eq!(
+            request(
+                sdk::StbStringRef::from_str(&json),
+                None,
+                ptr::null_mut(),
+                ptr::null(),
+                None,
+                ptr::null_mut(),
+                &mut out,
+                data as *mut c_void
+            ),
+            0
+        );
+        let output = unsafe { sdk::callbacks::OwnedString::from_raw(out, Some(free)) };
+        let message: AssistantMessage = serde_json::from_str(&output.to_string_lossy()).unwrap();
+        assert!(
+            matches!(message.content.as_slice(), [rpi_ai::Content::Text(text)] if text.text == *state.upgrade().unwrap())
+        );
+        hooks.0(hooks.2 as *mut c_void);
+        assert!(state.upgrade().is_some());
+        assert_eq!(hooks.1(hooks.2 as *mut c_void), 0);
+        assert!(state.upgrade().is_none());
+    }
+}

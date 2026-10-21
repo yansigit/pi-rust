@@ -273,10 +273,18 @@ pub type WrapperFactory = fn(
     &SimpleStreamOptions,
     Continuation,
 ) -> Result<Arc<dyn Provider>, String>;
+type OwnedFactory = dyn Fn(
+        &ProviderContext,
+        &Model,
+        &SimpleStreamOptions,
+        Continuation,
+    ) -> Result<Arc<dyn Provider>, String>
+    + Send
+    + Sync;
 struct WrapperContext {
     resources: ProviderContext,
     api: PluginApi,
-    factory: WrapperFactory,
+    factory: Box<OwnedFactory>,
 }
 extern "C" fn begin(data: *mut c_void) {
     crate::guard_or((), || {
@@ -362,6 +370,23 @@ extern "C" fn invoke(
 
 /// Required capabilities fail explicitly; there is no one-shot or unwrapped fallback.
 pub fn register(api: &PluginApi, manifest: Value, factory: WrapperFactory) -> Result<(), String> {
+    register_with_factory(api, manifest, factory)
+}
+
+/// Capture session-owned routing state without a process-global account registry.
+/// The factory and its captures remain owned until all wrapper requests finish.
+pub fn register_with_factory<F>(api: &PluginApi, manifest: Value, factory: F) -> Result<(), String>
+where
+    F: Fn(
+            &ProviderContext,
+            &Model,
+            &SimpleStreamOptions,
+            Continuation,
+        ) -> Result<Arc<dyn Provider>, String>
+        + Send
+        + Sync
+        + 'static,
+{
     let register = api
         .register_provider_wrapper
         .ok_or("host lacks register_provider_wrapper")?;
@@ -375,7 +400,7 @@ pub fn register(api: &PluginApi, manifest: Value, factory: WrapperFactory) -> Re
     let context = Box::into_raw(Box::new(WrapperContext {
         resources: ProviderContext::new(),
         api: *api,
-        factory,
+        factory: Box::new(factory),
     }));
     let status = lifecycle(begin, finish, context.cast());
     if status != 0 {
