@@ -45,9 +45,11 @@ catalog and revision intact. Readers wait for installation to commit. Outstandin
 invocations retain the previous chain; subsequent requests use the current chain.
 The session runtime stays alive even if its last provider is unregistered.
 
-An optional `expectedRevision` rejects a stale mutation. Catalog refresh captures
-its starting revision, awaits the owning provider outside the publication lock,
-and refuses to overwrite a newer catalog. Public descriptors cannot carry headers
+An optional `expectedRevision` rejects a stale mutation against the global catalog
+revision. Catalog refresh captures a provider-specific generation, awaits the
+owning provider outside the publication lock, and refuses to overwrite a newer
+catalog for that provider. Unrelated provider changes do not invalidate it.
+Public descriptors cannot carry headers
 or change a provider's registered protocol. Credential-bearing execution bindings
 retain their private endpoint/header configuration across empty catalogs and
 republishing. Existing source-level `ProviderManifest` initializers must include
@@ -197,7 +199,7 @@ opted into this operation.
 `providers.awaitedPublication` adds an opaque `publicationId` to a
 `refreshCatalog` callback's input. A provider that must await host acceptance
 submits its candidate using `providers.publish` with that ID. The host validates
-ownership and the refresh's starting revision, installs the catalog and returns
+ownership and the refresh's provider generation, installs the catalog and returns
 its committed revision. Only then may the worker change its private catalog or
 cache. The callback returns exactly `{published:true}`; the host verifies its
 receipt and does not publish twice. A callback that returns `{models}` retains
@@ -210,6 +212,17 @@ The worker's publication call must await any admitted commit even after the
 requesting consumer cancels, and finish its private update after an acknowledged
 commit. The native Cursor dispatcher must use its owning runtime lease for this
 bounded completion. Neither change adds C ABI fields or changes workspace versions.
+
+`providers.refreshIsolation` makes refresh invalidation provider-specific. Starting
+a new refresh cancels the previous refresh of that provider. A successful manual
+publication, registration or removal also supersedes it. A failed installation or
+a request cancelled before admission preserves the existing refresh. Child
+invocations cannot refresh a parent's catalog. Foreign callbacks remain retained
+until they return even when superseded; late publication tickets are rejected.
+Explicit `expectedRevision` remains a global compare-and-swap for callers that
+request it. The executable Pi 1.3.0 fixture is `catalog-reference.json`, generated
+by `scripts/provider-catalog-reference.mjs`. Offline/live phase orchestration,
+configuration recomposition and availability remain separate pending work.
 
 Tool inspection now includes `sourceInfo` alongside the schema, activity and
 execution-mode fields (`tools.provenance`). CLI built-ins are marked `builtin`;

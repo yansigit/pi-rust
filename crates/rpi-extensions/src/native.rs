@@ -146,6 +146,7 @@ pub(crate) extern "C" fn request(
                     "auth.credentialStoreLock",
                     "providers.initialize",
                     "providers.awaitedPublication",
+                    "providers.refreshIsolation",
                     "auth.providerRequest",
                     "auth.providerPolicy",
                     "auth.configuredValues",

@@ -1,5 +1,6 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+mod refresh;
 
 #[derive(Default)]
 struct Host {
@@ -326,6 +327,7 @@ async fn late_refresh_cannot_overwrite_a_newer_publication() {
     struct Gate {
         started: tokio::sync::Notify,
         release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+        returned: tokio::sync::Notify,
     }
     extern "C" fn refresh(
         _: rpi_plugin_sdk::StbStringRef,
@@ -349,12 +351,14 @@ async fn late_refresh_cannot_overwrite_a_newer_publication() {
                 json!({"version":1,"result":{"models":[model("late")]}}).to_string(),
             );
         }
+        gate.returned.notify_one();
         0
     }
     let (release, receiver) = std::sync::mpsc::channel();
     let gate = Arc::new(Gate {
         started: tokio::sync::Notify::new(),
         release: std::sync::Mutex::new(receiver),
+        returned: tokio::sync::Notify::new(),
     });
     let (runtime, owner, _) = fixture_with(|registry| {
         registry.register_provider_runtime(
@@ -397,6 +401,7 @@ async fn late_refresh_cannot_overwrite_a_newer_publication() {
         .unwrap()
         .unwrap_err()
         .contains("catalog changed"));
+    gate.returned.notified().await;
     let inspected = request(&runtime, owner, json!({"action":"inspect"}))
         .await
         .unwrap();
@@ -717,10 +722,10 @@ async fn awaited_publication_commits_once_and_rejects_stale_or_expired_refresh_t
             )
             .await
             .unwrap();
-            assert!(request(&runtime, owner.clone(), publish.clone())
+            let error = request(&runtime, owner.clone(), publish.clone())
                 .await
-                .unwrap_err()
-                .contains("catalog changed"));
+                .unwrap_err();
+            assert!(error.contains("catalog changed") || error.contains("expired"));
         } else {
             let receipt = request(&runtime, owner.clone(), publish.clone())
                 .await

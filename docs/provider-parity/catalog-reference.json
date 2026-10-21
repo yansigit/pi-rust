@@ -1,0 +1,24 @@
+{
+  "pi": "1.3.0",
+  "checks": {
+    "unrelatedProvider": {
+      "cancelled": false,
+      "accepted": true,
+      "applied": true
+    },
+    "supersededRefresh": {
+      "cancelled": true,
+      "oldApplied": false,
+      "accepted": true,
+      "newApplied": true
+    },
+    "manualReplacement": {
+      "cancelled": true
+    },
+    "cancelledBeforeStart": {
+      "aborted": true,
+      "previousCancelled": false,
+      "calls": 1
+    }
+  }
+}

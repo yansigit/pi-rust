@@ -19,12 +19,40 @@ mod auth;
 struct State {
     catalog: ModelRegistry,
     chains: BTreeMap<String, Arc<dyn Provider>>,
+    generations: BTreeMap<String, u64>,
+    refreshes: BTreeMap<String, Weak<Publication>>,
 }
 struct Publication {
     owner: NativeOwner,
     provider: String,
-    expected_revision: u64,
+    generation: u64,
+    signal: CancellationToken,
     committed: AtomicU64,
+}
+impl Drop for Publication {
+    fn drop(&mut self) {
+        self.signal.cancel();
+    }
+}
+impl State {
+    fn generation(&self, id: &str) -> u64 {
+        self.generations.get(id).copied().unwrap_or(0)
+    }
+    fn next_generation(&self, id: &str) -> Result<u64, String> {
+        self.generation(id)
+            .checked_add(1)
+            .ok_or_else(|| "provider refresh generation exhausted".into())
+    }
+    fn supersede(&mut self, id: &str, generation: u64) {
+        self.generations.insert(id.into(), generation);
+        if let Some(previous) = self
+            .refreshes
+            .remove(id)
+            .and_then(|refresh| refresh.upgrade())
+        {
+            previous.signal.cancel();
+        }
+    }
 }
 pub(crate) struct ProviderRuntime {
     session: ExtensionSession,
@@ -91,7 +119,12 @@ impl ProviderRuntime {
             generation: bridge.generation().into(),
             host: bridge.clone_host(),
             myself: myself.clone(),
-            state: Mutex::new(State { catalog, chains }),
+            state: Mutex::new(State {
+                catalog,
+                chains,
+                generations: BTreeMap::new(),
+                refreshes: BTreeMap::new(),
+            }),
             logins: Mutex::new(BTreeMap::new()),
             auth,
             publications: Default::default(),
@@ -240,8 +273,11 @@ impl ProviderRuntime {
             {
                 return Err("catalog publication does not own this update".into());
             }
-            if publication.expected_revision != state.catalog.revision() {
+            if publication.generation != state.generation(id) {
                 return Err("provider catalog changed during the operation".into());
+            }
+            if publication.signal.is_cancelled() {
+                return Err("provider catalog refresh cancelled".into());
             }
             Some(publication)
         } else {
@@ -253,6 +289,11 @@ impl ProviderRuntime {
         {
             return Err("provider catalog changed during the operation".into());
         }
+        let next_generation = if publication.is_none() {
+            Some(state.next_generation(id)?)
+        } else {
+            None
+        };
         let candidate = state.catalog.fork().map_err(|e| e.to_string())?;
         match action {
             "publish" | "register" => {
@@ -302,10 +343,11 @@ impl ProviderRuntime {
                 .collect(),
         );
         let revision = candidate.revision();
-        *state = State {
-            catalog: candidate,
-            chains,
-        };
+        state.catalog = candidate;
+        state.chains = chains;
+        if let Some(generation) = next_generation {
+            state.supersede(id, generation);
+        }
         if let Some(publication) = publication {
             publication.committed.store(revision, Ordering::Release);
         }
@@ -320,38 +362,54 @@ impl ProviderRuntime {
         let id = args["providerId"]
             .as_str()
             .ok_or("missing provider identity")?;
-        let (owner, revision) = {
-            let state = self.state.lock().await;
-            (
-                state
-                    .catalog
-                    .owner(id)
-                    .ok_or("provider has no native catalog owner")?,
-                state.catalog.revision(),
-            )
-        };
         self.validate_owner(&caller)?;
+        if caller.child {
+            return Err("child session cannot refresh its parent's catalog".into());
+        }
+        if signal.is_cancelled() {
+            return Err("provider runtime request cancelled".into());
+        }
         let operations = rpi_extensions::provider_runtime::NativeProviderOperations::from_session(
             &self.session,
             id,
         )
         .ok_or("provider has no catalog refresh callback")?;
-        let publication = Arc::new(Publication {
-            owner: owner.clone(),
-            provider: id.into(),
-            expected_revision: revision,
-            committed: AtomicU64::new(0),
-        });
         let ticket = uuid::Uuid::new_v4().to_string();
-        {
+        let publication = {
+            let mut state = self.state.lock().await;
+            self.validate_owner(&caller)?;
+            if signal.is_cancelled() {
+                return Err("provider runtime request cancelled".into());
+            }
+            let owner = state
+                .catalog
+                .owner(id)
+                .ok_or("provider has no native catalog owner")?;
+            let generation = state.next_generation(id)?;
             let mut pending = self.publications.lock().unwrap_or_else(|e| e.into_inner());
             pending.retain(|_, publication| publication.strong_count() != 0);
             if pending.len() >= 64 {
                 return Err("catalog refresh capacity exhausted".into());
             }
+            let publication = Arc::new(Publication {
+                owner,
+                provider: id.into(),
+                generation,
+                signal: signal.child_token(),
+                committed: AtomicU64::new(0),
+            });
+            state.supersede(id, generation);
+            state
+                .refreshes
+                .insert(id.into(), Arc::downgrade(&publication));
             pending.insert(ticket.clone(), Arc::downgrade(&publication));
+            publication
+        };
+        let result = operations.request("refreshCatalog", json!({"allowNetwork":args["allowNetwork"].as_bool().unwrap_or(false),"force":args["force"].as_bool().unwrap_or(false),"publicationId":ticket}), publication.signal.clone()).await;
+        if self.state.lock().await.generation(id) != publication.generation {
+            return Err("provider catalog changed during the operation".into());
         }
-        let result = operations.request("refreshCatalog", json!({"allowNetwork":args["allowNetwork"].as_bool().unwrap_or(false),"force":args["force"].as_bool().unwrap_or(false),"publicationId":ticket}), signal.clone()).await?;
+        let result = result?;
         let committed = publication.committed.load(Ordering::Acquire);
         if committed != 0 || result.get("published").is_some() {
             if committed == 0 || result != json!({"published":true}) {
@@ -359,7 +417,7 @@ impl ProviderRuntime {
             }
             return Ok(json!({"revision":committed}));
         }
-        self.catalog_request(owner, json!({"action":"publish","providerId":id,"models":result["models"],"expectedRevision":revision}), signal).await
+        self.catalog_request(publication.owner.clone(), json!({"action":"publish","providerId":id,"models":result["models"],"publicationId":ticket}), signal).await
     }
 }
 #[async_trait::async_trait]
