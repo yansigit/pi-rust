@@ -125,8 +125,9 @@ pub(crate) extern "C" fn request(
                 return Err("unsupported native runtime version".into());
             }
             // Registration can run on a current-thread host runtime that cannot service queued work.
-            if matches!(args["port"].as_str(), Some("capabilities" | "context"))
-                && args["action"] == "inspect"
+            if (matches!(args["port"].as_str(), Some("capabilities" | "context"))
+                && args["action"] == "inspect")
+                || (args["port"] == "context" && args["action"] == "bootstrap")
             {
                 if unsafe { control.as_ref() }
                     .is_some_and(|control| (control.is_cancelled)(control.user_data) != 0)
@@ -137,6 +138,9 @@ pub(crate) extern "C" fn request(
                     return Err("native runtime request cancelled".into());
                 }
                 if args["port"] == "context" {
+                    if args["action"] == "bootstrap" {
+                        return bridge.host.native_bootstrap();
+                    }
                     return Ok(json!({"owner":owner,"identity":bridge.operation}));
                 }
                 return Ok(json!([
@@ -153,11 +157,17 @@ pub(crate) extern "C" fn request(
                     "auth.dynamicMethods",
                     "auth.resolveOwned",
                     "context.inspect",
+                    "context.bootstrap",
+                    "context.snapshot",
+                    "context.flags",
+                    "context.abort",
                     "tools.provenance",
+                    "tools.activation",
                     "sessions.location",
                     "sessions.view",
                     "commands.owned",
-                    "ui.notifications"
+                    "ui.notifications",
+                    "ui.status"
                 ]));
             }
             let signal = bridge.native_signal();
@@ -167,7 +177,9 @@ pub(crate) extern "C" fn request(
             let work_signal = signal.clone();
             let services = bridge.services.clone();
             let dialogs = bridge.ui_dialog_mailbox();
+            let status = bridge.extension_status_mailbox();
             let operation = bridge.operation.clone();
+            let bridge_identity = operation.clone();
             let tool_scope = bridge.tool_scope.clone();
             bridge.runtime.spawn(async move {
                 let work = async move {
@@ -177,11 +189,33 @@ pub(crate) extern "C" fn request(
                         if work_signal.is_cancelled() {
                             return Err("native notification cancelled".into());
                         }
-                        dialogs.notify(owner, &args)
+                        if args["action"] == "status" {
+                            status.native_status(
+                                owner.id,
+                                rpi_agent::tool_execution_scope::current_scope(),
+                                &args,
+                            )
+                        } else {
+                            dialogs.notify(owner, &args)
+                        }
                     } else if args["port"] == "dialogs" {
                         dialogs.request(owner, args, work_signal).await
                     } else {
-                        host.native_request(owner, args, work_signal).await
+                        let snapshot = args["port"] == "context" && args["action"] == "snapshot";
+                        let mut result = host
+                            .native_request(owner.clone(), args, work_signal)
+                            .await?;
+                        if snapshot {
+                            if !result.is_object() {
+                                return Err("invalid native context snapshot".into());
+                            }
+                            result["owner"] =
+                                serde_json::to_value(owner).map_err(|_| "invalid native owner")?;
+                            result["identity"] = serde_json::to_value(bridge_identity)
+                                .map_err(|_| "invalid request identity")?;
+                            result["hasUI"] = dialogs.is_attached().into();
+                        }
+                        Ok(result)
                     }
                 };
                 let result = rpi_agent::tool_execution_scope::inherit(tool_scope, async move {

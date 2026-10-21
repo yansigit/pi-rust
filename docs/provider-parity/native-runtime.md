@@ -30,6 +30,29 @@ cancelled or invalidated invocations are refused. Like capability discovery,
 this query is safe during synchronous registration and schedules no host work.
 It lets inherited handlers avoid mutating their parent's provider state.
 
+The [native context checks](host-native-context-results.json) qualify the following
+host boundaries, independently of package parity. `context.bootstrap` returns the host's `cwd`, rpi `agentDir`, and default
+`sessionDir` synchronously, including before harness construction. It does not
+read Pi storage. `context.flags` takes a bounded `names` array and returns only
+those parsed CLI values; unrelated extension flags are not copied to a worker.
+
+`context.snapshot` returns the actual child/parent execution's public model
+metadata, thinking level, active tool names, idle/pending state, session ID,
+effective system prompt, host-selected mode and project trust. Credential
+headers and endpoints are excluded. The bridge adds the authoritative owner,
+request identity and current dialog attachment (`hasUI`). The CLI sets mode
+after all stdin/TUI/stdio overrides and updates trust only after reload commits.
+Before startup selects a mode, snapshots fail explicitly. `context.abort`
+requires a captured operation/session identity and cannot abort a subsequent run.
+
+The `tools.activation` capability adds `tools/setActive` with a `tools` array;
+it uses the actual child harness and the existing activation validation. The
+`ui.status` capability adds `ui/status` with `key` and nullable `value`, presented
+through owner-bound native footer components. Child status is independent of its
+parent's status and expires with its execution scope. Retired owners cannot
+recreate status after cleanup. No C ABI structure or workspace version changes
+are needed for these versioned port operations.
+
 ## Catalog operations
 
 The `providers` port supports `inspect`, `publish`, `register`, `unregister`, and

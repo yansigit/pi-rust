@@ -51,13 +51,14 @@ Repeated and late cancellation is idempotent. A worker crash preserves already
 received partial events and returns an uncertain-completion error. Final teardown
 cancels admission, waits for admitted host callbacks and explicitly reaps Node.
 The adapter's MCP/SDK/journal shutdown must be awaited before that final teardown;
-that adapter lifecycle wiring remains pending.
+the worker now invokes and drains that lifecycle, while native-library ownership
+and shutdown wiring remain pending.
 
 ## Verification and limits
 
 [cursor-worker-results.json](cursor-worker-results.json) records the executed
-checks and log hashes. Rust/Node integration uses a fixture worker, not the real
-SDK adapter. The retained 53 Pi native-loader checks exercise the original Pi
+initial transport checks and log hashes. Those Rust/Node checks use a fixture
+worker. The retained 53 Pi native-loader checks exercise the original Pi
 boundary, not native rpi loading. Windows cross-compilation does not establish
 Windows execution; macOS execution is also pending.
 
@@ -76,8 +77,19 @@ The package's `SESSION-PORT.md`, `tests/session-evidence.json` and
 cleanup uses committed durable receipts; cloud and usage writes await Rust IO.
 Journal tests include actual IPC, concurrent processes, failed syncs, torn tails
 and unchanged pinned Node writer comparisons. The retained suite now passes 1,663
-tests with two upstream skips, plus 53 Pi loader tests. These checks remain partial
-port evidence; the application dispatcher is not yet connected.
+tests with two upstream skips, plus 53 Pi loader tests at that stage. These checks
+remain partial port evidence.
+
+The [packaged dispatcher evidence](../../../rpi-package/packages/rpi-cursor-sdk/tests/dispatcher-evidence.json)
+now executes the retained factory through `runtime/main.mjs` with scripted host
+ports and integrated Pi 1.3.0. It verifies startup catalog reentry, command commit
+acknowledgements, API-key login, both stream entries and origin release. Its latest
+retained suite passes 1,698 tests with two existing skips; the factory/process
+checks pass six, Node transport checks seven, and Rust worker checks eleven.
+The [host context boundary](host-native-context-results.json) supplies owned paths,
+flags, mode/trust, execution metadata and independent child status. Native DLL
+registration, session/journal routing and complete event/tool integration remain
+required; these counts do not qualify local or cloud SDK behavior.
 
 Still required: installed native-library asset resolution and loading; actual
 adapter registration and request ownership; background session leases and

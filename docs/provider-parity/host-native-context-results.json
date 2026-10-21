@@ -1,0 +1,44 @@
+{
+  "status": "host-capabilities-not-package-parity",
+  "platform": "linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "extensions": {
+      "log": "/tmp/rpi-native-context-extensions-final.log",
+      "sha256": "0bba079dd55a5884ee23757b4a49a0de94f9b4e819d37c466f4d6f90f6f306cf",
+      "passed": 193,
+      "ignored": 2
+    },
+    "cliContext": {
+      "log": "/tmp/rpi-native-context-final.log",
+      "sha256": "f4798cf58737fa461beda16bcb72db191e30392a92b5332abeb56d4a2da55545",
+      "passed": 4,
+      "ignored": 1
+    },
+    "workspaceAllTargets": {
+      "log": "/tmp/rpi-native-context-workspace-final.log",
+      "sha256": "fa226b5c9383335afb3b39f1657fb7adbe023846dcc22f21315094a79bf276df",
+      "passed": true
+    },
+    "namedAbort": {
+      "log": "/tmp/rpi-native-context-abort.log",
+      "passed": 1,
+      "ignored": 0,
+      "sha256": "bb11904cdabd80811d829ed9dcc85d3e72b1cfbec56c62d14e7f16928a4b289c"
+    }
+  },
+  "contracts": [
+    "Synchronous owned storage bootstrap before harness construction",
+    "Only requested CLI flags cross the boundary",
+    "Host mode after all presentation overrides, trust after committed reload",
+    "Actual child execution metadata and session identity; no credential endpoint or headers",
+    "Bridge-owned identity and dialog availability override forged fields",
+    "Scoped child status cleanup and retired-owner refusal",
+    "Tool activation and abort use the captured execution/operation"
+  ],
+  "limits": [
+    "No ABI layout or workspace version changes",
+    "Actual Cursor native library integration remains pending",
+    "macOS and Windows execution not tested"
+  ]
+}

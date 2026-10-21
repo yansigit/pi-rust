@@ -1,6 +1,6 @@
 # Provider compatibility work
 
-Status: **not parity complete; Antigravity and Cursor are under implementation; Multiprovider remains pending**.
+Status: **all three packages are under implementation; none is parity complete**.
 
 The host baseline is `90093c9e2d71ee9ce8228c1c27dc3262931b4a60`.
 Package work belongs in the separate [rpi-package fork](https://github.com/yansigit/rpi-package),

@@ -77,6 +77,8 @@ pub struct HarnessActionHost {
     cwd: PathBuf,
     /// Parsed unknown long flags retained for extension consumption.
     cli_flags: BTreeMap<String, serde_json::Value>,
+    native_mode: RwLock<Option<&'static str>>,
+    project_trusted: std::sync::atomic::AtomicBool,
     /// The session's plugin-tool context (`cwd` + session id). The session
     /// runtime actions (`new_session`/`fork`/`switch_session`) swap the session
     /// the harness serves, and must republish the id here too — a plugin whose
@@ -112,6 +114,8 @@ impl HarnessActionHost {
                 provider_runtimes: RwLock::new(BTreeMap::new()),
                 cwd,
                 cli_flags,
+                native_mode: RwLock::new(None),
+                project_trusted: std::sync::atomic::AtomicBool::new(false),
                 tool_context,
                 children: crate::child_agents::ChildAgents::default(),
                 side_questions: crate::side_questions::SideQuestions::default(),
@@ -363,6 +367,20 @@ pub(crate) fn assistant_text(msg: &rpi_ai::types::AssistantMessage) -> String {
 
 #[async_trait::async_trait]
 impl RuntimeActionHost for HarnessActionHost {
+    fn set_native_mode(&self, mode: &'static str) {
+        *self.native_mode.write().unwrap_or_else(|e| e.into_inner()) = Some(mode);
+    }
+    fn set_native_project_trust(&self, trusted: bool) {
+        self.project_trusted
+            .store(trusted, std::sync::atomic::Ordering::Release);
+    }
+    fn native_bootstrap(&self) -> Result<serde_json::Value, String> {
+        Ok(serde_json::json!({
+            "cwd": self.cwd,
+            "agentDir": crate::config::agent_dir().map_err(|error| error.to_string())?,
+            "sessionDir": default_session_dir(&self.cwd),
+        }))
+    }
     fn bind_provider_runtime_generation(
         &self,
         generation: &str,
@@ -381,6 +399,68 @@ impl RuntimeActionHost for HarnessActionHost {
         args: serde_json::Value,
         signal: tokio_util::sync::CancellationToken,
     ) -> Result<serde_json::Value, String> {
+        if args["port"] == "context" {
+            return match args["action"].as_str() {
+                Some("abort") => {
+                    let identity = rpi_ai::identity::current()
+                        .ok_or("abort requires an active operation identity")?;
+                    let target = self
+                        .harness()?
+                        .for_current_execution()
+                        .map_err(|e| e.to_string())?;
+                    if identity.session_id.as_deref()
+                        != Some(&target.session().storage().metadata().id)
+                    {
+                        return Err("abort belongs to another session".into());
+                    }
+                    target
+                        .request_abort(&identity.operation_id)
+                        .await
+                        .map(|aborted| serde_json::json!({"aborted":aborted}))
+                        .map_err(|e| e.to_string())
+                }
+                Some("flags") => {
+                    let names = args["names"].as_array().ok_or("expected flag names")?;
+                    if names.len() > 256 {
+                        return Err("too many flag names".into());
+                    }
+                    let mut flags = serde_json::Map::new();
+                    for name in names {
+                        let name = name.as_str().ok_or("invalid flag name")?;
+                        if let Some(value) = self.cli_flags.get(name) {
+                            flags.insert(name.into(), value.clone());
+                        }
+                    }
+                    Ok(flags.into())
+                }
+                Some("snapshot") => {
+                    let mode = self
+                        .native_mode
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .ok_or("native run mode is unavailable before startup")?;
+                    let target = self
+                        .harness()?
+                        .for_current_execution()
+                        .map_err(|e| e.to_string())?;
+                    let mut snapshot = target.native_context().map_err(|e| e.to_string())?;
+                    snapshot["cwd"] = serde_json::json!(self.cwd);
+                    snapshot["mode"] = mode.into();
+                    snapshot["projectTrusted"] = self
+                        .project_trusted
+                        .load(std::sync::atomic::Ordering::Acquire)
+                        .into();
+                    snapshot["systemPrompt"] = target
+                        .get_system_prompt()
+                        .await
+                        .map_err(|e| e.to_string())?
+                        .unwrap_or_default()
+                        .into();
+                    Ok(snapshot)
+                }
+                _ => Err("unsupported native context action".into()),
+            };
+        }
         if args["port"] == "sessions" {
             return self
                 .sessions
@@ -404,6 +484,15 @@ impl RuntimeActionHost for HarnessActionHost {
                 .for_current_execution()
                 .map_err(|error| error.to_string())?;
             return match args["action"].as_str() {
+                Some("setActive") => {
+                    let names = arg_str_array(&args, "tools")?;
+                    target
+                        .lane("main")
+                        .set_active_tools(names)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    Ok(serde_json::Value::Null)
+                }
                 Some("inspect") => target
                     .inspect_tools()
                     .map(|tools| serde_json::json!(tools))

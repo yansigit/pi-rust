@@ -3,14 +3,42 @@ use rpi_ai::providers::faux::{FauxProvider, FauxScript};
 use rpi_harness::types::AgentHarnessOptions;
 use serde_json::json;
 
+#[tokio::test(flavor = "current_thread")]
+async fn native_bootstrap_uses_rpi_locations_before_harness_construction() {
+    let cwd = std::env::temp_dir().join("native-bootstrap-project");
+    let (host, _) = HarnessActionHost::new_empty(
+        vec![],
+        cwd.clone(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    assert_eq!(
+        host.native_bootstrap().unwrap(),
+        json!({
+            "cwd": cwd,
+            "agentDir": crate::config::agent_dir().unwrap(),
+            "sessionDir": default_session_dir(&cwd),
+        })
+    );
+    assert!(host.get_execution_context(json!({})).await.is_err());
+}
+
 #[tokio::test]
 async fn native_execution_context_and_session_capture_agree_on_child_identity() {
     use rpi_harness::session::types::SessionMetadata;
     use rpi_harness::session::{DefaultIdGenerator, InMemorySessionStorage, Session, SystemClock};
     let provider = FauxProvider::new(FauxScript::new().with_text("unused"));
+    let env = Arc::new(rpi_tools::InMemoryExecutionEnv::new());
+    let tool_context = rpi_tools::ExecutionToolContext::new(env.clone(), Some(env));
     let parent = AgentHarness::create(AgentHarnessOptions {
         model: provider.default_model().clone(),
         models: vec![provider],
+        tools: vec![
+            rpi_harness::types::HarnessTool::new(rpi_tools::create_read_tool(&tool_context, None)),
+            rpi_harness::types::HarnessTool::new(rpi_tools::create_write_tool(&tool_context)),
+        ],
+        active_tool_names: vec!["read".into(), "write".into()],
         ..Default::default()
     })
     .await
@@ -23,6 +51,36 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
         Default::default(),
     );
     HarnessActionHost::set_harness(&cell, Arc::new(parent.clone()));
+    let snapshot_request = json!({"version":1,"port":"context","action":"snapshot","mode":"forged","projectTrusted":true});
+    let owner = rpi_extensions::native::NativeOwner {
+        id: 1,
+        generation: "generation".into(),
+        plugin: "fixture".into(),
+        child: false,
+    };
+    assert!(host
+        .native_request(owner.clone(), snapshot_request.clone(), Default::default())
+        .await
+        .unwrap_err()
+        .contains("before startup"));
+    host.set_native_mode("rpc");
+    let snapshot = host
+        .native_request(owner.clone(), snapshot_request.clone(), Default::default())
+        .await
+        .unwrap();
+    assert_eq!(snapshot["mode"], "rpc");
+    assert_eq!(snapshot["projectTrusted"], false);
+    assert_eq!(snapshot["isIdle"], true);
+    assert_eq!(snapshot["hasPendingMessages"], false);
+    assert!(snapshot["model"].get("headers").is_none());
+    assert!(snapshot["model"].get("baseUrl").is_none());
+    host.set_native_project_trust(true);
+    let abort = json!({"port":"context","action":"abort"});
+    assert!(host
+        .native_request(owner.clone(), abort.clone(), Default::default())
+        .await
+        .unwrap_err()
+        .contains("active operation identity"));
     let session = Session::new(
         Arc::new(InMemorySessionStorage::new(
             SessionMetadata {
@@ -49,6 +107,49 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
         .run(async {
             let context = host.get_execution_context(json!({})).await.unwrap();
             assert_eq!(context["sessionId"], "native-child");
+            let snapshot = host
+                .native_request(owner.clone(), snapshot_request, Default::default())
+                .await
+                .unwrap();
+            assert_eq!(snapshot["sessionId"], "native-child");
+            assert_eq!(snapshot["projectTrusted"], true);
+            host.native_request(
+                owner.clone(),
+                json!({"port":"tools","action":"setActive","tools":["read"]}),
+                Default::default(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                child.harness.lane("main").get_active_tools().await.unwrap(),
+                vec!["read"]
+            );
+            assert_eq!(
+                parent.lane("main").get_active_tools().await.unwrap(),
+                vec!["read", "write"]
+            );
+            let foreign = rpi_ai::identity::RequestIdentity::operation(
+                Some(parent.session().storage().metadata().id.clone()),
+                "prompt",
+            );
+            assert!(rpi_ai::identity::scope(
+                foreign,
+                host.native_request(owner.clone(), abort.clone(), Default::default())
+            )
+            .await
+            .unwrap_err()
+            .contains("another session"));
+            let stale =
+                rpi_ai::identity::RequestIdentity::operation(Some("native-child".into()), "prompt");
+            assert_eq!(
+                rpi_ai::identity::scope(
+                    stale,
+                    host.native_request(owner.clone(), abort.clone(), Default::default())
+                )
+                .await
+                .unwrap(),
+                json!({"aborted":false})
+            );
             let captured = host
                 .native_request(
                     rpi_extensions::native::NativeOwner {
@@ -74,6 +175,44 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
         host.get_execution_context(json!({})).await.unwrap()["sessionId"],
         parent.session().storage().metadata().id
     );
+}
+
+#[tokio::test]
+async fn native_flags_only_return_requested_names_before_harness_construction() {
+    let (host, _) = HarnessActionHost::new_empty(
+        vec![],
+        std::env::temp_dir(),
+        Handle::current(),
+        BTreeMap::from([
+            ("chosen".into(), json!(true)),
+            ("unrelated".into(), json!("private")),
+        ]),
+        Default::default(),
+    );
+    let owner = rpi_extensions::native::NativeOwner {
+        id: 1,
+        generation: "generation".into(),
+        plugin: "fixture".into(),
+        child: false,
+    };
+    assert_eq!(
+        host.native_request(
+            owner.clone(),
+            json!({"port":"context","action":"flags","names":["chosen","missing"]}),
+            Default::default()
+        )
+        .await
+        .unwrap(),
+        json!({"chosen":true})
+    );
+    assert!(host
+        .native_request(
+            owner,
+            json!({"port":"context","action":"flags","names":[42]}),
+            Default::default()
+        )
+        .await
+        .is_err());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

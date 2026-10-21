@@ -16,6 +16,21 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+pub(crate) fn next_owner() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
+
+#[derive(Default)]
+struct NativeStatus {
+    retired: std::collections::HashSet<u64>,
+    scopes: Vec<(
+        u64,
+        std::sync::Weak<rpi_agent::tool_execution_scope::ToolExecutionScope>,
+        u64,
+    )>,
+}
+
 /// Shared, cloneable handle to the extension status registry.
 ///
 /// Every clone refers to the same map: the host hands one clone to the action
@@ -24,6 +39,7 @@ use std::sync::{Arc, Mutex};
 pub struct ExtensionStatusMailbox {
     entries: Arc<Mutex<BTreeMap<String, String>>>,
     components: Arc<Mutex<BTreeMap<(u64, String), (crate::ExtensionPanel, bool)>>>,
+    native: Arc<Mutex<NativeStatus>>,
     /// Bumped on every accepted write so readers can skip unchanged frames.
     revision: Arc<AtomicU64>,
 }
@@ -218,12 +234,88 @@ impl ExtensionStatusMailbox {
         Ok(serde_json::json!({"ok":true,"changed":changed}))
     }
     pub fn remove_owner(&self, owner: u64) {
+        self.remove_status_owner(owner, true);
+    }
+
+    fn remove_status_owner(&self, owner: u64, retire: bool) {
+        let mut native = self.native.lock().unwrap_or_else(|e| e.into_inner());
+        if retire {
+            native.retired.insert(owner);
+        }
+        let mut owners = vec![owner];
+        native.scopes.retain(|(parent, _, child)| {
+            if *parent == owner || *child == owner {
+                owners.push(*child);
+                false
+            } else {
+                true
+            }
+        });
         if let Ok(mut entries) = self.components.lock() {
             let size = entries.len();
-            entries.retain(|(o, _), _| *o != owner);
+            entries.retain(|(o, _), _| !owners.contains(o));
             if size != entries.len() {
                 self.revision.fetch_add(1, Ordering::SeqCst);
             }
+        }
+    }
+
+    pub(crate) fn native_status(
+        &self,
+        owner: u64,
+        scope: Option<Arc<rpi_agent::tool_execution_scope::ToolExecutionScope>>,
+        args: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let key = args["key"]
+            .as_str()
+            .filter(|key| !key.trim().is_empty() && key.len() <= 121)
+            .ok_or("invalid status key")?;
+        let value = if args["value"].is_null() {
+            ""
+        } else {
+            args["value"].as_str().ok_or("invalid status text")?
+        };
+        let mut native = self.native.lock().unwrap_or_else(|e| e.into_inner());
+        if native.retired.contains(&owner) {
+            return Err("status owner expired".into());
+        }
+        let component_owner = if let Some(scope) = scope {
+            if scope.stopped().is_cancelled() {
+                return Err("status scope expired".into());
+            }
+            let weak = Arc::downgrade(&scope);
+            if let Some((_, _, id)) = native
+                .scopes
+                .iter()
+                .find(|(parent, known, _)| *parent == owner && known.ptr_eq(&weak))
+            {
+                *id
+            } else {
+                let id = next_owner();
+                native.scopes.push((owner, weak, id));
+                let stopped = scope.stopped();
+                let mailbox = self.clone();
+                tokio::spawn(async move {
+                    stopped.cancelled().await;
+                    mailbox.remove_status_owner(id, false);
+                });
+                id
+            }
+        } else {
+            owner
+        };
+        let key = format!("status:{key}");
+        if value.is_empty() {
+            self.component(component_owner, serde_json::json!({"op":"remove","id":key}))
+        } else {
+            self.component(
+                component_owner,
+                serde_json::json!({"op":"register","id":key,"slot":"footer.after"}),
+            )?;
+            self.component(
+                component_owner,
+                serde_json::json!({"op":"update","id":key,"text":value}),
+            )
         }
     }
 
@@ -292,6 +384,66 @@ impl ExtensionStatusMailbox {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn invalid_native_status_does_not_admit_a_child_component() {
+        let mailbox = ExtensionStatusMailbox::new();
+        let scope = Arc::new(
+            rpi_agent::tool_execution_scope::ToolExecutionScope::with_context(
+                serde_json::json!({}),
+            ),
+        );
+        for args in [
+            serde_json::json!({"key":"", "value":"text"}),
+            serde_json::json!({"key":" ", "value":"text"}),
+            serde_json::json!({"key":"x".repeat(122), "value":"text"}),
+            serde_json::json!({"key":"cursor", "value":{}}),
+        ] {
+            assert!(mailbox
+                .native_status(next_owner(), Some(scope.clone()), &args)
+                .is_err());
+            assert!(mailbox.native.lock().unwrap().scopes.is_empty());
+            assert!(mailbox.panels().is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn native_child_status_has_independent_lifetime_and_cannot_resurrect_retired_owner() {
+        let mailbox = ExtensionStatusMailbox::new();
+        let owner = next_owner();
+        let child = Arc::new(
+            rpi_agent::tool_execution_scope::ToolExecutionScope::with_context(
+                serde_json::json!({}),
+            ),
+        );
+        let value = |text| serde_json::json!({"key":"cursor","value":text});
+        mailbox
+            .native_status(owner, None, &value("parent"))
+            .unwrap();
+        mailbox
+            .native_status(owner, Some(child.clone()), &value("child"))
+            .unwrap();
+        mailbox
+            .native_status(owner, Some(child.clone()), &value("updated child"))
+            .unwrap();
+        assert_eq!(mailbox.panels().len(), 2);
+        drop(child);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while mailbox.panels().len() != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(serde_json::to_string(&mailbox.panels())
+            .unwrap()
+            .contains("parent"));
+        assert!(mailbox.native.lock().unwrap().scopes.is_empty());
+        assert!(mailbox.native.lock().unwrap().retired.is_empty());
+        mailbox.remove_owner(owner);
+        assert!(mailbox.native_status(owner, None, &value("late")).is_err());
+        assert!(mailbox.panels().is_empty());
+    }
 
     #[test]
     fn text_highlights_are_validated_atomic_and_cleared_on_plain_updates() {

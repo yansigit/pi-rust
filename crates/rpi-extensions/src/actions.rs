@@ -485,6 +485,14 @@ pub type SideQuestionSink =
 /// are routed directly by the plugin bridge.
 #[async_trait::async_trait]
 pub trait RuntimeActionHost: Send + Sync {
+    /// Registration-time storage locations, available before the harness exists.
+    /// This synchronous read must not enqueue work on the host runtime.
+    fn native_bootstrap(&self) -> Result<serde_json::Value, String> {
+        Err("native registration context is not supported by this host".into())
+    }
+    /// Host-selected presentation and trust, never supplied by extension request JSON.
+    fn set_native_mode(&self, _mode: &'static str) {}
+    fn set_native_project_trust(&self, _trusted: bool) {}
     /// Revoke side questions when their plugin bridge is retired.
     fn cancel_side_questions(&self, _owner: u64) {}
     /// Host-internal TUI snapshots; never exposed as a cross-owner plugin action.
@@ -901,8 +909,7 @@ impl ActionBridge {
     }
 
     pub(crate) fn for_plugin(&self, name: &str) -> Arc<Self> {
-        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let owner = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let owner = crate::status::next_owner();
         self.component_owners
             .lock()
             .unwrap_or_else(|e| e.into_inner())

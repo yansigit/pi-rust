@@ -24,6 +24,24 @@ fn emitter() -> Arc<dyn AgentEmitter> {
     Arc::new(CollectorEmitter::new().0)
 }
 
+#[tokio::test]
+async fn named_abort_only_cancels_the_matching_run_on_its_lane() {
+    let (harness, _, _) = parent(FauxScript::new()).await;
+    let (old, old_signal, _) = harness.acquire_run(OperationKind::Run).await.unwrap();
+    assert!(harness.request_abort(&old).await.unwrap());
+    assert!(old_signal.is_cancelled());
+    harness.release_run(&old);
+    let (current, signal, _) = harness.acquire_run(OperationKind::Run).await.unwrap();
+    assert!(!harness.request_abort(&old).await.unwrap());
+    assert!(!signal.is_cancelled());
+    assert!(harness.lane("other").request_abort(&current).await.is_err());
+    assert!(!signal.is_cancelled());
+    assert!(harness.request_abort(&current).await.unwrap());
+    assert!(signal.is_cancelled());
+    harness.release_run(&current);
+    assert!(!harness.request_abort(&current).await.unwrap());
+}
+
 async fn parent(
     script: FauxScript,
 ) -> (

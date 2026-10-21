@@ -255,6 +255,7 @@ pub async fn prepare_extensions(
     );
     let action_host = Arc::new(action_host);
     let host_arc: Arc<dyn rpi_extensions::RuntimeActionHost> = action_host.clone();
+    host_arc.set_native_project_trust(project_trusted);
     // `runtime` is reused below (B5c: `PluggableProvider` needs a captured
     // `Handle` to `spawn_blocking` the sync `ProviderRequestFn`), so clone here.
     //
@@ -1588,6 +1589,9 @@ where
 
     // The session was swapped atomically above; expose its matching bridge.
     *ctx.action_bridge.lock().unwrap() = Some(Arc::clone(&fresh_bridge));
+    fresh_bridge
+        .clone_host()
+        .set_native_project_trust(project_trusted);
 
     // ---- 3. resources_discover ("reload") over the fresh snapshot ----
     let discovered = extension_session

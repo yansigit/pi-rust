@@ -11,6 +11,19 @@ struct Host {
 }
 #[async_trait::async_trait]
 impl RuntimeActionHost for Host {
+    fn native_bootstrap(&self) -> Result<Value, String> {
+        Ok(json!({"cwd":"/native/project","agentDir":"/native/agent"}))
+    }
+    async fn native_request(
+        &self,
+        _: crate::native::NativeOwner,
+        args: Value,
+        _: CancellationToken,
+    ) -> Result<Value, String> {
+        assert_eq!(args["port"], "context");
+        assert_eq!(args["action"], "snapshot");
+        Ok(json!({"mode":"rpc","hasUI":"forged","owner":"forged","identity":"forged"}))
+    }
     async fn side_question(
         &self,
         owner: u64,
@@ -282,6 +295,90 @@ async fn capability_discovery_is_available_during_synchronous_registration() {
             Some(crate::host_free_string),
         ));
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_bootstrap_is_synchronous_and_checks_owner_lifetime() {
+    let root = ActionBridge::new(Handle::current(), Arc::new(Host::default()));
+    let plugin = root.for_plugin("registering");
+    let invoke = |handle| {
+        let mut output = StbString::empty();
+        let status = crate::native::request(
+            StbStringRef::from_str(
+                r#"{"version":1,"port":"context","action":"bootstrap","agentDir":"/forged"}"#,
+            ),
+            std::ptr::null(),
+            &mut output,
+            handle,
+        );
+        let output = unsafe {
+            rpi_plugin_sdk::callbacks::OwnedString::from_raw(output, Some(crate::host_free_string))
+        };
+        (
+            status,
+            serde_json::from_str::<Value>(&output.to_string_lossy()).unwrap(),
+        )
+    };
+    assert_eq!(
+        invoke(plugin.user_data()),
+        (
+            0,
+            json!({"version":1,"result":{"cwd":"/native/project","agentDir":"/native/agent"}})
+        )
+    );
+    assert_eq!(invoke(root.user_data()).0, 1);
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    assert_eq!(
+        invoke(plugin.for_invocation(false, cancelled).user_data()).0,
+        1
+    );
+    plugin.invalidate();
+    assert_eq!(invoke(plugin.user_data()).0, 1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_snapshot_and_status_use_the_invocation_owner_and_attached_ui() {
+    let root = ActionBridge::new(Handle::current(), Arc::new(Host::default()));
+    let plugin = root.for_plugin("fixture");
+    let other = root.for_plugin("other");
+    let request = |bridge: &Arc<ActionBridge>, args: Value| {
+        let mut output = StbString::empty();
+        let status = crate::native::request(
+            StbStringRef::from_str(&args.to_string()),
+            std::ptr::null(),
+            &mut output,
+            bridge.user_data(),
+        );
+        let output = unsafe {
+            rpi_plugin_sdk::callbacks::OwnedString::from_raw(output, Some(crate::host_free_string))
+        };
+        assert_eq!(status, 0, "{}", output.to_string_lossy());
+        serde_json::from_str::<Value>(&output.to_string_lossy()).unwrap()["result"].clone()
+    };
+    let identity = rpi_ai::identity::RequestIdentity::operation(Some("session".into()), "fixture");
+    let invocation = rpi_ai::identity::scope(identity.clone(), async {
+        plugin.for_invocation(false, CancellationToken::new())
+    })
+    .await;
+    let inspect = json!({"version":1,"port":"context","action":"snapshot"});
+    let value = request(&invocation, inspect.clone());
+    assert_eq!(value["identity"], json!(identity));
+    assert_eq!(value["owner"]["plugin"], "fixture");
+    assert_eq!(value["hasUI"], false);
+    root.ui_dialog_mailbox().attach();
+    assert_eq!(request(&invocation, inspect)["hasUI"], true);
+    let status =
+        |value| json!({"version":1,"port":"ui","action":"status","key":"same-key","value":value});
+    request(&plugin, status("first"));
+    request(&other, status("second"));
+    assert_eq!(root.extension_status_mailbox().panels().len(), 2);
+    request(&plugin, status("updated"));
+    assert_eq!(root.extension_status_mailbox().panels().len(), 2);
+    request(&plugin, status(""));
+    assert_eq!(root.extension_status_mailbox().panels().len(), 1);
+    root.invalidate();
+    assert!(root.extension_status_mailbox().panels().is_empty());
 }
 
 #[tokio::test]

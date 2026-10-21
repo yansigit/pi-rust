@@ -1754,18 +1754,21 @@ impl AgentHarness {
     /// Returns `true` when the abort was delivered. Mirrors the TS runtime
     /// `requestAbort`.
     pub async fn request_abort(&self, run_id: &str) -> HarnessResult<bool> {
-        let matches_active = {
-            let inner = self.inner.lock().unwrap();
-            inner
-                .active_run
-                .as_ref()
-                .map(|a| a.run_id == run_id)
-                .unwrap_or(false)
-        };
-        if !matches_active {
+        let inner = self.inner.lock().unwrap();
+        let Some(active) = inner.active_run.as_ref().filter(|a| a.run_id == run_id) else {
             return Ok(false);
+        };
+        if inner.closed {
+            return Err(HarnessError::closed());
         }
-        AgentLane::abort(self).await?;
+        if active.lane != self.lane {
+            return Err(HarnessError::no_active_run(
+                &self.lane,
+                "No active run to abort on this lane",
+            ));
+        }
+        // Keep run selection and cancellation atomic with run replacement.
+        active.signal.cancel();
         Ok(true)
     }
 

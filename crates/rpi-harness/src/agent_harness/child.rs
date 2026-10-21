@@ -52,6 +52,39 @@ impl rpi_agent::AgentTool for ChildTool {
 }
 
 impl AgentHarness {
+    /// Read-only native extension state. Credential headers and endpoints never leave the binding.
+    pub fn native_context(&self) -> HarnessResult<serde_json::Value> {
+        let inner = self.inner.lock().unwrap();
+        if inner.closed {
+            return Err(HarnessError::closed());
+        }
+        let pending = [
+            &inner.steering_queue,
+            &inner.follow_up_queue,
+            &inner.next_run_queue,
+        ]
+        .iter()
+        .any(|queue| {
+            queue
+                .lock()
+                .unwrap()
+                .pending
+                .iter()
+                .any(|item| item.lane == self.lane)
+        }) || inner.pending_context_lanes.contains(&self.lane);
+        let model = &inner.model;
+        Ok(serde_json::json!({
+            "model": {"id":model.id,"provider":model.provider,"api":model.api,"name":model.name,
+                "reasoning":model.reasoning,"thinkingLevelMap":model.thinking_level_map,"input":model.input,
+                "cost":model.cost,"contextWindow":model.context_window,"maxTokens":model.max_tokens},
+            "thinkingLevel":inner.thinking_level,
+            "isIdle":!inner.active_run.as_ref().is_some_and(|run| run.lane == self.lane),
+            "hasPendingMessages":pending,
+            "tools":Self::active_tools(&inner.tools, &inner.active_tool_names).iter().map(|tool|tool.schema().name.clone()).collect::<Vec<_>>(),
+            "sessionId":self.session.storage().metadata().id,
+        }))
+    }
+
     /// Native ports must select the actual child, never the parent's tool/session set.
     pub fn for_current_execution(&self) -> HarnessResult<Self> {
         match rpi_agent::tool_execution_scope::current_scope() {

@@ -388,6 +388,14 @@ async fn run_inner() -> i32 {
     // otherwise the host would start a TUI/print run that writes to a stream the
     // plugin owns.
     let mode = if stdio_claimed { RunMode::Rpc } else { mode };
+    if let Some(bridge) = reload_context.action_bridge.lock().unwrap().as_ref() {
+        bridge.clone_host().set_native_mode(match mode {
+            RunMode::Interactive => "tui",
+            RunMode::Print => "print",
+            RunMode::Json => "json",
+            RunMode::Rpc => "rpc",
+        });
+    }
 
     let dev_cleanup = reload_context.dev_extension.clone();
     let dev_watcher = if matches!(mode, RunMode::Interactive) {
