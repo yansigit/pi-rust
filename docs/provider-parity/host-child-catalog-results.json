@@ -1,0 +1,37 @@
+{
+  "status": "Child catalog, refresh and login state isolated by host execution scope",
+  "platform": "Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "catalogs": {
+      "log": "/tmp/rpi-child-catalog-host-final.log",
+      "sha256": "f55e09324a47cda19d4587fec05bfd7586e54f87705f0a689a0bfd1719116430",
+      "passed": 18
+    },
+    "workspace": {
+      "log": "/tmp/rpi-child-catalog-workspace.log",
+      "sha256": "9c8b19f6d271b1e649fc6b6a4a258d6ae241b8b49f6196ad590df5ebe6bdba52"
+    },
+    "installedLibrary": {
+      "log": "/tmp/rpi-cursor-child-catalog-dll.log",
+      "sha256": "9a1f0d7fa80010ab0d5e979dbc0ae8d9a683b69b17c13d537dcbe19c49d66619",
+      "passed": 4
+    }
+  },
+  "assertions": [
+    "Child publish/register/unregister does not modify parent or sibling catalogs",
+    "Inherited execution proxies choose the actual child chain",
+    "Refresh generations and publication tickets cannot cross scopes",
+    "Late child refresh cannot publish after closure",
+    "Login continuations cannot cross parent or sibling scopes",
+    "Live child capacity is bounded and closing reclaims admission",
+    "Installed Cursor child startup completes reentrant auth/catalog work and commits a child revision",
+    "Parent remains usable after child worker reaping; reload and failed/successful shutdown pass"
+  ],
+  "review": "Manual exact-diff review of ownership, cloned catalog execution bindings, wrapper reconstruction, task-scoped host installation, ticket isolation, bounded admission, closed-scope checks and worker startup reentry. Existing C ABI and workspace versions unchanged.",
+  "notTested": [
+    "macOS and Windows runtime execution",
+    "Live Cursor inference and cloud behavior",
+    "Complete tool and lifecycle parity"
+  ]
+}

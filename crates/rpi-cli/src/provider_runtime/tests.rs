@@ -1,5 +1,6 @@
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+mod children;
 mod refresh;
 
 #[derive(Default)]
@@ -7,6 +8,7 @@ struct Host {
     fail: AtomicBool,
     installs: AtomicUsize,
     models: std::sync::Mutex<Vec<Model>>,
+    child_models: std::sync::Mutex<BTreeMap<String, Vec<Model>>>,
 }
 macro_rules! host {
     ($($name:ident),*) => {
@@ -15,7 +17,12 @@ macro_rules! host {
             $(async fn $name(&self, _:Value) -> Result<Value,String> { Err("unused test action".into()) })*
             async fn install_native_providers(&self, providers: Vec<Arc<dyn Provider>>) -> Result<(), String> {
                 if self.fail.load(Ordering::SeqCst) { return Err("injected installation failure".into()); }
-                *self.models.lock().unwrap() = providers.iter().flat_map(|p| p.models().to_vec()).collect();
+                let models = providers.iter().flat_map(|p| p.models().to_vec()).collect();
+                if let Some(scope) = rpi_agent::tool_execution_scope::current_scope() {
+                    self.child_models.lock().unwrap().insert(scope.runtime_id().into(), models);
+                } else {
+                    *self.models.lock().unwrap() = models;
+                }
                 self.installs.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }

@@ -310,6 +310,7 @@ pub(crate) extern "C" fn request(
                     "tools.selectionState",
                     "tools.boundedProgress",
                     "providers.scopedCallbacks",
+                    "providers.childCatalogs",
                     "sessions.location",
                     "sessions.view",
                     "sessions.persistenceLease",

@@ -249,6 +249,15 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
         "Cursor hooks must preserve explicit tool disablement"
     );
     harness.lane("main").set_active_tools(active).await.unwrap();
+    let native_owner = snapshot.provider_owner("cursor").unwrap().clone();
+    let parent_catalog = rpi_extensions::native::NativeProviderRuntime::request(
+        runtime.as_ref(),
+        native_owner.clone(),
+        json!({"port":"providers","action":"inspect"}),
+        Default::default(),
+    )
+    .await
+    .unwrap();
     #[cfg(target_os = "linux")]
     let parent_processes = node_children();
     let child_session =
@@ -266,10 +275,27 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
         .unwrap();
     child.execution_scope.run(async {
         let question = serde_json::from_value(json!({"id":"child-question","name":"cursor_ask_question","arguments":{"question":"offline child question"}})).unwrap();
-        let result = child.harness.invoke_tool(question,Default::default()).await.unwrap();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(20), child.harness.invoke_tool(question,Default::default())).await.expect("child startup catalog/auth reentry deadlocked").unwrap();
         assert!(result.is_error);
         assert!(serde_json::to_string(&result).unwrap().contains("UI is unavailable"),"{result:?}");
+        let child_catalog = rpi_extensions::native::NativeProviderRuntime::request(
+            runtime.as_ref(), rpi_extensions::native::NativeOwner { child: true, ..native_owner.clone() },
+            json!({"port":"providers","action":"inspect"}), Default::default(),
+        ).await.unwrap();
+        assert!(child_catalog["revision"].as_u64().unwrap() > parent_catalog["revision"].as_u64().unwrap(),
+            "child startup must commit its own offline catalog refresh");
     }).await;
+    assert_eq!(
+        rpi_extensions::native::NativeProviderRuntime::request(
+            runtime.as_ref(),
+            native_owner,
+            json!({"port":"providers","action":"inspect"}),
+            Default::default()
+        )
+        .await
+        .unwrap(),
+        parent_catalog
+    );
     #[cfg(target_os = "linux")]
     assert_eq!(
         node_children().difference(&parent_processes).count(),

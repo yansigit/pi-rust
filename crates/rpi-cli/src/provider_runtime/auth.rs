@@ -239,7 +239,7 @@ impl ProviderRuntime {
         if !registered.is_some_and(|registered| {
             registered.generation == owner.generation
                 && registered.plugin == owner.plugin
-                && (registered.id == owner.id || owner.child)
+                && registered.id == owner.id
         }) {
             return Err("resolved authentication belongs to another session or plugin".into());
         }

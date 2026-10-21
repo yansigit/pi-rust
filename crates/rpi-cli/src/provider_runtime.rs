@@ -60,6 +60,8 @@ pub(crate) struct ProviderRuntime {
     host: Arc<dyn RuntimeActionHost>,
     myself: Weak<Self>,
     state: Mutex<State>,
+    scope: Option<Weak<rpi_agent::tool_execution_scope::ToolExecutionScope>>,
+    children: Mutex<BTreeMap<String, Arc<Self>>>,
     logins: Mutex<BTreeMap<String, auth::Login>>,
     auth: BTreeMap<String, Arc<crate::provider::auth::AuthBinding>>,
     publications: std::sync::Mutex<BTreeMap<String, Weak<Publication>>>,
@@ -119,6 +121,8 @@ impl ProviderRuntime {
             generation: bridge.generation().into(),
             host: bridge.clone_host(),
             myself: myself.clone(),
+            scope: None,
+            children: Mutex::new(BTreeMap::new()),
             state: Mutex::new(State {
                 catalog,
                 chains,
@@ -208,7 +212,76 @@ impl ProviderRuntime {
     pub(crate) async fn providers(&self) -> Vec<Arc<dyn Provider>> {
         self.proxies(&self.state.lock().await.catalog)
     }
+    async fn for_current_scope(&self) -> Result<Arc<Self>, String> {
+        let current = rpi_agent::tool_execution_scope::current_scope();
+        if let Some(bound) = &self.scope {
+            if !bound
+                .upgrade()
+                .zip(current)
+                .is_some_and(|(bound, current)| {
+                    Arc::ptr_eq(&bound, &current) && !bound.runtime_closing().is_cancelled()
+                })
+            {
+                return Err("provider runtime belongs to another or closed child session".into());
+            }
+            return self
+                .myself
+                .upgrade()
+                .ok_or("provider runtime expired".into());
+        }
+        let Some(scope) = current else {
+            return self
+                .myself
+                .upgrade()
+                .ok_or("provider runtime expired".into());
+        };
+        if scope.runtime_closing().is_cancelled() {
+            return Err("child session provider runtime is closing".into());
+        }
+        let mut children = self.children.lock().await;
+        children.retain(|_, child| {
+            child
+                .scope
+                .as_ref()
+                .and_then(Weak::upgrade)
+                .is_some_and(|scope| !scope.runtime_closing().is_cancelled())
+        });
+        if let Some(child) = children.get(scope.runtime_id()) {
+            return Ok(child.clone());
+        }
+        if children.len() >= 64 {
+            return Err("child provider runtime capacity exhausted".into());
+        }
+        let state = self.state.lock().await;
+        let catalog = state.catalog.fork().map_err(|error| error.to_string())?;
+        let child = Arc::new_cyclic(|myself| Self {
+            session: self.session.clone(),
+            generation: self.generation.clone(),
+            host: self.host.clone(),
+            myself: myself.clone(),
+            scope: Some(Arc::downgrade(&scope)),
+            children: Mutex::new(BTreeMap::new()),
+            state: Mutex::new(State {
+                catalog,
+                chains: state.chains.clone(),
+                generations: state.generations.clone(),
+                refreshes: BTreeMap::new(),
+            }),
+            logins: Mutex::new(BTreeMap::new()),
+            auth: self.auth.clone(),
+            publications: Default::default(),
+        });
+        children.insert(scope.runtime_id().into(), child.clone());
+        Ok(child)
+    }
     fn validate_owner(&self, owner: &NativeOwner) -> Result<(), String> {
+        if self.scope.as_ref().is_some_and(|scope| {
+            scope
+                .upgrade()
+                .map_or(true, |scope| scope.runtime_closing().is_cancelled())
+        }) {
+            return Err("child session provider runtime is closing".into());
+        }
         if owner.generation != self.generation
             || self.session.snapshot().is_some_and(|s| !s.is_active())
         {
@@ -224,6 +297,9 @@ impl ProviderRuntime {
     ) -> Result<Value, String> {
         let mut state = self.state.lock().await;
         self.validate_owner(&owner)?;
+        let mut owner = owner;
+        owner.child = false; // Catalog ownership is inherited; each child has a separate registry.
+
         if signal.is_cancelled() {
             return Err("provider runtime request cancelled".into());
         }
@@ -251,7 +327,7 @@ impl ProviderRuntime {
         } else {
             state.catalog.owner(id)
         };
-        if owner.child || registered_owner.as_ref() != Some(&owner) {
+        if registered_owner.as_ref() != Some(&owner) {
             return Err("provider belongs to a different session or plugin".into());
         }
         let publication = if let Some(ticket) = args.get("publicationId") {
@@ -363,9 +439,6 @@ impl ProviderRuntime {
             .as_str()
             .ok_or("missing provider identity")?;
         self.validate_owner(&caller)?;
-        if caller.child {
-            return Err("child session cannot refresh its parent's catalog".into());
-        }
         if signal.is_cancelled() {
             return Err("provider runtime request cancelled".into());
         }
@@ -428,13 +501,19 @@ impl NativeProviderRuntime for ProviderRuntime {
         args: Value,
         signal: CancellationToken,
     ) -> Result<Value, String> {
-        self.validate_owner(&owner)?;
+        if owner.child != rpi_agent::tool_execution_scope::is_child_execution() {
+            return Err(
+                "child session ownership does not match the current execution scope".into(),
+            );
+        }
+        let runtime = self.for_current_scope().await?;
+        runtime.validate_owner(&owner)?;
         match args["port"].as_str() {
             Some("providers") if args["action"] == "refresh" => {
-                self.refresh(owner, args, signal).await
+                runtime.refresh(owner, args, signal).await
             }
-            Some("providers") => self.catalog_request(owner, args, signal).await,
-            Some("auth") => self.auth_request(owner, args, signal).await,
+            Some("providers") => runtime.catalog_request(owner, args, signal).await,
+            Some("auth") => runtime.auth_request(owner, args, signal).await,
             _ => Err("unsupported native runtime port".into()),
         }
     }
@@ -458,14 +537,11 @@ impl Provider for RuntimeProvider {
         context: &Context,
         options: &SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        let provider = self
-            .runtime
-            .state
-            .lock()
-            .await
-            .chains
-            .get(&self.id)
-            .cloned();
+        let runtime = match self.runtime.for_current_scope().await {
+            Ok(runtime) => runtime,
+            Err(error) => return error_stream(model, error).await,
+        };
+        let provider = runtime.state.lock().await.chains.get(&self.id).cloned();
         match provider {
             Some(provider) => match provider.preflight(model, options.signal.clone()).await {
                 Ok(()) => {

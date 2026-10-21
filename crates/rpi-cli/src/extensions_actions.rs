@@ -532,6 +532,8 @@ impl RuntimeActionHost for HarnessActionHost {
         providers: Vec<Arc<dyn rpi_ai::Provider>>,
     ) -> Result<(), String> {
         self.harness()?
+            .for_current_execution()
+            .map_err(|error| error.to_string())?
             .set_models(providers)
             .await
             .map_err(|e| e.to_string())
@@ -570,7 +572,9 @@ impl RuntimeActionHost for HarnessActionHost {
         self.children.cancel_owner(owner);
     }
     fn replace_model_catalog(&self, models: Vec<rpi_ai::Model>) {
-        self.set_catalog(models);
+        if !rpi_agent::tool_execution_scope::is_child_execution() {
+            self.set_catalog(models);
+        }
     }
     async fn get_execution_context(
         &self,

@@ -93,7 +93,7 @@ catalog and revision intact. Readers wait for installation to commit. Outstandin
 invocations retain the previous chain; subsequent requests use the current chain.
 The session runtime stays alive even if its last provider is unregistered.
 
-An optional `expectedRevision` rejects a stale mutation against the global catalog
+An optional `expectedRevision` rejects a stale mutation against the current scope’s catalog
 revision. Catalog refresh captures a provider-specific generation, awaits the
 owning provider outside the publication lock, and refuses to overwrite a newer
 catalog for that provider. Unrelated provider changes do not invalidate it.
@@ -287,3 +287,19 @@ method discovery and per-attempt authentication inherit the requesting execution
 scope. Credential-store commits complete independently of a canceled child; they
 retain the transaction's existing private callback path. See
 [callback regression evidence](host-scoped-callback-results.json).
+
+`providers.childCatalogs` gives each host child execution scope an independent
+catalog, publication generations/tickets and login continuations. Its first
+provider operation captures the parent's committed catalog; later publications
+are isolated. The host-selected scope identity, never request JSON, selects this
+state. A child inherits its plugin's provider ownership and can replace or remove
+that local registration without changing the parent or a sibling. Inherited
+execution proxies select the current child's provider chain at request time.
+
+Child publication installs providers on the child harness. It does not replace
+the parent's model picker. Closing a child rejects subsequent operations and late
+refresh publications; outstanding invocations retain their captured providers.
+There are at most 64 live child catalog runtimes per owning generation, and closed
+or released scopes are reclaimed on the next child admission. Login continuation
+and publication tickets are also isolated between children with the same plugin
+identity. See [child catalog evidence](host-child-catalog-results.json).

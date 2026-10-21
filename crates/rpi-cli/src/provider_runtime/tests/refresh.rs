@@ -309,3 +309,102 @@ async fn cancellation_before_or_while_waiting_for_admission_does_not_supersede_e
     returned(invocation, json!({"models":[model("original-refresh")]})).await;
     pending.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn child_refresh_tickets_and_generations_are_isolated_from_parent_and_sibling() {
+    use rpi_agent::tool_execution_scope::ToolExecutionScope;
+    let (runtime, owner, _, _gate, mut incoming) = setup();
+    let child_owner = NativeOwner {
+        child: true,
+        ..owner.clone()
+    };
+    let first = Arc::new(ToolExecutionScope::default());
+    let second = Arc::new(ToolExecutionScope::default());
+    let parent_call = start(&runtime, &owner);
+    let parent = incoming.recv().await.unwrap();
+    let child_call = tokio::spawn({
+        let (runtime, owner, first) = (runtime.clone(), child_owner.clone(), first.clone());
+        async move {
+            first
+                .run(request(
+                    &runtime,
+                    owner,
+                    json!({"action":"refresh","providerId":"test"}),
+                ))
+                .await
+        }
+    });
+    let child = incoming.recv().await.unwrap();
+    assert!(request(
+        &runtime,
+        owner.clone(),
+        publish(&child.ticket, "forged-parent")
+    )
+    .await
+    .is_err());
+    assert!(second
+        .run(request(
+            &runtime,
+            child_owner.clone(),
+            publish(&child.ticket, "forged-sibling")
+        ))
+        .await
+        .is_err());
+    assert!(first
+        .run(request(
+            &runtime,
+            child_owner.clone(),
+            publish(&parent.ticket, "forged-child")
+        ))
+        .await
+        .is_err());
+    let committed = first
+        .run(request(
+            &runtime,
+            child_owner.clone(),
+            publish(&child.ticket, "child"),
+        ))
+        .await
+        .unwrap();
+    assert!(!parent.cancelled.load(Ordering::SeqCst));
+    returned(child, json!({"published":true})).await;
+    assert_eq!(child_call.await.unwrap().unwrap(), committed);
+    returned(parent, json!({"models":[model("parent")]})).await;
+    parent_call.await.unwrap().unwrap();
+    assert_eq!(runtime.providers().await[0].models()[0].id, "parent");
+    let snapshot = first
+        .run(request(
+            &runtime,
+            child_owner.clone(),
+            json!({"action":"inspect"}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(snapshot["providers"][0]["models"][0]["id"], "child");
+
+    let late_call = tokio::spawn({
+        let (runtime, owner, first) = (runtime.clone(), child_owner.clone(), first.clone());
+        async move {
+            first
+                .run(request(
+                    &runtime,
+                    owner,
+                    json!({"action":"refresh","providerId":"test"}),
+                ))
+                .await
+        }
+    });
+    let late = incoming.recv().await.unwrap();
+    first.close_runtime();
+    assert!(first
+        .run(request(
+            &runtime,
+            child_owner,
+            publish(&late.ticket, "late")
+        ))
+        .await
+        .is_err());
+    returned(late, json!({"models":[model("late")]})).await;
+    assert!(late_call.await.unwrap().is_err());
+    assert_eq!(runtime.providers().await[0].models()[0].id, "parent");
+}
