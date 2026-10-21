@@ -53,6 +53,8 @@ use crate::loader::ExtensionSession;
 use crate::registry::{RegisteredProvider, RegistrySnapshot};
 use crate::PluginKeepalive;
 
+#[cfg(all(test, feature = "provider-performance"))]
+mod compact_tests;
 #[cfg(test)]
 mod lifetime_tests;
 #[cfg(all(test, feature = "provider-performance"))]
