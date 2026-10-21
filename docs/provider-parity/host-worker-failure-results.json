@@ -1,0 +1,31 @@
+{
+  "status": "Installed worker failure reaches loader shutdown diagnostics",
+  "platform": "Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "installedLibraryBefore": {
+      "log": "/tmp/rpi-cursor-shutdown-report-before.log",
+      "sha256": "7c97056aa466d847563d53bcf43baac43efa17d9fe38e08dc1859b142a4f9f1f",
+      "expectedFailure": "Worker was reaped and error printed, but native callback returned success so loader warning was absent."
+    },
+    "installedLibraryAfter": {
+      "log": "/tmp/rpi-cursor-shutdown-report-after.log",
+      "sha256": "e0f521b6fec12277d3cfbf112052b3ad919929486ab2279ad82d71d8eee96778",
+      "passed": 4
+    },
+    "workspace": {
+      "log": "/tmp/rpi-cursor-shutdown-report-workspace.log",
+      "sha256": "ff157d451df418245c5066ce27cd951c8d5399e6ccc8a324e04a8a1b8350c452"
+    }
+  },
+  "assertions": [
+    "Only the Node child started by this test is killed",
+    "Failed shutdown produces the loader library-retention warning",
+    "Worker process is reaped despite failure",
+    "Normal commands, child scopes, reload and early-startup shutdown still pass"
+  ],
+  "notTested": [
+    "macOS and Windows worker-crash execution",
+    "SDK-created subprocess cleanup after actual inference"
+  ]
+}

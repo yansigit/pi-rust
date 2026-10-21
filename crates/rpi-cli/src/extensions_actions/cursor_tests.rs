@@ -522,3 +522,65 @@ async fn installed_cursor_shutdown_reaps_when_session_context_is_unavailable() {
     bridge.finish_native_writes().await;
     extensions.begin_shutdown();
 }
+
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires the staged Cursor DLL/worker and isolated fixture configuration; kills only the worker started by this test"]
+async fn installed_cursor_worker_crash_reports_failed_shutdown_and_reaps() {
+    #[derive(Default)]
+    struct Diagnostics(std::sync::Mutex<Vec<String>>);
+    impl rpi_extensions::PluginDiagnostics for Diagnostics {
+        fn warn(&self, message: &str) {
+            self.0.lock().unwrap().push(message.into());
+        }
+        fn unsupported(&self, _: &str) {}
+    }
+    let directory = PathBuf::from(std::env::var_os("RPI_TEST_CURSOR_EXTENSION_DIR").unwrap());
+    let agent_dir = PathBuf::from(std::env::var_os("RPI_CODING_AGENT_DIR").unwrap());
+    assert!(agent_dir.join("native-fixture-marker").is_file());
+    let cwd = tempfile::tempdir().unwrap();
+    let (host, _cell) = HarnessActionHost::new_empty(
+        vec![],
+        cwd.path().into(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    let bridge = rpi_extensions::ActionBridge::new(Handle::current(), Arc::new(host));
+    let before = node_children();
+    let diagnostics = Arc::new(Diagnostics::default());
+    let extensions =
+        rpi_extensions::load_session(&[directory], diagnostics.clone(), Some(bridge.clone()));
+    assert_eq!(extensions.loaded_paths().len(), 1);
+    let workers: Vec<_> = node_children().difference(&before).cloned().collect();
+    assert_eq!(workers.len(), 1);
+    assert!(std::process::Command::new("kill")
+        .args(["-KILL", &workers[0]])
+        .status()
+        .unwrap()
+        .success());
+    extensions.begin_shutdown();
+    drop(extensions);
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            if diagnostics
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|warning| warning.contains("shutdown failed; retaining"))
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("native shutdown must report a worker failure to the loader");
+    assert_eq!(
+        node_children(),
+        before,
+        "failed shutdown must still reap the worker"
+    );
+    bridge.finish_native_writes().await;
+}
