@@ -490,6 +490,8 @@ impl AgentTool for PluginToolAdapter {
         };
         let keepalive = self.keepalive.clone();
         runtime.spawn_blocking(move || {
+            #[cfg(test)]
+            let _blocking = wake::BlockingCallGuard::enter();
             // These owners must live through destroy AND terminal string frees,
             // independently of the async caller's cancellation/drop.
             let _keepalive = keepalive;

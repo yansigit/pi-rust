@@ -124,6 +124,27 @@ impl Drop for Driver {
     }
 }
 
+#[cfg(test)]
+static BLOCKING_ACTIVE: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static BLOCKING_PEAK: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+pub(super) struct BlockingCallGuard;
+#[cfg(test)]
+impl BlockingCallGuard {
+    pub(super) fn enter() -> Self {
+        let active = BLOCKING_ACTIVE.fetch_add(1, Ordering::SeqCst) + 1;
+        BLOCKING_PEAK.fetch_max(active, Ordering::SeqCst);
+        Self
+    }
+}
+#[cfg(test)]
+impl Drop for BlockingCallGuard {
+    fn drop(&mut self) {
+        BLOCKING_ACTIVE.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 // Move the entire owner through each blocking call. There can never be two
 // calls using its handle, and no blocking worker is retained while Pending.
 async fn call<T: Send + 'static>(
@@ -131,6 +152,8 @@ async fn call<T: Send + 'static>(
     f: impl FnOnce(&mut Driver) -> T + Send + 'static,
 ) -> (Driver, T) {
     tokio::task::spawn_blocking(move || {
+        #[cfg(test)]
+        let _blocking = BlockingCallGuard::enter();
         let mut driver = driver;
         let invocation = driver.invocation.clone();
         let _context = invocation.as_ref().map(|bridge| bridge.enter_invocation());
@@ -554,6 +577,57 @@ mod tests {
             assert_eq!(state.cancels.load(Ordering::SeqCst), 1);
             assert_eq!(state.max_active.load(Ordering::SeqCst), 1);
             assert!(state.callback.lock().unwrap().is_none());
+        }
+    }
+
+    // Offline comparison on the candidate: legacy uses the unchanged polling
+    // driver. Baseline 534d316 predates the optional wake registration ABI.
+    #[test]
+    #[ignore = "offline pending-population benchmark; run alone with --nocapture"]
+    fn pending_population_benchmark() {
+        for population in [1, 64, 256] {
+            for wake in [false, true] {
+                let runtime = tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .max_blocking_threads(512)
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                runtime.block_on(async {
+                    assert_eq!(BLOCKING_ACTIVE.load(Ordering::SeqCst), 0);
+                    BLOCKING_PEAK.store(0, Ordering::SeqCst);
+                    let signal = CancellationToken::new();
+                    let started = std::time::Instant::now();
+                    let mut states = Vec::new();
+                    let mut tasks = Vec::new();
+                    for _ in 0..population {
+                        let state = Arc::new(State::default());
+                        let (id, mut adapter) = adapter(&state);
+                        if !wake { Arc::get_mut(&mut adapter).unwrap().handle.set_waker_fn = None; }
+                        let signal = signal.clone();
+                        tasks.push(tokio::spawn(async move {
+                            adapter.execute(&id, Value::Null, signal, Arc::new(|_| {})).await
+                        }));
+                        states.push(state);
+                    }
+                    until(|| states.iter().all(|state| state.polls.load(Ordering::SeqCst) > 0)).await;
+                    let startup = started.elapsed();
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    let polls: usize = states.iter().map(|state| state.polls.load(Ordering::SeqCst)).sum();
+                    let blocking_pending = BLOCKING_ACTIVE.load(Ordering::SeqCst);
+                    let cancelling = std::time::Instant::now();
+                    signal.cancel();
+                    for task in tasks { assert!(task.await.unwrap().is_err()); }
+                    while BLOCKING_ACTIVE.load(Ordering::SeqCst) != 0 { tokio::task::yield_now().await; }
+                    let cancellation = cancelling.elapsed();
+                    assert!(states.iter().all(|state| state.destroys.load(Ordering::SeqCst) == 1));
+                    println!("tool_pending mode={} population={} startup_ms={:.3} elapsed_ms={:.3} polls={} blocking_current_pending={} blocking_peak={} blocking_after_cancel={} cancel_ms={:.3}",
+                        if wake { "wake" } else { "candidate_legacy" }, population,
+                        startup.as_secs_f64() * 1000.0, started.elapsed().as_secs_f64() * 1000.0,
+                        polls, blocking_pending, BLOCKING_PEAK.load(Ordering::SeqCst),
+                        BLOCKING_ACTIVE.load(Ordering::SeqCst), cancellation.as_secs_f64() * 1000.0);
+                });
+            }
         }
     }
 }
