@@ -165,6 +165,33 @@ fn native_request_auth_preserves_dormant_credentials_and_legacy_failure() {
     let temp = tempfile::tempdir().unwrap();
     let agent = temp.path().join("agent");
     std::fs::create_dir_all(&agent).unwrap();
+    let dormant =
+        r#"{"stub-provider":{"type":"api_key","key":"!echo touched > dormant-command-ran"}}"#;
+    std::fs::write(agent.join("auth.json"), dormant).unwrap();
+    let output = bounded_output(
+        command(&temp, &library)
+            .env("RPI_STUB_REQUEST_AUTH", "prepared")
+            .args([
+                "--provider",
+                "stub-provider",
+                "--model",
+                "stub-model",
+                "--print",
+                "--no-session",
+                "--no-tools",
+                "hello",
+            ]),
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!temp.path().join("dormant-command-ran").exists());
+    assert_eq!(
+        std::fs::read_to_string(agent.join("auth.json")).unwrap(),
+        dormant
+    );
     std::fs::write(agent.join("auth.json"), "malformed").unwrap();
     std::fs::write(agent.join("models.json"),r#"{"providers":{"legacy":{"api":"openai-completions","baseUrl":"https://legacy.invalid","apiKey":"fixture-key","models":[{"id":"model"}]}}}"#).unwrap();
     let output = bounded_output(

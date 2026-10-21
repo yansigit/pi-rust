@@ -331,10 +331,14 @@ fn resolve_with_factories(
         }
         Err(error) => return Err(error.into()),
     };
-    let (mut anthropic_credentials, mut openai_credentials) = if auth_error.is_none() {
+    let (anthropic_credentials, mut openai_credentials) = if auth_error.is_none() {
         (
-            resolve_anthropic_credentials(&models_cfg, &auth_store, &factories.manifests),
-            resolve_openai_credentials(&models_cfg, &auth_store, &factories.manifests),
+            resolve_anthropic_credentials(&models_cfg, &auth_store, &factories.manifests, |id| {
+                factories.auth.contains_key(id)
+            }),
+            resolve_openai_credentials(&models_cfg, &auth_store, &factories.manifests, |id| {
+                factories.auth.contains_key(id)
+            }),
         )
     } else {
         // A failed store read must not execute unrelated credential commands.
@@ -343,7 +347,6 @@ fn resolve_with_factories(
     for id in factories.auth.keys() {
         // A provider-owned resolver may refresh OAuth or acquire custody auth.
         // Never substitute the legacy resolver's key or fallback for it.
-        anthropic_credentials.remove(id);
         openai_credentials.insert(id.clone(), OpenAiCredential::ProviderOwned);
     }
     // The CLI override is intentionally not inserted into either provider map:
@@ -968,6 +971,7 @@ fn resolve_anthropic_credentials(
     cfg: &config::ModelsConfig,
     auth_store: &config::AuthStore,
     manifests: &[rpi_extensions::ProviderManifest],
+    provider_owned: impl Fn(&str) -> bool,
 ) -> AnthropicCredentials {
     let mut provider_ids = vec![DEFAULT_PROVIDER_ID.to_string()];
     for (provider_id, provider_cfg) in &cfg.providers {
@@ -980,6 +984,9 @@ fn resolve_anthropic_credentials(
 
     let mut credentials = BTreeMap::new();
     for provider_id in provider_ids {
+        if provider_owned(&provider_id) {
+            continue;
+        }
         let resolved = crate::credentials::resolve(
             &provider_id,
             cfg.providers.get(&provider_id),
@@ -1030,6 +1037,7 @@ fn resolve_openai_credentials(
     cfg: &config::ModelsConfig,
     auth_store: &config::AuthStore,
     manifests: &[rpi_extensions::ProviderManifest],
+    provider_owned: impl Fn(&str) -> bool,
 ) -> OpenAiCredentials {
     let mut provider_ids = vec!["openai".to_string()];
     for (provider_id, provider_cfg) in &cfg.providers {
@@ -1047,6 +1055,9 @@ fn resolve_openai_credentials(
     }
     let mut credentials = BTreeMap::new();
     for provider_id in provider_ids {
+        if provider_owned(&provider_id) {
+            continue;
+        }
         let provider_cfg = cfg.providers.get(&provider_id);
         let manifest = manifests.iter().find(|manifest| manifest.id == provider_id);
         let resolved =
@@ -1937,7 +1948,8 @@ mod tests {
         assert!(resolved.has_provider_key);
 
         let cfg = config::load_models_config().unwrap();
-        let credentials = resolve_anthropic_credentials(&cfg, &config::read_auth().unwrap(), &[]);
+        let credentials =
+            resolve_anthropic_credentials(&cfg, &config::read_auth().unwrap(), &[], |_| false);
         assert_eq!(
             anthropic_credential_for(&credentials, DEFAULT_PROVIDER_ID),
             Some(&AnthropicCredential::ProviderKey("official-key".into()))
@@ -2044,7 +2056,8 @@ mod tests {
         .unwrap();
 
         let cfg = config::load_models_config().unwrap();
-        let credentials = resolve_anthropic_credentials(&cfg, &config::read_auth().unwrap(), &[]);
+        let credentials =
+            resolve_anthropic_credentials(&cfg, &config::read_auth().unwrap(), &[], |_| false);
         assert_eq!(
             anthropic_credential_for(&credentials, "alpha"),
             Some(&AnthropicCredential::ProviderKey("alpha-key".into()))
@@ -2232,7 +2245,8 @@ mod tests {
         .unwrap();
 
         let cfg = config::load_models_config().unwrap();
-        let credentials = resolve_anthropic_credentials(&cfg, &config::read_auth().unwrap(), &[]);
+        let credentials =
+            resolve_anthropic_credentials(&cfg, &config::read_auth().unwrap(), &[], |_| false);
         assert_eq!(
             credential_for_selected_anthropic_provider(
                 Some("cli-key"),
@@ -3246,7 +3260,8 @@ mod tests {
         let r = resolve(None, Some("custom-claude"), None, None, None).unwrap();
         assert!(r.has_provider_key);
         let cfg = config::load_models_config().unwrap();
-        let credentials = resolve_anthropic_credentials(&cfg, &config::read_auth().unwrap(), &[]);
+        let credentials =
+            resolve_anthropic_credentials(&cfg, &config::read_auth().unwrap(), &[], |_| false);
         assert_eq!(
             anthropic_credential_for(&credentials, "gateway"),
             Some(&AnthropicCredential::ProviderKey(

@@ -24,9 +24,23 @@
       "passed": 1,
       "failed": 0,
       "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-native-credential-command-unit.log",
+      "sha256": "71cc5638c46bd5e87ea0b0e8b3a666de54e64da002fac166d5f64a0842386287",
+      "passed": 72,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-native-credential-command-loaded.log",
+      "sha256": "c05a8c2572ea3e76cdaaab8138b3b31f4d439bdbe5bec56c06f146d4ac7716b7",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
     }
   ],
-  "qualification": "Private provider request authentication across the actual loaded library: malformed dormant store, stored API key and expired OAuth crossed with prepared, ambient, refused and invalid callback results; prepared/refused/invalid leave credential bytes unchanged; ambient refresh persists its rotation; legacy malformed-store error and native provider failure terminate. Request-only environment is isolated and credentials never appear in output. Unit regressions cover replacement credential isolation and provider binding.",
+  "qualification": "Private provider request authentication across the actual loaded library: malformed dormant store, stored API key and expired OAuth crossed with prepared, ambient, refused and invalid callback results; prepared/refused/invalid leave credential bytes unchanged; ambient refresh persists its rotation; legacy malformed-store error and native provider failure terminate. Request-only environment is isolated and credentials never appear in output. Unit regressions cover replacement credential isolation and provider binding. A stored credential command is not executed during catalog setup for a native auth provider.",
   "not_tested": [
     "complete Antigravity custody startup and sends",
     "macOS and Windows native execution"
