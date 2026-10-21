@@ -684,13 +684,23 @@ mod tests {
             &format!(
                 r#"
 use std::ffi::c_void;
+use std::sync::{{Arc, Mutex, atomic::{{AtomicBool, Ordering}}}};
+static WORKER: Mutex<Option<(Arc<AtomicBool>, std::thread::JoinHandle<()>)>> = Mutex::new(None);
 fn mark(value: &[u8]) {{
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open({marker:?}).unwrap();
     file.write_all(value).unwrap();
 }}
-extern "C" fn begin(_: *mut c_void) {{ mark(b"B"); }}
-extern "C" fn finish(_: *mut c_void) -> i32 {{ mark(b"F"); {finish_status} }}
+extern "C" fn begin(_: *mut c_void) {{
+    mark(b"B");
+    WORKER.lock().unwrap().as_ref().unwrap().0.store(true, Ordering::Release);
+}}
+extern "C" fn finish(_: *mut c_void) -> i32 {{
+    let (_, worker) = WORKER.lock().unwrap().take().unwrap();
+    worker.join().unwrap();
+    mark(b"F");
+    {finish_status}
+}}
 #[no_mangle]
 pub extern "C" fn still_mapped() -> i32 {{ 42 }}
 #[no_mangle]
@@ -698,6 +708,15 @@ pub extern "C" fn rpi_plugin_register(api: *const u8) -> i32 {{
     type Register = extern "C" fn(extern "C" fn(*mut c_void), extern "C" fn(*mut c_void) -> i32, *mut c_void) -> i32;
     let register: Option<Register> = unsafe {{ std::ptr::read_unaligned(api.add({offset}).cast()) }};
     assert_eq!(register.unwrap()(begin, finish, std::ptr::null_mut()), 0);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = cancelled.clone();
+    let worker = std::thread::spawn(move || {{
+        while !worker_cancelled.load(Ordering::Acquire) {{
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }}
+        mark(b"W");
+    }});
+    *WORKER.lock().unwrap() = Some((cancelled, worker));
     {register_status}
 }}
 "#,
@@ -709,10 +728,34 @@ pub extern "C" fn rpi_plugin_register(api: *const u8) -> i32 {{
 
     fn wait_for_finish(marker: &Path) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while fs::read(marker).unwrap_or_default() != b"BF" {
+        while fs::read(marker).unwrap_or_default() != b"BWF" {
             assert!(
                 std::time::Instant::now() < deadline,
                 "shutdown did not finish"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[cfg(windows)]
+    fn dll_is_mapped(path: &Path) -> bool {
+        use std::os::windows::ffi::OsStrExt;
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn GetModuleHandleW(name: *const u16) -> *mut std::ffi::c_void;
+        }
+        let name: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        // GetModuleHandleW observes the loader without retaining another DLL reference.
+        !unsafe { GetModuleHandleW(name.as_ptr()) }.is_null()
+    }
+
+    #[cfg(windows)]
+    fn wait_for_unload(path: &Path) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while dll_is_mapped(path) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "DLL remained mapped after successful shutdown"
             );
             std::thread::sleep(std::time::Duration::from_millis(5));
         }
@@ -728,12 +771,21 @@ pub extern "C" fn rpi_plugin_register(api: *const u8) -> i32 {{
             None,
         );
         let active_request = session.keepalive();
+        #[cfg(windows)]
+        assert!(dll_is_mapped(&fixture.path));
         session.begin_shutdown();
         session.begin_shutdown();
         drop(session);
-        assert_eq!(fs::read(&marker).unwrap(), b"B");
+        let recorded = fs::read(&marker).unwrap();
+        assert_eq!(recorded.iter().filter(|&&event| event == b'B').count(), 1);
+        assert!(
+            !recorded.contains(&b'F'),
+            "finish ran while an FFI keepalive remained"
+        );
         drop(active_request);
         wait_for_finish(&marker);
+        #[cfg(windows)]
+        wait_for_unload(&fixture.path);
         let _ = fs::remove_file(marker);
     }
 
