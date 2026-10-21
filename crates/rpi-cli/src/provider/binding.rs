@@ -16,6 +16,10 @@ pub(super) struct ExecutionBinding {
     canonical_models: Vec<Model>,
     descriptors: Vec<Model>,
     auth: RequestAuth,
+    endpoint_override: Option<String>,
+    headers:
+        Arc<std::collections::HashMap<(rpi_ai::Api, String), Option<BTreeMap<String, String>>>>,
+    common_headers: Option<BTreeMap<String, String>>,
 }
 
 impl std::fmt::Debug for ExecutionBinding {
@@ -41,17 +45,68 @@ impl ExecutionBinding {
         canonical_models: Vec<Model>,
         auth: RequestAuth,
     ) -> Self {
+        let endpoint_override = models.iter().find_map(|bound| {
+            canonical_models
+                .iter()
+                .find(|canonical| {
+                    canonical.provider == bound.provider
+                        && canonical.api == bound.api
+                        && canonical.id.eq_ignore_ascii_case(&bound.id)
+                })
+                .filter(|canonical| canonical.base_url != bound.base_url)
+                .map(|_| bound.base_url.clone())
+        });
+        let common_headers = models.first().and_then(|first| {
+            models
+                .iter()
+                .all(|model| model.headers == first.headers)
+                .then(|| first.headers.clone())
+                .flatten()
+        });
+        let headers = Arc::new(
+            models
+                .iter()
+                .map(|model| {
+                    (
+                        (model.api.clone(), model.id.to_ascii_lowercase()),
+                        model.headers.clone(),
+                    )
+                })
+                .collect(),
+        );
         Self {
             provider_id: provider_id.into(),
             descriptors: models.iter().map(descriptor).collect(),
             models,
             canonical_models,
             auth,
+            endpoint_override,
+            headers,
+            common_headers,
         }
     }
 
     pub fn models(&self) -> &[Model] {
         &self.descriptors
+    }
+
+    pub fn with_catalog(&self, models: Vec<Model>) -> Self {
+        let mut configured = models.clone();
+        for model in &mut configured {
+            if let Some(endpoint) = &self.endpoint_override {
+                model.base_url = endpoint.clone();
+            }
+            model.headers = self
+                .headers
+                .get(&(model.api.clone(), model.id.to_ascii_lowercase()))
+                .cloned()
+                .unwrap_or_else(|| self.common_headers.clone());
+        }
+        let mut binding = Self::new(&self.provider_id, configured, models, self.auth.clone());
+        binding.endpoint_override = self.endpoint_override.clone();
+        binding.headers = self.headers.clone();
+        binding.common_headers = self.common_headers.clone();
+        binding
     }
 
     pub fn prepare(

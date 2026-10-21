@@ -68,7 +68,9 @@ pub struct HarnessActionHost {
     harness: Arc<OnceLock<WeakAgentHarness>>,
     /// The auth-filtered catalog (the same list the TUI `/model` selector
     /// shows). `set_model(id)` resolves an id against this.
-    catalog: RwLock<Vec<rpi_ai::Model>>,
+    catalog: Arc<RwLock<Vec<rpi_ai::Model>>>,
+    provider_runtime:
+        RwLock<Option<std::sync::Weak<dyn rpi_extensions::native::NativeProviderRuntime>>>,
     /// The session cwd — `new_session`/`fork`/`switch_session` need it to
     /// locate the session dir.
     cwd: PathBuf,
@@ -104,7 +106,8 @@ impl HarnessActionHost {
         (
             Self {
                 harness: Arc::clone(&harness),
-                catalog: RwLock::new(catalog),
+                catalog: Arc::new(RwLock::new(catalog)),
+                provider_runtime: RwLock::new(None),
                 cwd,
                 cli_flags,
                 tool_context,
@@ -114,6 +117,14 @@ impl HarnessActionHost {
             },
             harness,
         )
+    }
+
+    pub(crate) fn catalog_handle(&self) -> Arc<RwLock<Vec<rpi_ai::Model>>> {
+        self.catalog.clone()
+    }
+    pub(crate) fn with_catalog_handle(mut self, catalog: Arc<RwLock<Vec<rpi_ai::Model>>>) -> Self {
+        self.catalog = catalog;
+        self
     }
 
     pub fn set_catalog(&self, catalog: Vec<rpi_ai::Model>) {
@@ -349,6 +360,39 @@ pub(crate) fn assistant_text(msg: &rpi_ai::types::AssistantMessage) -> String {
 
 #[async_trait::async_trait]
 impl RuntimeActionHost for HarnessActionHost {
+    fn bind_provider_runtime(
+        &self,
+        runtime: std::sync::Weak<dyn rpi_extensions::native::NativeProviderRuntime>,
+    ) {
+        *self
+            .provider_runtime
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(runtime);
+    }
+    async fn native_request(
+        &self,
+        owner: rpi_extensions::native::NativeOwner,
+        args: serde_json::Value,
+        signal: tokio_util::sync::CancellationToken,
+    ) -> Result<serde_json::Value, String> {
+        let runtime = self
+            .provider_runtime
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+            .ok_or("provider runtime is unavailable")?;
+        runtime.request(owner, args, signal).await
+    }
+    async fn install_native_providers(
+        &self,
+        providers: Vec<Arc<dyn rpi_ai::Provider>>,
+    ) -> Result<(), String> {
+        self.harness()?
+            .set_models(providers)
+            .await
+            .map_err(|e| e.to_string())
+    }
     fn cancel_side_questions(&self, owner: u64) {
         self.side_questions.cancel_owner(owner);
     }

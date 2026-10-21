@@ -392,6 +392,17 @@ async fn run_inner() -> i32 {
         None
     };
 
+    let one_shot_lifecycle = matches!(mode, RunMode::Print | RunMode::Json);
+    if one_shot_lifecycle {
+        if let Some(reason) = crate::session::dispatch_session_event_async(
+            &reload_context,
+            rpi_plugin_sdk::EventTag::SessionStart,
+        )
+        .await
+        {
+            tracing::warn!("[rpi] extension vetoed SessionStart (advisory): {reason}");
+        }
+    }
     let exit_code = match mode {
         RunMode::Print => {
             crate::modes::print(
@@ -513,6 +524,16 @@ async fn run_inner() -> i32 {
         }
     };
 
+    if one_shot_lifecycle {
+        if let Some(reason) = crate::session::dispatch_session_event_async(
+            &reload_context,
+            rpi_plugin_sdk::EventTag::SessionShutdown,
+        )
+        .await
+        {
+            tracing::warn!("[rpi] extension vetoed SessionShutdown (ignored, closing): {reason}");
+        }
+    }
     if let Some(dev) = &dev_cleanup {
         dev.stop_watcher();
     }

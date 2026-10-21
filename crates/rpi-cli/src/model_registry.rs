@@ -1,366 +1,426 @@
-//! Model registry runtime - dynamic model registration and refresh.
-//!
-//! Mirrors the upstream `ModelRegistry` and `ModelRuntime` functionality:
-//! - Dynamic provider registration/unregistration
-//! - Runtime model catalog refresh
-//! - Provider authentication status tracking
-//! - Extension provider integration
-//! - Real-time catalog change notifications
-
-use std::collections::HashMap;
+//! Atomic provider catalog and execution snapshots, scoped to native owners.
+use rpi_ai::{Model, Provider};
+use rpi_extensions::native::NativeOwner;
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
-use rpi_ai::model::Model;
-use rpi_ai::Provider;
-
-/// Model registry event types
 #[derive(Debug, Clone)]
 pub enum ModelRegistryEvent {
-    /// A new provider was registered
-    ProviderRegistered { provider_id: String },
-    /// A provider was unregistered
-    ProviderUnregistered { provider_id: String },
-    /// Model catalog was refreshed
+    ProviderRegistered {
+        provider_id: String,
+    },
+    ProviderUnregistered {
+        provider_id: String,
+    },
     CatalogRefreshed,
-    /// Provider auth status changed
     AuthStatusChanged {
         provider_id: String,
         authenticated: bool,
     },
 }
-
-/// Provider authentication status
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum AuthStatus {
-    /// Not authenticated
     Unauthenticated,
-    /// Authenticated with valid credentials
     Authenticated,
-    /// Authentication expired/invalid
     Expired,
-    /// Authentication status unknown
     Unknown,
 }
-
-/// Provider information in the registry
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderInfo {
-    /// Provider ID
     pub id: String,
-    /// Display name
     pub name: String,
-    /// Whether this is a built-in provider
     pub builtin: bool,
-    /// Authentication status
     pub auth_status: AuthStatus,
-    /// Available models
     pub models: Vec<Model>,
 }
-
-/// Model registry - manages providers and models at runtime
-pub struct ModelRegistry {
-    /// Registered providers (metadata)
-    providers: Arc<RwLock<HashMap<String, ProviderInfo>>>,
-    /// Provider instances (for actual API calls)
-    provider_instances: Arc<RwLock<HashMap<String, Arc<dyn Provider>>>>,
-    /// Event broadcaster
-    event_tx: broadcast::Sender<ModelRegistryEvent>,
-    /// Models.json last refresh time
-    last_refresh: Arc<RwLock<Option<std::time::Instant>>>,
+#[derive(Clone)]
+struct Entry {
+    info: ProviderInfo,
+    provider: Option<Arc<dyn Provider>>,
+    owner: Option<NativeOwner>,
 }
-
+#[derive(Clone, Default)]
+struct State {
+    entries: Vec<Entry>,
+    revision: u64,
+    last_refresh: Option<std::time::Instant>,
+}
+pub struct ModelRegistry {
+    state: RwLock<State>,
+    event_tx: broadcast::Sender<ModelRegistryEvent>,
+}
 impl ModelRegistry {
-    /// Create a new model registry
     pub fn new() -> Self {
         let (event_tx, _) = broadcast::channel(100);
         Self {
-            providers: Arc::new(RwLock::new(HashMap::new())),
-            provider_instances: Arc::new(RwLock::new(HashMap::new())),
+            state: RwLock::new(State::default()),
             event_tx,
-            last_refresh: Arc::new(RwLock::new(None)),
         }
     }
-
-    /// Register a built-in provider
+    fn register(&self, mut entry: Entry, enforce_owner: bool) -> Result<u64, RegistryError> {
+        let id = entry.info.id.clone();
+        if id.trim().is_empty() || entry.provider.as_ref().is_some_and(|p| p.id() != id) {
+            return Err(RegistryError::InvalidConfiguration(
+                "provider identity mismatch".into(),
+            ));
+        }
+        let mut seen = std::collections::HashSet::new();
+        if entry.info.models.iter().any(|model| {
+            model.provider != id
+                || model.id.trim().is_empty()
+                || !seen.insert((model.api.clone(), model.id.to_ascii_lowercase()))
+        }) {
+            return Err(RegistryError::InvalidConfiguration(
+                "invalid or duplicate model identity".into(),
+            ));
+        }
+        for model in &mut entry.info.models {
+            model.headers = None;
+        }
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RegistryError::LockPoisoned)?;
+        let revision = state
+            .revision
+            .checked_add(1)
+            .ok_or(RegistryError::RevisionExhausted)?;
+        if let Some(existing) = state.entries.iter_mut().find(|known| known.info.id == id) {
+            if enforce_owner && existing.owner != entry.owner {
+                return Err(RegistryError::WrongOwner(id));
+            }
+            *existing = entry;
+        } else {
+            state.entries.push(entry);
+        }
+        state.revision = revision;
+        drop(state);
+        let _ = self
+            .event_tx
+            .send(ModelRegistryEvent::ProviderRegistered { provider_id: id });
+        Ok(revision)
+    }
     pub fn register_builtin_provider(
         &self,
         id: String,
         name: String,
         models: Vec<Model>,
     ) -> Result<(), RegistryError> {
-        let info = ProviderInfo {
-            id: id.clone(),
-            name,
-            builtin: true,
-            auth_status: AuthStatus::Unknown,
-            models,
-        };
-
-        let mut providers = self
-            .providers
-            .write()
-            .map_err(|_| RegistryError::LockPoisoned)?;
-        providers.insert(id.clone(), info);
-
-        let _ = self
-            .event_tx
-            .send(ModelRegistryEvent::ProviderRegistered { provider_id: id });
-
-        Ok(())
+        self.register(
+            Entry {
+                info: ProviderInfo {
+                    id,
+                    name,
+                    builtin: true,
+                    auth_status: AuthStatus::Unknown,
+                    models,
+                },
+                provider: None,
+                owner: None,
+            },
+            false,
+        )
+        .map(|_| ())
     }
-
-    /// Register an extension provider
     pub fn register_extension_provider(
         &self,
         provider: Arc<dyn Provider>,
     ) -> Result<(), RegistryError> {
-        let id = provider.id().to_string();
-        let models = provider.models().to_vec();
-
-        let info = ProviderInfo {
-            id: id.clone(),
-            name: id.clone(), // Extension providers use id as name
-            builtin: false,
-            auth_status: AuthStatus::Unknown,
-            models,
-        };
-
-        let mut providers = self
-            .providers
-            .write()
-            .map_err(|_| RegistryError::LockPoisoned)?;
-        providers.insert(id.clone(), info);
-
-        let mut instances = self
-            .provider_instances
-            .write()
-            .map_err(|_| RegistryError::LockPoisoned)?;
-        instances.insert(id.clone(), provider);
-
-        let _ = self
-            .event_tx
-            .send(ModelRegistryEvent::ProviderRegistered { provider_id: id });
-
-        Ok(())
+        self.publish(None, provider, false, false).map(|_| ())
     }
-
-    /// Unregister a provider
-    pub fn unregister_provider(&self, provider_id: &str) -> Result<(), RegistryError> {
-        let mut providers = self
-            .providers
-            .write()
-            .map_err(|_| RegistryError::LockPoisoned)?;
-        let mut instances = self
-            .provider_instances
-            .write()
-            .map_err(|_| RegistryError::LockPoisoned)?;
-
-        if providers.remove(provider_id).is_some() {
-            instances.remove(provider_id);
-            let _ = self
-                .event_tx
-                .send(ModelRegistryEvent::ProviderUnregistered {
-                    provider_id: provider_id.to_string(),
-                });
-            Ok(())
-        } else {
-            Err(RegistryError::ProviderNotFound(provider_id.to_string()))
-        }
-    }
-
-    /// Get provider info
-    pub fn get_provider(&self, provider_id: &str) -> Option<ProviderInfo> {
-        let providers = self.providers.read().ok()?;
-        providers.get(provider_id).cloned()
-    }
-
-    /// Get all providers
-    pub fn list_providers(&self) -> Vec<ProviderInfo> {
-        let providers = self
-            .providers
-            .read()
-            .ok()
-            .map(|p| p.values().cloned().collect());
-        providers.unwrap_or_default()
-    }
-
-    /// Get all models across all providers
-    pub fn list_models(&self) -> Vec<Model> {
-        let providers = match self.providers.read() {
-            Ok(p) => p,
-            Err(_) => return Vec::new(),
-        };
-
-        providers
-            .values()
-            .flat_map(|info| info.models.clone())
-            .collect()
-    }
-
-    /// Get models for a specific provider
-    pub fn list_provider_models(&self, provider_id: &str) -> Vec<Model> {
-        let providers = match self.providers.read() {
-            Ok(p) => p,
-            Err(_) => return Vec::new(),
-        };
-
-        providers
-            .get(provider_id)
-            .map(|info| info.models.clone())
-            .unwrap_or_default()
-    }
-
-    /// Update provider authentication status
-    pub fn update_auth_status(
+    fn publish(
         &self,
-        provider_id: &str,
-        status: AuthStatus,
+        owner: Option<NativeOwner>,
+        provider: Arc<dyn Provider>,
+        enforce_owner: bool,
+        builtin: bool,
+    ) -> Result<u64, RegistryError> {
+        self.register(
+            Entry {
+                info: ProviderInfo {
+                    id: provider.id().into(),
+                    name: provider.id().into(),
+                    builtin,
+                    auth_status: AuthStatus::Unknown,
+                    models: provider.models().to_vec(),
+                },
+                provider: Some(provider),
+                owner,
+            },
+            enforce_owner,
+        )
+    }
+    pub fn publish_owned(
+        &self,
+        owner: NativeOwner,
+        provider: Arc<dyn Provider>,
+    ) -> Result<u64, RegistryError> {
+        self.publish(Some(owner), provider, true, false)
+    }
+    pub(crate) fn register_discovered(
+        &self,
+        owner: Option<NativeOwner>,
+        id: String,
+        models: Vec<Model>,
     ) -> Result<(), RegistryError> {
-        let mut providers = self
-            .providers
-            .write()
-            .map_err(|_| RegistryError::LockPoisoned)?;
-
-        if let Some(info) = providers.get_mut(provider_id) {
-            info.auth_status = status.clone();
-
-            let authenticated = matches!(status, AuthStatus::Authenticated);
-            let _ = self.event_tx.send(ModelRegistryEvent::AuthStatusChanged {
-                provider_id: provider_id.to_string(),
-                authenticated,
-            });
-
-            Ok(())
-        } else {
-            Err(RegistryError::ProviderNotFound(provider_id.to_string()))
-        }
-    }
-
-    /// Get provider authentication status
-    pub fn get_auth_status(&self, provider_id: &str) -> Option<AuthStatus> {
-        let providers = self.providers.read().ok()?;
-        providers
-            .get(provider_id)
-            .map(|info| info.auth_status.clone())
-    }
-
-    /// Refresh model catalog from models.json
-    pub async fn refresh_catalog(&self) -> Result<(), RegistryError> {
-        // Read models.json from config directory
-        let config = crate::config::load_models_config()
-            .map_err(|e| RegistryError::InvalidConfiguration(e.to_string()))?;
-
-        // Parse and validate models
-        let mut providers = self
-            .providers
-            .write()
-            .map_err(|_| RegistryError::LockPoisoned)?;
-
-        // Update existing providers and register providers that appear only in
-        // models.json (native `models.json` custom providers). Previously only
-        // pre-registered providers were updated, so a user-defined provider was
-        // silently ignored.
-        for (provider_id, provider_config) in &config.providers {
-            if let Some(models) = crate::config::provider_to_models(provider_id, provider_config) {
-                if let Some(info) = providers.get_mut(provider_id) {
-                    info.models = models;
-                    continue;
-                }
-            }
-            // New provider: register it from models.json.
-            let models =
-                crate::config::provider_to_models(provider_id, provider_config).unwrap_or_default();
-            providers.insert(
-                provider_id.clone(),
-                ProviderInfo {
-                    id: provider_id.clone(),
-                    name: provider_config
-                        .name
-                        .clone()
-                        .unwrap_or_else(|| provider_id.clone()),
-                    builtin: false,
+        let builtin = owner.is_none();
+        self.register(
+            Entry {
+                info: ProviderInfo {
+                    name: id.clone(),
+                    id,
+                    builtin,
                     auth_status: AuthStatus::Unknown,
                     models,
                 },
-            );
-        }
-
-        drop(providers);
-
-        // Update last refresh time
-        let mut last_refresh = self
-            .last_refresh
+                provider: None,
+                owner,
+            },
+            true,
+        )
+        .map(|_| ())
+    }
+    pub(crate) fn register_runtime(
+        &self,
+        owner: Option<NativeOwner>,
+        provider: Arc<dyn Provider>,
+    ) -> Result<u64, RegistryError> {
+        let builtin = owner.is_none();
+        self.publish(owner, provider, false, builtin)
+    }
+    pub(crate) fn fork(&self) -> Result<Self, RegistryError> {
+        let candidate = Self::new();
+        *candidate
+            .state
+            .write()
+            .map_err(|_| RegistryError::LockPoisoned)? = self
+            .state
+            .read()
+            .map_err(|_| RegistryError::LockPoisoned)?
+            .clone();
+        Ok(candidate)
+    }
+    pub fn unregister_owned(&self, owner: &NativeOwner, id: &str) -> Result<u64, RegistryError> {
+        self.remove(Some(owner), id)
+    }
+    pub fn unregister_provider(&self, id: &str) -> Result<(), RegistryError> {
+        self.remove(None, id).map(|_| ())
+    }
+    fn remove(&self, owner: Option<&NativeOwner>, id: &str) -> Result<u64, RegistryError> {
+        let mut state = self
+            .state
             .write()
             .map_err(|_| RegistryError::LockPoisoned)?;
-        *last_refresh = Some(std::time::Instant::now());
-
-        // Broadcast CatalogRefreshed event
-        let _ = self.event_tx.send(ModelRegistryEvent::CatalogRefreshed);
-
+        let index = state
+            .entries
+            .iter()
+            .position(|entry| entry.info.id == id)
+            .ok_or_else(|| RegistryError::ProviderNotFound(id.into()))?;
+        if owner.is_some() && state.entries[index].owner.as_ref() != owner {
+            return Err(RegistryError::WrongOwner(id.into()));
+        }
+        let revision = state
+            .revision
+            .checked_add(1)
+            .ok_or(RegistryError::RevisionExhausted)?;
+        state.entries.remove(index);
+        state.revision = revision;
+        drop(state);
+        let _ = self
+            .event_tx
+            .send(ModelRegistryEvent::ProviderUnregistered {
+                provider_id: id.into(),
+            });
+        Ok(revision)
+    }
+    pub fn owner(&self, id: &str) -> Option<NativeOwner> {
+        self.state
+            .read()
+            .ok()?
+            .entries
+            .iter()
+            .find(|entry| entry.info.id == id)?
+            .owner
+            .clone()
+    }
+    pub fn revision(&self) -> u64 {
+        self.state.read().expect("model registry lock").revision
+    }
+    pub fn get_provider(&self, id: &str) -> Option<ProviderInfo> {
+        self.state
+            .read()
+            .ok()?
+            .entries
+            .iter()
+            .find(|entry| entry.info.id == id)
+            .map(|entry| entry.info.clone())
+    }
+    pub fn list_providers(&self) -> Vec<ProviderInfo> {
+        self.state
+            .read()
+            .expect("model registry lock")
+            .entries
+            .iter()
+            .map(|entry| entry.info.clone())
+            .collect()
+    }
+    pub fn list_models(&self) -> Vec<Model> {
+        self.list_providers()
+            .into_iter()
+            .flat_map(|entry| entry.models)
+            .collect()
+    }
+    pub fn list_provider_models(&self, id: &str) -> Vec<Model> {
+        self.get_provider(id)
+            .map(|entry| entry.models)
+            .unwrap_or_default()
+    }
+    pub fn update_auth_status(&self, id: &str, status: AuthStatus) -> Result<(), RegistryError> {
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RegistryError::LockPoisoned)?;
+        let entry = state
+            .entries
+            .iter_mut()
+            .find(|entry| entry.info.id == id)
+            .ok_or_else(|| RegistryError::ProviderNotFound(id.into()))?;
+        entry.info.auth_status = status.clone();
+        drop(state);
+        let _ = self.event_tx.send(ModelRegistryEvent::AuthStatusChanged {
+            provider_id: id.into(),
+            authenticated: status == AuthStatus::Authenticated,
+        });
         Ok(())
     }
-
-    /// Get last catalog refresh time
-    pub fn last_refresh_time(&self) -> Option<std::time::Instant> {
-        self.last_refresh.read().ok().and_then(|t| *t)
+    pub fn get_auth_status(&self, id: &str) -> Option<AuthStatus> {
+        self.get_provider(id).map(|entry| entry.auth_status)
     }
-
-    /// Subscribe to registry events
+    pub async fn refresh_catalog(&self) -> Result<(), RegistryError> {
+        let config = crate::config::load_models_config()
+            .map_err(|error| RegistryError::InvalidConfiguration(error.to_string()))?;
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RegistryError::LockPoisoned)?;
+        let mut candidate = state.clone();
+        for (id, config) in &config.providers {
+            let models = crate::config::provider_to_models(id, config).unwrap_or_default();
+            if let Some(entry) = candidate
+                .entries
+                .iter_mut()
+                .find(|entry| &entry.info.id == id)
+            {
+                if entry.owner.is_some() {
+                    return Err(RegistryError::WrongOwner(id.clone()));
+                }
+                if let Some(provider) = &entry.provider {
+                    let replacement = provider.with_catalog(models.clone()).ok_or_else(|| {
+                        RegistryError::InvalidConfiguration(
+                            "provider cannot refresh its execution catalog".into(),
+                        )
+                    })?;
+                    entry.info.models = replacement.models().to_vec();
+                    entry.provider = Some(replacement);
+                } else {
+                    entry.info.models = models;
+                }
+            } else {
+                candidate.entries.push(Entry {
+                    info: ProviderInfo {
+                        id: id.clone(),
+                        name: config.name.clone().unwrap_or_else(|| id.clone()),
+                        builtin: false,
+                        auth_status: AuthStatus::Unknown,
+                        models,
+                    },
+                    provider: None,
+                    owner: None,
+                });
+            }
+        }
+        state.revision = state
+            .revision
+            .checked_add(1)
+            .ok_or(RegistryError::RevisionExhausted)?;
+        for entry in &mut candidate.entries {
+            for model in &mut entry.info.models {
+                model.headers = None;
+            }
+        }
+        candidate.revision = state.revision;
+        candidate.last_refresh = Some(std::time::Instant::now());
+        *state = candidate;
+        drop(state);
+        let _ = self.event_tx.send(ModelRegistryEvent::CatalogRefreshed);
+        Ok(())
+    }
+    pub fn last_refresh_time(&self) -> Option<std::time::Instant> {
+        self.state.read().ok()?.last_refresh
+    }
     pub fn subscribe(&self) -> broadcast::Receiver<ModelRegistryEvent> {
         self.event_tx.subscribe()
     }
-
-    /// Get provider instance for API calls
-    pub fn get_provider_instance(&self, provider_id: &str) -> Option<Arc<dyn Provider>> {
-        let instances = self.provider_instances.read().ok()?;
-        instances.get(provider_id).cloned()
+    pub fn get_provider_instance(&self, id: &str) -> Option<Arc<dyn Provider>> {
+        self.state
+            .read()
+            .ok()?
+            .entries
+            .iter()
+            .find(|entry| entry.info.id == id)?
+            .provider
+            .clone()
     }
-
-    /// Check if a provider is registered
-    pub fn has_provider(&self, provider_id: &str) -> bool {
-        let providers = match self.providers.read() {
-            Ok(p) => p,
-            Err(_) => return false,
-        };
-        providers.contains_key(provider_id)
+    pub fn instances(&self) -> Vec<Arc<dyn Provider>> {
+        self.state
+            .read()
+            .expect("model registry lock")
+            .entries
+            .iter()
+            .filter_map(|entry| entry.provider.clone())
+            .collect()
     }
-
-    /// Get provider count
+    pub fn has_provider(&self, id: &str) -> bool {
+        self.get_provider(id).is_some()
+    }
     pub fn provider_count(&self) -> usize {
-        self.providers.read().map(|p| p.len()).unwrap_or(0)
+        self.state
+            .read()
+            .expect("model registry lock")
+            .entries
+            .len()
     }
-
-    /// Get model count
     pub fn model_count(&self) -> usize {
-        let providers = match self.providers.read() {
-            Ok(p) => p,
-            Err(_) => return 0,
-        };
-        providers.values().map(|info| info.models.len()).sum()
+        self.state
+            .read()
+            .expect("model registry lock")
+            .entries
+            .iter()
+            .map(|entry| entry.info.models.len())
+            .sum()
     }
 }
-
 impl Default for ModelRegistry {
     fn default() -> Self {
         Self::new()
     }
 }
-
-/// Registry errors
 #[derive(Debug, thiserror::Error)]
 pub enum RegistryError {
-    #[error("Lock poisoned")]
+    #[error("model registry lock poisoned")]
     LockPoisoned,
-
-    #[error("Provider not found: {0}")]
+    #[error("provider not found: {0}")]
     ProviderNotFound(String),
-
-    #[error("Provider already registered: {0}")]
+    #[error("provider already registered: {0}")]
     ProviderAlreadyRegistered(String),
-
-    #[error("Invalid provider configuration: {0}")]
+    #[error("invalid provider configuration: {0}")]
     InvalidConfiguration(String),
+    #[error("provider belongs to a different session or plugin: {0}")]
+    WrongOwner(String),
+    #[error("model registry revision exhausted")]
+    RevisionExhausted,
 }
 
 #[cfg(test)]
@@ -394,6 +454,26 @@ mod tests {
             .unwrap();
         assert!(registry.unregister_provider("test").is_ok());
         assert_eq!(registry.provider_count(), 0);
+    }
+
+    #[test]
+    fn revision_exhaustion_never_changes_a_catalog() {
+        let registry = ModelRegistry::new();
+        registry
+            .register_builtin_provider("first".into(), "First".into(), vec![])
+            .unwrap();
+        registry.state.write().unwrap().revision = u64::MAX;
+        assert!(matches!(
+            registry.register_builtin_provider("second".into(), "Second".into(), vec![]),
+            Err(RegistryError::RevisionExhausted)
+        ));
+        assert!(matches!(
+            registry.unregister_provider("first"),
+            Err(RegistryError::RevisionExhausted)
+        ));
+        assert!(registry.has_provider("first"));
+        assert!(!registry.has_provider("second"));
+        assert_eq!(registry.provider_count(), 1);
     }
 
     #[test]

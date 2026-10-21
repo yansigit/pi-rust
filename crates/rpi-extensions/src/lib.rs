@@ -112,12 +112,14 @@ pub mod credential_store;
 mod editor_text;
 mod event_log;
 mod loader;
+pub mod native;
 mod oauth;
 mod private_callback;
 mod prompt_transform;
 mod provider;
 pub mod provider_auth;
 mod provider_hooks;
+pub mod provider_runtime;
 mod registry;
 mod resources;
 mod status;
@@ -317,6 +319,8 @@ impl HostApi {
             register_provider_wrapper: Some(trampoline_register_provider_wrapper),
             delegate_provider_stream: Some(provider::wrappers::delegate_stream),
             provider_continuation: Some(provider::wrappers::continuation_action),
+            native_request: Some(native::request),
+            register_provider_runtime: Some(trampoline_register_provider_runtime),
             register_command: Some(trampoline_register_command),
             register_shortcut: Some(trampoline_register_shortcut),
             register_flag: Some(trampoline_register_flag),
@@ -703,12 +707,19 @@ extern "C" fn trampoline_register_provider(
         plugin_free_string,
         user_data,
     };
-    let ok = with_current_api(
-        |api| match api.with_registry(|reg| reg.register_provider(record)) {
+    let ok = with_current_api(|api| {
+        match api.with_registry(|reg| {
+            reg.register_provider_owned(
+                record,
+                api.action_bridge
+                    .as_ref()
+                    .and_then(|bridge| bridge.native_owner()),
+            )
+        }) {
             Some(_) => true,
             None => false,
-        },
-    );
+        }
+    });
     if ok == Some(true) {
         0
     } else {
@@ -748,8 +759,15 @@ extern "C" fn trampoline_register_streaming_provider(
         user_data,
     };
     let ok = with_current_api(|api| {
-        api.with_registry(|reg| reg.register_streaming_provider(record))
-            .is_some()
+        api.with_registry(|reg| {
+            reg.register_streaming_provider_owned(
+                record,
+                api.action_bridge
+                    .as_ref()
+                    .and_then(|bridge| bridge.native_owner()),
+            )
+        })
+        .is_some()
     });
     if ok == Some(true) {
         0
@@ -852,6 +870,34 @@ extern "C" fn trampoline_register_credential_store(
     };
     match with_current_api(|api| {
         api.with_registry(|registry| registry.register_credential_store(record))
+    }) {
+        Some(Some(duplicate)) => i32::from(duplicate),
+        _ => -1,
+    }
+}
+
+extern "C" fn trampoline_register_provider_runtime(
+    manifest: StbStringRef,
+    request_fn: rpi_plugin_sdk::AuthRequestFn,
+    free: FreeStringFn,
+    context: *mut c_void,
+) -> i32 {
+    let Some(plugin) = with_current_api(|api| api.name.clone()) else {
+        return -1;
+    };
+    let Ok(manifest) = provider_runtime::RuntimeManifest::parse(unsafe { manifest.as_str() })
+    else {
+        return -2;
+    };
+    let record = provider_runtime::RegisteredProviderRuntime {
+        plugin,
+        manifest,
+        request_fn,
+        free,
+        context,
+    };
+    match with_current_api(|api| {
+        api.with_registry(|registry| registry.register_provider_runtime(record))
     }) {
         Some(Some(duplicate)) => i32::from(duplicate),
         _ => -1,

@@ -23,6 +23,7 @@ serde_json = { workspace = true, optional = true }
 # Provider authoring helpers are opt-in; the ABI core stays independent of rpi-ai.
 rpi-ai = { workspace = true, optional = true, features = ["providers"] }
 tokio = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
@@ -40,7 +41,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [features]
 default = ["json"]
 json = ["dep:serde_json"]
-provider = ["json", "dep:rpi-ai", "dep:tokio", "dep:serde", "dep:reqwest", "dep:async-trait"]
+provider = ["json", "dep:rpi-ai", "dep:tokio", "dep:serde", "dep:reqwest", "dep:async-trait", "dep:tokio-util"]
 process = ["dep:windows-sys", "dep:libc"]
 stdio = ["dep:windows-sys", "dep:libc"]
 

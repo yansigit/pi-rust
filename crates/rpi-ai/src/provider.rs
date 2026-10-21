@@ -197,6 +197,17 @@ pub trait Provider: Send + Sync {
     /// Models this provider serves.
     fn models(&self) -> &[Model];
 
+    /// Rebuild a trusted execution catalog. Native runtime publication checks
+    /// the owning registration before calling this; public model selection does not.
+    fn with_catalog(&self, _models: Vec<Model>) -> Option<Arc<dyn Provider>> {
+        None
+    }
+
+    /// Reject retired models or unavailable custody before any credential access.
+    async fn preflight(&self, _model: &Model, _signal: CancellationToken) -> Result<(), String> {
+        Ok(())
+    }
+
     /// Stream a single assistant turn against `ctx` on `model`. Returns the
     /// consumer end of an event stream; the producer task is already running.
     async fn stream_simple(

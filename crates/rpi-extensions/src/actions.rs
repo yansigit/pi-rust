@@ -406,6 +406,26 @@ pub trait RuntimeActionHost: Send + Sync {
         Err("SideQuestion is not supported by this host; upgrade rpi".into())
     }
 
+    /// Private, versioned native ports. Authentication data never enters events.
+    async fn native_request(
+        &self,
+        _owner: crate::native::NativeOwner,
+        _args: serde_json::Value,
+        _signal: tokio_util::sync::CancellationToken,
+    ) -> Result<serde_json::Value, String> {
+        Err("native runtime ports are not supported by this host".into())
+    }
+    fn bind_provider_runtime(
+        &self,
+        _runtime: std::sync::Weak<dyn crate::native::NativeProviderRuntime>,
+    ) {
+    }
+    async fn install_native_providers(
+        &self,
+        _providers: Vec<Arc<dyn rpi_ai::Provider>>,
+    ) -> Result<(), String> {
+        Err("native provider publication is not supported by this host".into())
+    }
     /// Refresh the host-side model selector after provider packages reload.
     fn replace_model_catalog(&self, _models: Vec<rpi_ai::Model>) {}
     /// Invalidate child handles owned by an unloading/reloaded plugin.
@@ -525,6 +545,7 @@ pub trait RuntimeActionHost: Send + Sync {
 /// owns its invocation bridge through its last foreign callback. Failed reloads
 /// and dropped candidate sessions cannot leave dereferenceable dangling pointers.
 pub struct ActionBridge {
+    generation: String,
     /// Some(child) only for a live host-created tool invocation.
     invocation: Option<(bool, String, tokio_util::sync::CancellationToken)>,
     execution_context: Option<serde_json::Value>,
@@ -576,6 +597,29 @@ impl ActionBridge {
         registry.insert(id, Arc::downgrade(self));
         id as *mut c_void
     }
+    pub fn generation(&self) -> &str {
+        &self.generation
+    }
+    pub(crate) fn native_owner(&self) -> Option<crate::native::NativeOwner> {
+        let (id, plugin) = self.plugin_identity.clone()?;
+        Some(crate::native::NativeOwner {
+            generation: self.generation.clone(),
+            id,
+            plugin,
+            child: self.invocation.as_ref().is_some_and(|(child, _, _)| *child),
+        })
+    }
+    pub(crate) fn native_invocation(handle: usize) -> Option<Arc<Self>> {
+        CURRENT_INVOCATION
+            .with(|slot| slot.borrow().clone())
+            .or_else(|| Self::resolve_handle(handle))
+    }
+    pub(crate) fn native_signal(&self) -> tokio_util::sync::CancellationToken {
+        self.invocation.as_ref().map_or_else(
+            tokio_util::sync::CancellationToken::new,
+            |(_, _, signal)| signal.child_token(),
+        )
+    }
     pub(crate) fn resolve_handle(id: usize) -> Option<Arc<Self>> {
         bridges()
             .lock()
@@ -601,6 +645,7 @@ impl ActionBridge {
             ext_status: self.ext_status.clone(),
             editor_text: self.editor_text.clone(),
             active: self.active.clone(),
+            generation: self.generation.clone(),
         })
     }
     pub(crate) fn invocation_key(&self) -> Option<&str> {
@@ -628,6 +673,7 @@ impl ActionBridge {
             ext_status: crate::status::ExtensionStatusMailbox::new(),
             editor_text: crate::editor_text::EditorTextMailbox::new(),
             active: Arc::new(AtomicBool::new(true)),
+            generation: uuid::Uuid::new_v4().to_string(),
         })
     }
 
@@ -667,6 +713,7 @@ impl ActionBridge {
             ext_status: crate::status::ExtensionStatusMailbox::new(),
             editor_text: crate::editor_text::EditorTextMailbox::new(),
             active: Arc::new(AtomicBool::new(true)),
+            generation: uuid::Uuid::new_v4().to_string(),
         })
     }
 
@@ -692,6 +739,7 @@ impl ActionBridge {
             ext_status,
             editor_text,
             active: Arc::new(AtomicBool::new(true)),
+            generation: uuid::Uuid::new_v4().to_string(),
         })
     }
 
@@ -715,6 +763,7 @@ impl ActionBridge {
             ext_status: self.ext_status.clone(),
             editor_text: self.editor_text.clone(),
             active: self.active.clone(),
+            generation: self.generation.clone(),
         })
     }
 

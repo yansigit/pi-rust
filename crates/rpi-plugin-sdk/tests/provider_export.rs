@@ -173,6 +173,8 @@ fn api() -> sdk::PluginApi {
         register_provider_wrapper: None,
         delegate_provider_stream: None,
         provider_continuation: None,
+        native_request: None,
+        register_provider_runtime: None,
     }
 }
 

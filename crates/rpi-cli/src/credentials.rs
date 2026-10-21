@@ -150,6 +150,7 @@ mod tests {
         let store = AuthStore::new();
         let without_package = resolve("deepseek", None, &store, None);
         let manifest = ProviderManifest {
+            replace_catalog: false,
             id: "deepseek".into(),
             models: vec![],
             api_key_env: Some("DEEPSEEK_API_KEY".into()),
@@ -175,6 +176,7 @@ mod tests {
         let previous = std::env::var_os("OPENAI_API_KEY");
         std::env::set_var("OPENAI_API_KEY", "unrelated-builtin-key");
         let manifest = ProviderManifest {
+            replace_catalog: false,
             id: "openai".into(),
             models: vec![],
             api_key_env: None,
@@ -202,6 +204,7 @@ mod tests {
             },
         );
         let mut manifest = ProviderManifest {
+            replace_catalog: false,
             id: "gateway".into(),
             models: vec![],
             api_key_env: None,

@@ -55,6 +55,7 @@ pub mod packages;
 pub mod prebuilt_extensions;
 mod prebuilt_release;
 pub mod provider;
+mod provider_runtime;
 pub mod remote;
 pub mod resource_dirs;
 pub mod resume_picker;

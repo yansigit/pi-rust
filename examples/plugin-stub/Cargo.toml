@@ -14,3 +14,4 @@ rpi-plugin-sdk = { workspace = true, features = ["provider"] }
 rpi-ai = { workspace = true }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
+tokio = { workspace = true }

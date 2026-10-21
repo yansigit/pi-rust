@@ -17,6 +17,7 @@ use std::{ffi::c_void, sync::Arc, time::Duration};
 
 pub mod composition;
 mod context;
+pub mod native;
 pub use context::{drive_with_context, register_with_context, ContextFactory, ProviderContext};
 
 pub type Factory = fn(&Model, &SimpleStreamOptions) -> Arc<dyn Provider>;

@@ -91,6 +91,7 @@ pub fn wrap_providers(
                     _keepalive: session.keepalive(),
                     runtime: Handle::current(),
                     models: next.models().to_vec(),
+                    operations: None,
                     wrapper: Some(WrapperNext {
                         next,
                         session: session.clone(),
@@ -122,6 +123,13 @@ pub(super) struct Continuation {
     receipts: Mutex<HashMap<String, AttemptAuth>>,
 }
 impl WrapperNext {
+    pub(super) async fn preflight(
+        &self,
+        model: &Model,
+        signal: CancellationToken,
+    ) -> Result<(), String> {
+        self.next.preflight(model, signal).await
+    }
     pub(super) fn continuation(
         &self,
         model: &Model,
@@ -186,6 +194,10 @@ impl Continuation {
         input: Value,
         signal: CancellationToken,
     ) -> Result<Value, AuthError> {
+        self.next
+            .preflight(&self.model, signal.clone())
+            .await
+            .map_err(|_| AuthError::Resolve)?;
         let store_id = input["storeId"].as_str().ok_or(AuthError::Store)?;
         let account_id = input["accountId"].as_str().ok_or(AuthError::Store)?;
         let owned = self.session.snapshot().is_some_and(|snapshot| {

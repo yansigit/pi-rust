@@ -27,6 +27,8 @@ use crate::tool::PluginToolHandle;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderManifest {
     pub id: String,
+    #[serde(default)]
+    pub replace_catalog: bool,
     pub models: Vec<rpi_ai::Model>,
     #[serde(default)]
     pub api_key_env: Option<String>,
@@ -357,10 +359,12 @@ pub struct ExtensionRegistry {
     /// `provider_id`.
     providers: Vec<RegisteredProvider>,
     provider_manifests: std::collections::BTreeMap<String, ProviderManifest>,
+    provider_owners: std::collections::BTreeMap<String, crate::native::NativeOwner>,
     /// Provider-owned OAuth implementations. First-registration-wins on the
     /// manifest `id` field.
     oauth_providers: Vec<RegisteredOAuthProvider>,
     auth_providers: Vec<crate::provider_auth::RegisteredAuthProvider>,
+    provider_runtimes: Vec<crate::provider_runtime::RegisteredProviderRuntime>,
     credential_stores: Vec<crate::credential_store::RegisteredCredentialStore>,
     provider_wrappers: Vec<crate::provider::wrappers::RegisteredWrapper>,
     /// Registered renderers (B5c), split by kind at registration. First-wins on
@@ -404,8 +408,10 @@ impl ExtensionRegistry {
             before_agent_start: Vec::new(),
             providers: Vec::new(),
             provider_manifests: std::collections::BTreeMap::new(),
+            provider_owners: std::collections::BTreeMap::new(),
             oauth_providers: Vec::new(),
             auth_providers: Vec::new(),
+            provider_runtimes: Vec::new(),
             credential_stores: Vec::new(),
             provider_wrappers: Vec::new(),
             renderers: Vec::new(),
@@ -637,6 +643,35 @@ impl ExtensionRegistry {
         false
     }
 
+    pub fn register_provider_owned(
+        &mut self,
+        provider: RegisteredProvider,
+        owner: Option<crate::native::NativeOwner>,
+    ) -> bool {
+        let id = provider.provider_id.clone();
+        let duplicate = self.register_provider(provider);
+        if !duplicate {
+            if let Some(owner) = owner {
+                self.provider_owners.insert(id, owner);
+            }
+        }
+        duplicate
+    }
+    pub fn register_streaming_provider_owned(
+        &mut self,
+        provider: RegisteredProvider,
+        owner: Option<crate::native::NativeOwner>,
+    ) -> bool {
+        let id = provider.provider_id.clone();
+        let duplicate = self.register_streaming_provider(provider);
+        if !duplicate {
+            if let Some(owner) = owner {
+                self.provider_owners.insert(id, owner);
+            }
+        }
+        duplicate
+    }
+
     /// Register the **streaming** form of a custom provider (see
     /// [`RegisteredProvider::stream_fn`]).
     ///
@@ -724,6 +759,21 @@ impl ExtensionRegistry {
         false
     }
 
+    pub fn register_provider_runtime(
+        &mut self,
+        provider: crate::provider_runtime::RegisteredProviderRuntime,
+    ) -> bool {
+        if self
+            .provider_runtimes
+            .iter()
+            .any(|known| known.manifest.id == provider.manifest.id)
+        {
+            return true;
+        }
+        self.provider_runtimes.push(provider);
+        false
+    }
+
     pub fn register_provider_wrapper(
         &mut self,
         wrapper: crate::provider::wrappers::RegisteredWrapper,
@@ -798,8 +848,10 @@ impl ExtensionRegistry {
             before_agent_start: self.before_agent_start.clone(),
             providers: self.providers.clone(),
             provider_manifests: self.provider_manifests.clone(),
+            provider_owners: self.provider_owners.clone(),
             oauth_providers: self.oauth_providers.clone(),
             auth_providers: self.auth_providers.clone(),
+            provider_runtimes: self.provider_runtimes.clone(),
             credential_stores: self.credential_stores.clone(),
             provider_wrappers: self.provider_wrappers.clone(),
             renderers: self.renderers.clone(),
@@ -887,6 +939,9 @@ impl ExtensionRegistry {
             {
                 continue;
             }
+            if let Some(owner) = other.provider_owners.remove(&p.provider_id) {
+                self.provider_owners.insert(p.provider_id.clone(), owner);
+            }
             if let Some(manifest) = other.provider_manifests.remove(&p.provider_id) {
                 self.provider_manifests
                     .insert(p.provider_id.clone(), manifest);
@@ -923,6 +978,9 @@ impl ExtensionRegistry {
         }
         for store in other.credential_stores.drain(..) {
             self.register_credential_store(store);
+        }
+        for provider in other.provider_runtimes {
+            self.register_provider_runtime(provider);
         }
         for provider in other.auth_providers.drain(..) {
             self.register_provider_auth(provider);
@@ -965,8 +1023,10 @@ pub struct RegistrySnapshot {
     before_agent_start: Vec<BeforeAgentStartHandler>,
     providers: Vec<RegisteredProvider>,
     provider_manifests: std::collections::BTreeMap<String, ProviderManifest>,
+    provider_owners: std::collections::BTreeMap<String, crate::native::NativeOwner>,
     oauth_providers: Vec<RegisteredOAuthProvider>,
     auth_providers: Vec<crate::provider_auth::RegisteredAuthProvider>,
+    provider_runtimes: Vec<crate::provider_runtime::RegisteredProviderRuntime>,
     credential_stores: Vec<crate::credential_store::RegisteredCredentialStore>,
     provider_wrappers: Vec<crate::provider::wrappers::RegisteredWrapper>,
     renderers: Vec<RegisteredRenderer>,
@@ -978,6 +1038,12 @@ pub struct RegistrySnapshot {
 }
 
 impl RegistrySnapshot {
+    pub fn provider_runtimes(&self) -> &[crate::provider_runtime::RegisteredProviderRuntime] {
+        &self.provider_runtimes
+    }
+    pub fn provider_owner(&self, id: &str) -> Option<&crate::native::NativeOwner> {
+        self.provider_owners.get(id)
+    }
     pub fn provider_wrappers(&self) -> &[crate::provider::wrappers::RegisteredWrapper] {
         &self.provider_wrappers
     }

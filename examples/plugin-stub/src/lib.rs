@@ -624,9 +624,16 @@ extern "C" fn on_auth_request(
     })
 }
 
+mod catalog;
 mod wrapping;
 
 rpi_plugin_sdk::export_plugin!(|api| {
+    if std::env::var_os("RPI_STUB_CATALOG").is_some() {
+        if let Err(error) = catalog::register(api) {
+            eprintln!("stub catalog: {error}");
+            return 1;
+        }
+    }
     if std::env::var_os("RPI_STUB_WRAP_AUTH").is_some() {
         if let Err(error) = wrapping::register(api) {
             eprintln!("stub wrapper: {error}");

@@ -1,0 +1,84 @@
+{
+  "status": "host-capabilities-not-package-parity",
+  "platform": "linux",
+  "results": {
+    "workspace_tests": {
+      "log": "/tmp/rpi-native-runtime-workspace-tests-2.log",
+      "sha256": "53016b2b9d613368267afaebaaa6fa3e096564a8af0de2d1354695c78cba2f9c",
+      "passed": 2040,
+      "failed": 0,
+      "ignored": 11
+    },
+    "workspace_all_targets": {
+      "log": "/tmp/rpi-native-runtime-workspace-check.log",
+      "sha256": "d710c44564d861645ed3c600bda56ca38949d8878c066e92bbffb8940f1648c9",
+      "completed": true
+    },
+    "runtime_revision_and_ownership": {
+      "log": "/tmp/rpi-native-runtime-unit-final.log",
+      "sha256": "a237f47a72d7f7158bac606eca60ec7c5ad104f4397cea0f27a9e86563c09eb0",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0
+    },
+    "execution_binding_and_preflight": {
+      "log": "/tmp/rpi-native-runtime-factory-tests.log",
+      "sha256": "179139ae80a8e13a745badcdab62eaab3ac57a8d5385ddc3b5838aee66c98019",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    "registry_atomicity": {
+      "log": "/tmp/rpi-native-runtime-registry-tests.log",
+      "sha256": "2cbda2108e5900725479d3dc3f874835cda9fe4ac9ee5d53c08434c37b559a21",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    "runtime_callback_contract": {
+      "log": "/tmp/rpi-native-runtime-operations-tests-2.log",
+      "sha256": "ff5e1b0ea2fdaa21e31b387a775a7b48c93324eba5f910811e40a73d9ffdb4f6",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "sdk_provider": {
+      "log": "/tmp/rpi-native-runtime-sdk-tests.log",
+      "sha256": "1d0d56878dbdb52fd2cf80635efd8f41dbe33c8bb0ea7bf2184a318b1b38eba0",
+      "passed": 65,
+      "failed": 0,
+      "ignored": 3
+    },
+    "native_libraries": {
+      "log": "/tmp/rpi-native-runtime-loaded-tests.log",
+      "sha256": "6d4011a7e6ff787df911dd3ac7af1a80c2cb8d5ce8230cd05cb349f1674fa3de",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    "sdk_no_default": {
+      "log": "/tmp/rpi-native-runtime-sdk-minimal.log",
+      "sha256": "7b7b4574f6970ad381915bdd018df446be465e5b7a6353366e873118e48c374f",
+      "completed": true
+    },
+    "sdk_rust_1_78_no_default": {
+      "log": "/tmp/rpi-native-runtime-sdk-msrv.log",
+      "sha256": "87f63cbfb7568f8722aec1a46053a772bc0ee72d62ba979b136a588fe70f5007",
+      "completed": true
+    },
+    "original_compiled_library": {
+      "log": "/tmp/rpi-native-runtime-old-abi.log",
+      "sha256": "59cd6a368ecce2bf46d52cd9ebef1e4ee63281a168c9b0b08aa1336fc8ba6aee",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 1
+    }
+  },
+  "qualification": "The workspace run preceded three additional focused regression tests; those tests and their connected suites passed afterward. Native library acceptance covers both print and JSON lifecycle modes, catalog refresh, durable native login, and replacement-account HTTP delegation.",
+  "not_tested": [
+    "macOS and Windows native execution",
+    "complete package differential suites",
+    "live inference and remote mutations"
+  ],
+  "msrv_note": "Minimal SDK passes Rust 1.78. Full host remains blocked by baseline locked dependency manifests; supported Rust version was not raised."
+}

@@ -101,6 +101,7 @@ pub struct PluggableProvider {
     runtime: Handle,
     models: Vec<Model>,
     wrapper: Option<wrappers::WrapperNext>,
+    operations: Option<Arc<crate::provider_runtime::NativeProviderOperations>>,
 }
 
 impl PluggableProvider {
@@ -114,7 +115,14 @@ impl PluggableProvider {
             .provider_manifest(&record.provider_id)
             .map(|manifest| manifest.models.clone())
             .unwrap_or_default();
+        let operations = crate::provider_runtime::NativeProviderOperations::from_parts(
+            snapshot.clone(),
+            keepalive.clone(),
+            &record.provider_id,
+        )
+        .map(Arc::new);
         Arc::new(Self {
+            operations,
             record,
             snapshot,
             _keepalive: keepalive,
@@ -122,6 +130,40 @@ impl PluggableProvider {
             models,
             wrapper: None,
         })
+    }
+
+    /// Called only after the host verifies ownership of the source implementation.
+    pub fn from_implementation(
+        session: &ExtensionSession,
+        source: &str,
+        id: &str,
+        models: Vec<Model>,
+    ) -> Option<Arc<dyn Provider>> {
+        let snapshot = session.snapshot_arc()?;
+        let mut record = snapshot
+            .providers()
+            .iter()
+            .find(|record| record.provider_id == source)?
+            .clone();
+        if models
+            .iter()
+            .any(|model| model.provider != id || model.api.as_str() != record.api_style)
+        {
+            return None;
+        }
+        record.provider_id = id.into();
+        Some(Arc::new(Self {
+            record,
+            snapshot,
+            _keepalive: session.keepalive(),
+            runtime: Handle::current(),
+            models,
+            wrapper: None,
+            operations: crate::provider_runtime::NativeProviderOperations::from_session(
+                session, source,
+            )
+            .map(Arc::new),
+        }))
     }
 
     /// Build one [`PluggableProvider`] per registered provider in the session's
@@ -159,6 +201,47 @@ impl Provider for PluggableProvider {
 
     fn models(&self) -> &[Model] {
         &self.models
+    }
+
+    fn with_catalog(&self, models: Vec<Model>) -> Option<Arc<dyn Provider>> {
+        if self.wrapper.is_some()
+            || models.iter().any(|model| {
+                model.provider != self.record.provider_id
+                    || model.api.as_str() != self.record.api_style
+            })
+        {
+            return None;
+        }
+        Some(Arc::new(Self {
+            record: self.record.clone(),
+            snapshot: self.snapshot.clone(),
+            _keepalive: self._keepalive.clone(),
+            runtime: self.runtime.clone(),
+            models,
+            wrapper: None,
+            operations: self.operations.clone(),
+        }))
+    }
+    async fn preflight(
+        &self,
+        model: &Model,
+        signal: tokio_util::sync::CancellationToken,
+    ) -> Result<(), String> {
+        if let Some(wrapper) = &self.wrapper {
+            return wrapper.preflight(model, signal).await;
+        }
+        if let Some(operations) = &self.operations {
+            if operations.supports("preflight") {
+                operations
+                    .request(
+                        "preflight",
+                        serde_json::json!({"modelId":model.id,"api":model.api}),
+                        signal,
+                    )
+                    .await?;
+            }
+        }
+        Ok(())
     }
 
     async fn stream_simple(

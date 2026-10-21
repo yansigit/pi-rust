@@ -969,3 +969,71 @@ fn linked_package_is_discovered_and_unlinked_cleanly() {
         assert!(!String::from_utf8_lossy(&catalog.stdout).contains(model));
     }
 }
+
+#[test]
+#[ignore = "requires cargo build -p plugin-stub with native runtime capability"]
+fn native_catalog_refresh_and_login_commit_through_loaded_library() {
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    for mode in ["--print", "--mode=json"] {
+        let temp = tempfile::tempdir().unwrap();
+        let agent = temp.path().join("agent");
+        std::fs::create_dir_all(&agent).unwrap();
+        std::fs::write(
+            agent.join("auth.json"),
+            r#"{"other":{"type":"api_key","key":"unrelated"}}"#,
+        )
+        .unwrap();
+        let output = command(&temp, &library)
+            .env("RPI_STUB_CATALOG", "1")
+            .args([
+                "--provider",
+                "stub-provider",
+                "--model",
+                "catalog-before",
+                mode,
+                "--no-session",
+                "--no-tools",
+                "hello",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr)
+                .contains("native catalog and durable login fixture passed"),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let diagnostics = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(
+            diagnostics
+                .matches("native catalog and durable login fixture passed")
+                .count(),
+            1
+        );
+        assert_eq!(
+            diagnostics
+                .matches("native catalog shutdown fixture passed")
+                .count(),
+            1
+        );
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(agent.join("auth.json")).unwrap()).unwrap();
+        assert_eq!(stored["stub-auth"]["refresh"], "stub-login-refresh");
+        assert_eq!(stored["stub-auth"]["expires"], 1234567890_i64);
+        assert_eq!(stored["other"]["key"], "unrelated");
+        for secret in [
+            "stub-login-access",
+            "stub-login-refresh",
+            "stub-continuation",
+            "unrelated",
+        ] {
+            assert!(!String::from_utf8_lossy(&output.stdout).contains(secret));
+            assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
+        }
+    }
+}

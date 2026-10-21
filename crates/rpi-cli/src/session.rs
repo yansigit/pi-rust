@@ -378,6 +378,21 @@ pub async fn build_prepared(
     } = prepared;
     let catalog = crate::provider::authenticated_catalog(resolved);
     action_host.set_catalog(catalog.clone());
+    let discovery = crate::provider::catalog_with_manifests(
+        &crate::provider::manifests_from_session(&extension_session),
+    )
+    .map_err(|e| BuildError::HarnessCreate(e.to_string()))?;
+    let provider_runtime = crate::provider_runtime::ProviderRuntime::new(
+        &extension_session,
+        &action_bridge,
+        build_models_with_extensions_for_reload(
+            &resolved.providers,
+            &extension_session,
+            runtime.clone(),
+        ),
+        discovery,
+    )
+    .map_err(BuildError::HarnessCreate)?;
 
     // ---- Execution env + tools ----
     let env = Arc::new(OsExecutionEnv::with_cwd(cwd.to_path_buf()));
@@ -798,7 +813,7 @@ pub async fn build_prepared(
         // so a catalog model whose `provider` matches an extension provider's id
         // routes to it. Extension providers land AFTER the gateway so the gateway
         // stays first-match for its own ids (first-wins on a `.find`).
-        models: build_models_with_extensions(resolved, &extension_session, runtime.clone()),
+        models: provider_runtime.providers().await,
         to_provider_messages: None,
         entry_projectors: Default::default(),
         agent_emitter: Some(emitter),
@@ -831,6 +846,8 @@ pub async fn build_prepared(
         }
         Err(e) => return Err(BuildError::HarnessCreate(e.to_string())),
     };
+
+    provider_runtime.activate();
 
     // ---- Durable operation recovery (runtime layer) ----
     // A previous process can die between `operation_started` and
@@ -885,7 +902,8 @@ pub async fn build_prepared(
         extension_session: extension_session_cell,
         action_bridge: Arc::new(Mutex::new(Some(Arc::clone(&action_bridge)))),
         tool_context,
-        catalog: Arc::new(std::sync::RwLock::new(catalog)),
+        catalog: action_host.catalog_handle(),
+        provider_runtime: Arc::new(std::sync::RwLock::new(provider_runtime)),
         providers: Arc::new(std::sync::RwLock::new(resolved.providers.clone())),
         runtime: runtime.clone(),
         cwd: cwd.to_path_buf(),
@@ -1004,6 +1022,7 @@ pub type ActionBridgeCell = Arc<Mutex<Option<Arc<rpi_extensions::ActionBridge>>>
 /// reload callback without borrowing the harness).
 #[derive(Clone)]
 pub struct ReloadContext {
+    provider_runtime: Arc<std::sync::RwLock<Arc<crate::provider_runtime::ProviderRuntime>>>,
     /// The live extension-session cell (swapped on reload).
     pub extension_session: ExtensionSessionCell,
     /// The session's plugin-tool context (`cwd` + session id), reused — not
@@ -1274,7 +1293,7 @@ where
                 &_cell,
                 Arc::new(harness.clone()),
             );
-            Arc::new(action_host)
+            Arc::new(action_host.with_catalog_handle(ctx.catalog.clone()))
         }
     };
 
@@ -1369,6 +1388,42 @@ where
         }
     } else {
         None
+    };
+
+    let refreshed_providers = refreshed
+        .as_ref()
+        .map(|resolved| resolved.providers.clone())
+        .unwrap_or_else(|| {
+            ctx.providers
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+        });
+    let provider_runtime = match crate::provider::catalog_with_manifests(
+        &crate::provider::manifests_from_session(&extension_session),
+    )
+    .map_err(|e| e.to_string())
+    .and_then(|discovery| {
+        crate::provider_runtime::ProviderRuntime::new(
+            &extension_session,
+            &fresh_bridge,
+            build_models_with_extensions_for_reload(
+                &refreshed_providers,
+                &extension_session,
+                ctx.runtime.clone(),
+            ),
+            discovery,
+        )
+    }) {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            return ReloadOutcome {
+                summary: "Reload failed while preparing provider catalog".into(),
+                had_warnings: true,
+                details: vec![error],
+                had_errors: true,
+            }
+        }
     };
 
     // Shutdown callbacks must finish before a replacement can unload old DLLs.
@@ -1597,21 +1652,18 @@ where
     let _ = harness.set_system_prompt(Some(system_prompt)).await;
     let _ = harness.set_resources(resources).await;
     let _ = harness.set_agent_emitter(Some(emitter)).await;
-    let _ = harness
-        .set_models(build_models_with_extensions_for_reload(
-            &refreshed
-                .as_ref()
-                .map(|resolved| resolved.providers.clone())
-                .unwrap_or_else(|| {
-                    ctx.providers
-                        .read()
-                        .unwrap_or_else(|error| error.into_inner())
-                        .clone()
-                }),
-            &extension_session,
-            ctx.runtime.clone(),
-        ))
-        .await;
+    if let Err(error) = harness.set_models(provider_runtime.providers().await).await {
+        return ReloadOutcome {
+            summary: "Reload failed while installing provider catalog".into(),
+            had_warnings: true,
+            details: vec![error.to_string()],
+            had_errors: true,
+        };
+    }
+    provider_runtime.activate();
+    *ctx.provider_runtime
+        .write()
+        .unwrap_or_else(|e| e.into_inner()) = provider_runtime;
     let _ = harness
         .set_provider_hooks(
             rpi_extensions::ExtensionProviderHooks::from_session(&extension_session)
@@ -1821,7 +1873,7 @@ fn build_models_with_extensions_for_reload(
             models.push(provider);
         }
     }
-    rpi_extensions::wrap_providers(extension_session, models)
+    models
 }
 
 /// Diagnostic for registered TUI renderers. All three renderer kinds are
@@ -1864,16 +1916,6 @@ pub enum BuildError {
     SessionNotFound { requested: String, dir: String },
     #[error("Could not build the harness: {0}")]
     HarnessCreate(String),
-}
-
-/// Keep configured factories (including package-specific auth and catalogs)
-/// first, then append legacy plugin registrations that have no runtime yet.
-fn build_models_with_extensions(
-    resolved: &ResolvedModel,
-    extension_session: &ExtensionSession,
-    runtime: tokio::runtime::Handle,
-) -> Vec<Arc<dyn Provider>> {
-    build_models_with_extensions_for_reload(&resolved.providers, extension_session, runtime)
 }
 
 /// Resolve project resource loading without prompting. Explicit CLI overrides

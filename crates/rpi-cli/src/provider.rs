@@ -81,6 +81,7 @@ mod auth;
 mod binding;
 mod factories;
 use binding::{ExecutionBinding, RequestAuth};
+pub(crate) use factories::native_alias;
 use factories::RuntimeFactories;
 
 use crate::args::parse_thinking_level;
@@ -877,6 +878,9 @@ fn build_catalog(
     let mut catalog = anthropic_models();
     catalog.extend(openai_responses_models());
     for manifest in manifests {
+        if manifest.replace_catalog {
+            catalog.retain(|model| model.provider != manifest.id);
+        }
         let config = cfg.providers.get(&manifest.id);
         for mut model in manifest.models.clone() {
             if let Some(base) = config.and_then(|config| config.base_url.as_ref()) {

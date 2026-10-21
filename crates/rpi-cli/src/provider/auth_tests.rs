@@ -299,3 +299,52 @@ async fn provider_owned_auth_is_resolved_per_request_and_unavailable_credentials
     assert_eq!(error.stop_reason, StopReason::Aborted);
     assert_eq!(calls.lock().unwrap().len(), 2);
 }
+
+#[tokio::test]
+async fn catalog_roundtrip_preserves_private_configuration_and_rejects_api_substitution() {
+    let calls = Calls::default();
+    let mut factories = RuntimeFactories::default();
+    factories.protocols.insert("openai-completions".into(), Arc::new(RecordingFactory(calls.clone())));
+    let canonical = Model::new("old", "Old", Api::OpenaiCompletions, "pool", "https://canonical.example");
+    let mut configured = canonical.clone();
+    configured.base_url = "https://default-account.example".into();
+    configured.headers = Some(BTreeMap::from([("x-account".into(),"default-secret".into())]));
+    let (provider, _) = factories.configure("pool", &canonical.api, vec![configured], &[canonical.clone()], RequestAuth::ApiKey("default-key".into()), &settings::Settings::default()).unwrap();
+    let mut new = canonical.clone(); new.id = "new".into();
+    let provider = provider.with_catalog(vec![]).unwrap().with_catalog(vec![new.clone()]).unwrap();
+    let mut forged = new.clone(); forged.api = Api::AnthropicMessages;
+    assert!(provider.with_catalog(vec![forged]).is_none());
+    provider.stream_simple(&new, &Context::new(vec![]), &SimpleStreamOptions::default()).await.result().await.unwrap();
+    let recorded = calls.lock().unwrap();
+    assert_eq!(recorded[0].0.base_url, "https://default-account.example");
+    assert_eq!(recorded[0].0.headers.as_ref().unwrap()["x-account"], "default-secret");
+    assert_eq!(recorded[0].1.api_key.as_deref(), Some("default-key"));
+    assert!(provider.models()[0].headers.is_none());
+}
+
+#[tokio::test]
+async fn provider_admission_refuses_before_credential_reads_or_transport() {
+    struct Refusal;
+    #[async_trait::async_trait]
+    impl Provider for Refusal {
+        fn id(&self) -> &str { "retired" }
+        fn models(&self) -> &[Model] { &[] }
+        async fn preflight(&self, _: &Model, _: CancellationToken) -> Result<(),String> { Err("this model is retired".into()) }
+        async fn stream_simple(&self, _: &Model, _: &Context, _: &SimpleStreamOptions) -> AssistantMessageEventStream { panic!("retired model reached transport") }
+    }
+    struct ForbiddenStore;
+    #[async_trait::async_trait]
+    impl CredentialStore for ForbiddenStore {
+        async fn read(&self, _: &str) -> Result<Option<AuthCredential>,AuthError> { panic!("retired model read credentials") }
+        async fn lock(&self, _: &str, _: CancellationToken) -> Result<Box<dyn CredentialTransaction>,AuthError> { panic!("retired model locked credentials") }
+    }
+    let model = Model::new("retired", "Retired", Api::OpenaiCompletions, "retired", "https://provider.invalid");
+    let provider = ConfiguredProvider {
+        id:"retired".into(), api:model.api.as_str().into(), inner:Arc::new(Refusal),
+        binding:Arc::new(ExecutionBinding::new("retired",vec![model.clone()],vec![model.clone()], RequestAuth::None)),
+        auth:Some(Arc::new(super::super::auth::AuthBinding {
+            provider:Arc::new(RecordingAuth{calls:Mutex::new(vec![]),base_url:None}), runtime:Arc::new(AuthRuntime::default()), store:Ok(Arc::new(ForbiddenStore)), context:AuthContext::default(),
+        })),
+    };
+    assert_eq!(provider.stream_simple(&model, &Context::new(vec![]), &SimpleStreamOptions::default()).await.result().await.unwrap().error_message.as_deref(), Some("this model is retired"));
+}

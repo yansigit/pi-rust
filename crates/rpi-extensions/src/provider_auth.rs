@@ -92,7 +92,7 @@ pub enum AuthAction {
     Revoke,
 }
 
-#[derive(Deserialize, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthResponseKind {
     Interaction,
@@ -103,7 +103,7 @@ pub enum AuthResponseKind {
 }
 
 // No Debug: login continuations and payloads can contain credentials.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AuthResponse {
     pub version: u32,

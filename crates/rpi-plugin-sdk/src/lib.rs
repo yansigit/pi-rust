@@ -1628,6 +1628,10 @@ pub struct PluginApi {
     pub delegate_provider_stream: Option<ProviderStreamRequestFn>,
     /// Private continuation operations, including account auth resolution.
     pub provider_continuation: Option<AuthRequestFn>,
+    /// Private versioned runtime ports, scoped to this registration and invocation.
+    pub native_request: Option<AuthRequestFn>,
+    /// Provider-owned catalog refresh, admission, and auth-method discovery.
+    pub register_provider_runtime: Option<RegisterProviderAuthFn>,
 }
 unsafe impl Send for PluginApi {}
 unsafe impl Sync for PluginApi {}
@@ -2024,6 +2028,8 @@ mod tests {
             register_provider_wrapper: None,
             delegate_provider_stream: None,
             provider_continuation: None,
+            native_request: None,
+            register_provider_runtime: None,
         };
         // All optional slots are null → plugin must degrade.
         assert!(api.register_tool.is_none());
@@ -2131,7 +2137,7 @@ mod tests {
         );
         assert_eq!(
             size_of::<PluginApi>(),
-            core::mem::offset_of!(PluginApi, provider_continuation) + size_of::<usize>()
+            core::mem::offset_of!(PluginApi, register_provider_runtime) + size_of::<usize>()
         );
         assert_eq!(
             core::mem::offset_of!(PluginApi, register_provider_wrapper),
@@ -2140,6 +2146,14 @@ mod tests {
         assert_eq!(
             core::mem::offset_of!(PluginApi, delegate_provider_stream),
             core::mem::offset_of!(PluginApi, register_provider_wrapper) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, register_provider_runtime),
+            core::mem::offset_of!(PluginApi, native_request) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, native_request),
+            core::mem::offset_of!(PluginApi, provider_continuation) + size_of::<usize>()
         );
         assert_eq!(
             core::mem::offset_of!(PluginApi, provider_continuation),
@@ -2224,6 +2238,8 @@ mod tests {
             register_provider_wrapper: None,
             delegate_provider_stream: None,
             provider_continuation: None,
+            native_request: None,
+            register_provider_runtime: None,
         }
     }
 
@@ -2281,6 +2297,8 @@ mod tests {
             core::mem::offset_of!(PluginApi, register_provider_wrapper),
             core::mem::offset_of!(PluginApi, delegate_provider_stream),
             core::mem::offset_of!(PluginApi, provider_continuation),
+            core::mem::offset_of!(PluginApi, native_request),
+            core::mem::offset_of!(PluginApi, register_provider_runtime),
         ] {
             let mut api = entrypoint_test_api();
             api.struct_size = size as u32;
@@ -2310,6 +2328,8 @@ mod tests {
                     assert!(api.register_provider_wrapper.is_none());
                     assert!(api.delegate_provider_stream.is_none());
                     assert!(api.provider_continuation.is_none());
+                    assert!(api.native_request.is_none());
+                    assert!(api.register_provider_runtime.is_none());
                     assert!(
                         api.register_provider.is_some(),
                         "one-shot fallback remains available"

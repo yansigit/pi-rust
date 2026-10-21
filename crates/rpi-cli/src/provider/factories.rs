@@ -172,6 +172,7 @@ impl RuntimeFactories {
         let inner = factory.create(provider_id, binding.models().to_vec(), settings);
         let provider = Arc::new(ConfiguredProvider {
             id: provider_id.into(),
+            api: api.as_str().into(),
             inner,
             binding: binding.clone(),
             auth: self.auth.get(provider_id).cloned(),
@@ -180,8 +181,51 @@ impl RuntimeFactories {
     }
 }
 
+pub(crate) fn native_alias(
+    session: &ExtensionSession,
+    source: &str,
+    id: &str,
+    models: Vec<Model>,
+) -> Option<Arc<dyn Provider>> {
+    let inner = rpi_extensions::PluggableProvider::from_implementation(
+        session,
+        source,
+        id,
+        models.clone(),
+    )?;
+    let binding = Arc::new(ExecutionBinding::new(
+        id,
+        models.clone(),
+        models,
+        RequestAuth::None,
+    ));
+    let api = session
+        .snapshot()?
+        .providers()
+        .iter()
+        .find(|record| record.provider_id == source)?
+        .api_style
+        .clone();
+    let auth = if id == source {
+        RuntimeFactories::from_session(session)
+            .auth
+            .get(source)
+            .cloned()
+    } else {
+        None
+    };
+    Some(Arc::new(ConfiguredProvider {
+        id: id.into(),
+        api,
+        inner,
+        binding,
+        auth,
+    }))
+}
+
 struct ConfiguredProvider {
     id: String,
+    api: String,
     inner: Arc<dyn Provider>,
     binding: Arc<ExecutionBinding>,
     auth: Option<Arc<super::auth::AuthBinding>>,
@@ -215,6 +259,16 @@ pub(super) fn combine_provider_runtimes(
                     .iter()
                     .flat_map(|route| route.models().to_vec())
                     .collect(),
+                apis: routes
+                    .iter()
+                    .map(|route| {
+                        route
+                            .models()
+                            .iter()
+                            .map(|model| model.api.clone())
+                            .collect()
+                    })
+                    .collect(),
                 routes,
             }) as Arc<dyn Provider>
         })
@@ -225,6 +279,7 @@ struct RoutedProvider {
     id: String,
     models: Vec<Model>,
     routes: Vec<Arc<dyn Provider>>,
+    apis: Vec<Vec<rpi_ai::Api>>,
 }
 
 #[async_trait::async_trait]
@@ -234,6 +289,42 @@ impl Provider for RoutedProvider {
     }
     fn models(&self) -> &[Model] {
         &self.models
+    }
+    fn with_catalog(&self, models: Vec<Model>) -> Option<Arc<dyn Provider>> {
+        let mut remaining = models.clone();
+        let mut routes = Vec::new();
+        for (route, apis) in self.routes.iter().zip(&self.apis) {
+            let (selected, rest): (Vec<_>, Vec<_>) = remaining
+                .into_iter()
+                .partition(|model| apis.contains(&model.api));
+            remaining = rest;
+            routes.push(route.with_catalog(selected)?);
+        }
+        if !remaining.is_empty() {
+            return None;
+        }
+        Some(Arc::new(Self {
+            id: self.id.clone(),
+            models,
+            routes,
+            apis: self.apis.clone(),
+        }))
+    }
+    async fn preflight(
+        &self,
+        model: &Model,
+        signal: tokio_util::sync::CancellationToken,
+    ) -> Result<(), String> {
+        if let Some(route) = self.routes.iter().find(|route| {
+            route
+                .models()
+                .iter()
+                .any(|known| known.api == model.api && known.id.eq_ignore_ascii_case(&model.id))
+        }) {
+            route.preflight(model, signal).await
+        } else {
+            Err("model is not registered in this provider execution binding".into())
+        }
     }
     async fn stream_simple(
         &self,
@@ -281,12 +372,37 @@ impl Provider for ConfiguredProvider {
     fn models(&self) -> &[Model] {
         self.binding.models()
     }
+    fn with_catalog(&self, models: Vec<Model>) -> Option<Arc<dyn Provider>> {
+        if models
+            .iter()
+            .any(|model| model.provider != self.id || model.api.as_str() != self.api)
+        {
+            return None;
+        }
+        Some(Arc::new(Self {
+            id: self.id.clone(),
+            api: self.api.clone(),
+            inner: self.inner.clone(),
+            binding: Arc::new(self.binding.with_catalog(models)),
+            auth: self.auth.clone(),
+        }))
+    }
+    async fn preflight(
+        &self,
+        model: &Model,
+        signal: tokio_util::sync::CancellationToken,
+    ) -> Result<(), String> {
+        self.inner.preflight(model, signal).await
+    }
     async fn stream_simple(
         &self,
         model: &Model,
         context: &Context,
         options: &SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
+        if let Err(error) = self.preflight(model, options.signal.clone()).await {
+            return crate::provider_runtime::error_stream(model, error).await;
+        }
         let Some((mut model, mut options)) = self.binding.prepare(model, options) else {
             return unbound_model_error(model, &self.id).await;
         };

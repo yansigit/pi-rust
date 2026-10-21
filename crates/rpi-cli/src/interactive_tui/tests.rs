@@ -2415,6 +2415,7 @@ fn command_package_manifest(
     requires_auth: bool,
 ) -> rpi_extensions::ProviderManifest {
     rpi_extensions::ProviderManifest {
+        replace_catalog: false,
         id: id.into(),
         models: vec![rpi_ai::Model::new(
             model,
