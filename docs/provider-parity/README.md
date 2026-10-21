@@ -157,6 +157,13 @@ Runtime-generated test names and imported test declarations still require review
 
 The behavioral ledger below supplements that file inventory. Each row requires
 passing differential evidence before completion. All rows are currently pending.
+Multiprovider's standalone scheduler and pin parsing/replay now have
+[offline differential evidence](../../../rpi-package/packages/rpi-multiprovider/tests/scheduler-evidence.json):
+selection, lease accounting, account/model health, registration changes during
+awaited inventory, and inherited/recorded pin decisions. This qualifies the
+implemented portions of M03–M05; native loading, persistence and lifecycle wiring
+remain pending. File mappings now assign `service.ts` to M03/M04 and
+`session-pins.ts` to M05.
 The agreed exceptions are native rpi presentation, native-only extension
 contracts, isolated import storage, fresh runtime ownership, and the approved
 Antigravity body-read timeout/cancellation and Cursor partial snapshots above; original Pi keeps

@@ -3562,10 +3562,10 @@
       "M03"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/health.rs"
+      "packages/rpi-multiprovider/src/services.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/health.rs"
+      "packages/rpi-multiprovider/tests/services.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3643,7 +3643,8 @@
   "multiprovider:src/service.ts": {
     "sha256": "2eafa61662b3ee75a96a7b07a6ccad62ca600bbb2139a407b81cd9983564a026",
     "ledgerRows": [
-      "M06"
+      "M03",
+      "M04"
     ],
     "portFiles": [
       "packages/rpi-multiprovider/src/services.rs"
@@ -3657,7 +3658,7 @@
   "multiprovider:src/session-pins.ts": {
     "sha256": "45b1ff1fbfcc6853a717b917aaede404f32fe96a64208c75283a53e954bdc005",
     "ledgerRows": [
-      "M03"
+      "M05"
     ],
     "portFiles": [
       "packages/rpi-multiprovider/src/pins.rs"
@@ -3671,13 +3672,18 @@
   "multiprovider:src/types.ts": {
     "sha256": "aaf5e77ffc5738bfc5ee642a61238793ec0869123ceef12a9650c1384b0d181e",
     "ledgerRows": [
-      "M01"
+      "M01",
+      "M03",
+      "M04",
+      "M06",
+      "M07",
+      "M08"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/lib.rs"
+      "packages/rpi-multiprovider/src/types.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/lib.rs"
+      "packages/rpi-multiprovider/tests/services.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3811,7 +3817,8 @@
   "multiprovider:tests/service.spec.ts": {
     "sha256": "47fd07c6a768dae6b46e703c09410f27bb787ae147e7959b30a7edc0ebc2784f",
     "ledgerRows": [
-      "M06"
+      "M03",
+      "M04"
     ],
     "portFiles": [
       "packages/rpi-multiprovider/src/services.rs"
@@ -3825,7 +3832,7 @@
   "multiprovider:tests/session-pins.spec.ts": {
     "sha256": "b76859b11511fe615ca0b5769152aa049e4d55677cfefb25ae287d23df8f7173",
     "ledgerRows": [
-      "M03"
+      "M05"
     ],
     "portFiles": [
       "packages/rpi-multiprovider/src/pins.rs"
