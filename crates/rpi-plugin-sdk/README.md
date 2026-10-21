@@ -301,3 +301,15 @@ questions do not accept nested questions, multiple answers or freeform input.
 hosts and adapters. Answers retain the selected original title in `values`.
 Transport adapters that cannot show ordinary questions cancel them explicitly;
 they must not reinterpret them as permission choices.
+
+## Wake-driven tools
+
+`PluginApi::register_tool_with_wake` accepts the existing tool lifecycle and
+producer deallocator plus `ToolSetWakerFn`. It is an optional appended slot;
+fall back to `register_tool` when it is absent on an older host. Installing a
+waker must notify immediately if progress is already available. After returning
+`Pending`, notify whenever another poll could make progress. Notifications may
+come from any thread and coalesce. The host serializes all lifecycle calls per
+handle and passes `None` to unregister before destroy. A racing late wake is safe;
+the opaque callback token must never be dereferenced. Partial callbacks still
+run synchronously within `poll` and must not be retained.

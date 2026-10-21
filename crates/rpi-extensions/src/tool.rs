@@ -2,6 +2,10 @@
 //! registered tool — and [`PluginToolAdapter`], the `AgentTool` impl that drives
 //! it across the async/FFI boundary via the corrected spawn_blocking bridge.
 //!
+//! Wake-capable registrations instead use an owned async driver, serializing
+//! short `spawn_blocking` calls and awaiting retained notifications on Pending.
+//! Both drivers retain the library and invocation context through cleanup.
+//!
 //! See the crate-level docs for the load-bearing soundness rationale. The short
 //! version: a plugin tool is driven by **four** plugin fns (`execute`→handle,
 //! `poll`, `cancel`, `destroy`). The adapter spawns a **blocking** driver that
@@ -29,6 +33,8 @@ use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
+mod wake;
+
 use crate::host_free_string;
 use crate::loader::PluginKeepalive;
 
@@ -48,6 +54,7 @@ use crate::loader::PluginKeepalive;
 #[derive(Clone, Copy)]
 pub struct PluginToolHandle {
     pub(crate) execute_fn: ToolExecuteFn,
+    pub(crate) set_waker_fn: Option<rpi_plugin_sdk::ToolSetWakerFn>,
     pub(crate) poll_fn: ToolPollFn,
     pub(crate) cancel_fn: ToolCancelFn,
     pub(crate) destroy_fn: ToolDestroyFn,
@@ -409,6 +416,12 @@ impl AgentTool for PluginToolAdapter {
                 self.schema.name
             ))
         })?;
+
+        if self.handle.set_waker_fn.is_some() {
+            return self
+                .execute_wake(tool_call_id, params, signal, on_update)
+                .await;
+        }
 
         // 2. Bridges: unbounded mpsc for partials, oneshot for terminal.
         let (partial_tx, mut partial_rx) = mpsc::unbounded_channel::<AgentToolResult>();
@@ -797,6 +810,7 @@ mod tests {
     fn stub_handle() -> PluginToolHandle {
         PluginToolHandle {
             execute_fn: stub_execute,
+            set_waker_fn: None,
             poll_fn: stub_poll,
             cancel_fn: stub_cancel,
             destroy_fn: stub_destroy,
@@ -914,6 +928,7 @@ mod tests {
         };
         let handle = PluginToolHandle {
             execute_fn: slow_execute,
+            set_waker_fn: None,
             poll_fn: slow_poll,
             cancel_fn: slow_cancel,
             destroy_fn: slow_destroy,
