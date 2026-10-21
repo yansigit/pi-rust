@@ -729,9 +729,16 @@ extern "C" fn on_auth_request(
 }
 
 mod catalog;
+mod initialization;
 mod wrapping;
 
 rpi_plugin_sdk::export_plugin!(|api| {
+    if std::env::var_os("RPI_STUB_INITIALIZE").is_some() {
+        if let Err(error) = initialization::register(api) {
+            eprintln!("stub initialization: {error}");
+            return 1;
+        }
+    }
     if std::env::var_os("RPI_STUB_REQUIRE_NATIVE_AUTH_CAPS").is_some() {
         let mut out = StbString::empty();
         let status = api.native_request.unwrap()(
@@ -878,7 +885,9 @@ rpi_plugin_sdk::export_plugin!(|api| {
         return rc;
     }
 
-    if std::env::var_os("RPI_STUB_CATALOG").is_some() {
+    if std::env::var_os("RPI_STUB_CATALOG").is_some()
+        || std::env::var_os("RPI_STUB_INITIALIZE").is_some()
+    {
         let rc = register_provider(
             StbStringRef::from_str("stub-auth"),
             StbStringRef::from_str("https://stub.example"),

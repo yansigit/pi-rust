@@ -501,6 +501,13 @@ pub trait RuntimeActionHost: Send + Sync {
         _runtime: std::sync::Weak<dyn crate::native::NativeProviderRuntime>,
     ) {
     }
+    fn bind_provider_runtime_generation(
+        &self,
+        _generation: &str,
+        runtime: std::sync::Weak<dyn crate::native::NativeProviderRuntime>,
+    ) {
+        self.bind_provider_runtime(runtime);
+    }
     async fn install_native_providers(
         &self,
         _providers: Vec<Arc<dyn rpi_ai::Provider>>,

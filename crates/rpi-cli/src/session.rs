@@ -196,7 +196,8 @@ pub fn default_session_dir(cwd: &Path) -> PathBuf {
 }
 
 /// Extensions are loaded exactly once before model resolution. Their action
-/// host remains unbound until the harness and authenticated catalog exist.
+/// host supplies credential operations during initialization; session operations
+/// become available once the harness exists.
 pub struct PreparedExtensions {
     pub extension_session: ExtensionSession,
     runtime: tokio::runtime::Handle,
@@ -208,9 +209,10 @@ pub struct PreparedExtensions {
     ext_status_mailbox: rpi_extensions::ExtensionStatusMailbox,
     editor_text_mailbox: rpi_extensions::EditorTextMailbox,
     action_bridge: Arc<rpi_extensions::ActionBridge>,
+    initialization_runtime: Arc<crate::provider_runtime::ProviderRuntime>,
 }
 
-pub fn prepare_extensions(
+pub async fn prepare_extensions(
     args: &Args,
     cwd: &Path,
     project_trusted: bool,
@@ -233,8 +235,8 @@ pub fn prepare_extensions(
     // must be ready for the whole session. So:
     //  1. Capture the current tokio `Handle` (the async main-thread runtime) —
     //     the bridge spawns dispatch from any thread via `Handle::spawn`.
-    //  2. Build an *empty* `HarnessActionHost` (its harness cell is unset; no
-    //     plugin can call a runtime action before the harness runs).
+    //  2. Build an *empty* `HarnessActionHost`; credential initialization is
+    //     bound after registration, while session actions still need the harness.
     //  3. Wrap it as `Arc<dyn RuntimeActionHost>` + `ActionBridge`, thread
     //     `Some(bridge)` into `load_extensions` so every plugin's `user_data`
     //     points at this bridge.
@@ -298,6 +300,10 @@ pub fn prepare_extensions(
         }
         report_deferred_renderers(&extension_session);
     }
+    let initialization_runtime =
+        crate::provider_runtime::ProviderRuntime::initialize(&extension_session, &action_bridge)
+            .await
+            .map_err(BuildError::HarnessCreate)?;
     Ok(PreparedExtensions {
         runtime,
         tool_context,
@@ -309,6 +315,7 @@ pub fn prepare_extensions(
         editor_text_mailbox,
         action_bridge,
         extension_session,
+        initialization_runtime,
     })
 }
 
@@ -342,7 +349,7 @@ pub async fn build(
     ),
     BuildError,
 > {
-    let prepared = prepare_extensions(args, cwd, project_trusted)?;
+    let prepared = prepare_extensions(args, cwd, project_trusted).await?;
     build_prepared(resolved, args, cwd, project_trusted, prepared).await
 }
 
@@ -376,6 +383,7 @@ pub async fn build_prepared(
         editor_text_mailbox,
         action_bridge,
         extension_session,
+        initialization_runtime,
     } = prepared;
     let catalog = crate::provider::authenticated_catalog(resolved);
     action_host.set_catalog(catalog.clone());
@@ -394,6 +402,9 @@ pub async fn build_prepared(
         discovery,
     )
     .map_err(BuildError::HarnessCreate)?;
+
+    provider_runtime.activate();
+    drop(initialization_runtime);
 
     // ---- Execution env + tools ----
     let env = Arc::new(OsExecutionEnv::with_cwd(cwd.to_path_buf()));
@@ -834,8 +845,6 @@ pub async fn build_prepared(
         }
         Err(e) => return Err(BuildError::HarnessCreate(e.to_string())),
     };
-
-    provider_runtime.activate();
 
     // ---- Durable operation recovery (runtime layer) ----
     // A previous process can die between `operation_started` and
@@ -1410,6 +1419,23 @@ where
         report_deferred_renderers(&extension_session);
     }
 
+    let initialization_runtime = match crate::provider_runtime::ProviderRuntime::initialize(
+        &extension_session,
+        &fresh_bridge,
+    )
+    .await
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            return ReloadOutcome {
+                summary: "Reload failed while initializing providers".into(),
+                had_warnings: true,
+                details: vec![error],
+                had_errors: true,
+            };
+        }
+    };
+
     let has_package_providers = |session: &ExtensionSession| {
         session.snapshot().is_some_and(|snapshot| {
             snapshot
@@ -1745,6 +1771,7 @@ where
         };
     }
     provider_runtime.activate();
+    drop(initialization_runtime);
     *ctx.provider_runtime
         .write()
         .unwrap_or_else(|e| e.into_inner()) = provider_runtime;

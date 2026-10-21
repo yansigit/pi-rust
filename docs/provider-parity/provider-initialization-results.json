@@ -1,0 +1,35 @@
+{
+  "status": "host-capabilities-not-package-parity",
+  "platform": "linux",
+  "toolchain": "Rust 1.78.0",
+  "flags": "-Dwarnings",
+  "results": [
+    {
+      "log": "/tmp/rpi-provider-initialization-cli-regression.log",
+      "sha256": "3928789caa10fc8f8821eec8a0f774693fc6b177fa6506ee4b2fd52593fa5c16",
+      "passed": 623,
+      "failed": 0,
+      "ignored": 3
+    },
+    {
+      "log": "/tmp/rpi-provider-initialization-loaded-regression.log",
+      "sha256": "495dbedf9c4f025925d9a483e0bacea37d77b093800fb3320cd8e4abab671d59",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-provider-initialization-manifest.log",
+      "sha256": "2497d205d46fbe41be4c494194f61802a5c710e4d919a858586674cceeea2b3f",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "qualification": "Actual native library tests cover awaited private credential writes before standalone auth and model resolution, refusal without reading malformed credentials, existing login/refresh/logout, private replacement delegation and dynamic catalog publication. Unit regression covers independent weak generation bindings.",
+  "not_tested": [
+    "complete Antigravity vault startup",
+    "full package reload differential acceptance",
+    "macOS and Windows native execution"
+  ]
+}

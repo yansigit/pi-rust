@@ -88,7 +88,51 @@ impl ProviderRuntime {
     }
     pub(crate) fn activate(self: &Arc<Self>) {
         let port: Arc<dyn NativeProviderRuntime> = self.clone();
-        self.host.bind_provider_runtime(Arc::downgrade(&port));
+        self.host
+            .bind_provider_runtime_generation(&self.generation, Arc::downgrade(&port));
+    }
+    pub(crate) async fn initialize(
+        session: &ExtensionSession,
+        bridge: &rpi_extensions::ActionBridge,
+    ) -> Result<Arc<Self>, String> {
+        // The credential port must exist before model resolution reads auth.json.
+        let runtime = Self::new(session, bridge, Vec::new(), Vec::new())?;
+        runtime.activate();
+        if let Some(snapshot) = session.snapshot() {
+            for record in snapshot.provider_runtimes() {
+                if !record
+                    .manifest
+                    .actions
+                    .iter()
+                    .any(|action| action == "initialize")
+                {
+                    continue;
+                }
+                let Some(operations) =
+                    rpi_extensions::provider_runtime::NativeProviderOperations::from_session(
+                        session,
+                        &record.manifest.id,
+                    )
+                else {
+                    session.auth_runtime().shutdown().await;
+                    return Err("provider initialization has no owning registration".into());
+                };
+                let agent_dir = crate::config::agent_dir()
+                    .map_err(|_| "provider storage directory is unavailable")?;
+                if let Err(error) = operations
+                    .request(
+                        "initialize",
+                        json!({"agentDir":agent_dir}),
+                        CancellationToken::new(),
+                    )
+                    .await
+                {
+                    session.auth_runtime().shutdown().await;
+                    return Err(error);
+                }
+            }
+        }
+        Ok(runtime)
     }
     fn chains(
         session: &ExtensionSession,

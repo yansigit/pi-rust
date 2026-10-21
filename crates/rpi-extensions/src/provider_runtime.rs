@@ -22,7 +22,11 @@ impl RuntimeManifest {
             || value.actions.iter().any(|action| {
                 !matches!(
                     action.as_str(),
-                    "preflight" | "refreshCatalog" | "authMethods" | "credentialStore"
+                    "preflight"
+                        | "refreshCatalog"
+                        | "authMethods"
+                        | "credentialStore"
+                        | "initialize"
                 ) || !seen.insert(action)
             })
         {
@@ -151,6 +155,6 @@ mod tests {
         ] {
             assert!(RuntimeManifest::parse(&input.to_string()).is_err());
         }
-        assert!(RuntimeManifest::parse(&json!({"version":1,"id":"provider","actions":["preflight","refreshCatalog","authMethods"]}).to_string()).is_ok());
+        assert!(RuntimeManifest::parse(&json!({"version":1,"id":"provider","actions":["preflight","refreshCatalog","authMethods","credentialStore","initialize"]}).to_string()).is_ok());
     }
 }

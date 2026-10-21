@@ -9,6 +9,67 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[test]
+#[ignore = "requires cargo build -p plugin-stub with provider initialization"]
+fn native_initialization_precedes_auth_and_session_credential_reads() {
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    for auth in [true, false] {
+        let temp = tempfile::tempdir().unwrap();
+        let agent = temp.path().join("agent");
+        std::fs::create_dir_all(&agent).unwrap();
+        let path = agent.join("auth.json");
+        let original = b"invalid JSON: only the provider callback may read this\n";
+        for fail in [true, false] {
+            std::fs::write(&path, original).unwrap();
+            let mut cmd = command_base(&temp);
+            cmd.env("RPI_STUB_INITIALIZE", "1");
+            if fail {
+                cmd.env("RPI_STUB_INITIALIZE_FAIL", "1");
+            }
+            if auth {
+                cmd.args(["auth", "check", "--provider", "stub-auth", "--json"]);
+            } else {
+                cmd.args([
+                    "--provider",
+                    "stub-provider",
+                    "--model",
+                    "stub-model",
+                    "--print",
+                    "--no-session",
+                    "--no-tools",
+                    "hello",
+                ]);
+            }
+            let output = cmd.arg("--extension").arg(&library).output().unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert_eq!(output.status.success(), !fail, "{stderr}");
+            if fail {
+                assert!(
+                    stderr.contains("fixture initialization refused"),
+                    "{stderr}"
+                );
+                assert_eq!(std::fs::read(&path).unwrap(), original);
+            } else {
+                assert!(
+                    stderr.contains("native initialization committed before credential resolution"),
+                    "{stderr}"
+                );
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                assert!(
+                    stdout.contains(if auth {
+                        "\"ready\":true"
+                    } else {
+                        "from-stub-provider"
+                    }),
+                    "{stdout}"
+                );
+                assert!(!stdout.contains("initialization-fixture-only"));
+                assert!(!stderr.contains("initialization-fixture-only"));
+            }
+        }
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires cargo build -p plugin-stub with native wrapper capability"]
 async fn native_wrapper_delegates_with_pooled_auth_and_canonical_endpoint() {
@@ -737,7 +798,9 @@ async fn reload_updates_the_catalog_endpoint_and_runtime_without_a_restart() {
         no_tools: true,
         ..Default::default()
     };
-    let prepared = rpi_cli::session::prepare_extensions(&args, &cwd, true).unwrap();
+    let prepared = rpi_cli::session::prepare_extensions(&args, &cwd, true)
+        .await
+        .unwrap();
     let resolved =
         rpi_cli::provider::resolve_with_extensions(&args, &cwd, true, &prepared.extension_session)
             .unwrap();

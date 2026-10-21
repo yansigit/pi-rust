@@ -69,8 +69,9 @@ pub struct HarnessActionHost {
     /// The auth-filtered catalog (the same list the TUI `/model` selector
     /// shows). `set_model(id)` resolves an id against this.
     catalog: Arc<RwLock<Vec<rpi_ai::Model>>>,
-    provider_runtime:
-        RwLock<Option<std::sync::Weak<dyn rpi_extensions::native::NativeProviderRuntime>>>,
+    provider_runtimes: RwLock<
+        BTreeMap<String, std::sync::Weak<dyn rpi_extensions::native::NativeProviderRuntime>>,
+    >,
     /// The session cwd — `new_session`/`fork`/`switch_session` need it to
     /// locate the session dir.
     cwd: PathBuf,
@@ -108,7 +109,7 @@ impl HarnessActionHost {
             Self {
                 harness: Arc::clone(&harness),
                 catalog: Arc::new(RwLock::new(catalog)),
-                provider_runtime: RwLock::new(None),
+                provider_runtimes: RwLock::new(BTreeMap::new()),
                 cwd,
                 cli_flags,
                 tool_context,
@@ -362,14 +363,17 @@ pub(crate) fn assistant_text(msg: &rpi_ai::types::AssistantMessage) -> String {
 
 #[async_trait::async_trait]
 impl RuntimeActionHost for HarnessActionHost {
-    fn bind_provider_runtime(
+    fn bind_provider_runtime_generation(
         &self,
+        generation: &str,
         runtime: std::sync::Weak<dyn rpi_extensions::native::NativeProviderRuntime>,
     ) {
-        *self
-            .provider_runtime
+        let mut runtimes = self
+            .provider_runtimes
             .write()
-            .unwrap_or_else(|e| e.into_inner()) = Some(runtime);
+            .unwrap_or_else(|e| e.into_inner());
+        runtimes.retain(|_, runtime| runtime.strong_count() != 0);
+        runtimes.insert(generation.into(), runtime);
     }
     async fn native_request(
         &self,
@@ -416,10 +420,10 @@ impl RuntimeActionHost for HarnessActionHost {
             };
         }
         let runtime = self
-            .provider_runtime
+            .provider_runtimes
             .read()
             .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
+            .get(&owner.generation)
             .and_then(std::sync::Weak::upgrade)
             .ok_or("provider runtime is unavailable")?;
         runtime.request(owner, args, signal).await
@@ -758,6 +762,62 @@ impl RuntimeActionHost for HarnessActionHost {
 
 #[cfg(test)]
 mod lifetime_tests;
+
+#[cfg(test)]
+mod provider_generation_tests {
+    use super::*;
+    use rpi_extensions::native::{NativeOwner, NativeProviderRuntime};
+    use serde_json::{json, Value};
+    use tokio_util::sync::CancellationToken;
+
+    struct Generation(&'static str);
+    #[async_trait::async_trait]
+    impl NativeProviderRuntime for Generation {
+        async fn request(
+            &self,
+            owner: NativeOwner,
+            _: Value,
+            _: CancellationToken,
+        ) -> Result<Value, String> {
+            assert_eq!(owner.generation, self.0);
+            Ok(json!(self.0))
+        }
+    }
+    #[tokio::test]
+    async fn initialization_and_active_generations_have_independent_weak_bindings() {
+        let (host, _) = HarnessActionHost::new_empty(
+            vec![],
+            PathBuf::from("."),
+            Handle::current(),
+            BTreeMap::new(),
+            rpi_extensions::ToolCallContext::new("."),
+        );
+        let old: Arc<dyn NativeProviderRuntime> = Arc::new(Generation("old"));
+        let new: Arc<dyn NativeProviderRuntime> = Arc::new(Generation("new"));
+        host.bind_provider_runtime_generation("old", Arc::downgrade(&old));
+        host.bind_provider_runtime_generation("new", Arc::downgrade(&new));
+        let call = |generation: &str| {
+            host.native_request(
+                NativeOwner {
+                    generation: generation.into(),
+                    id: 1,
+                    plugin: "fixture".into(),
+                    child: false,
+                },
+                json!({"port":"auth"}),
+                CancellationToken::new(),
+            )
+        };
+        assert_eq!(call("old").await.unwrap(), "old");
+        assert_eq!(call("new").await.unwrap(), "new");
+        assert!(call("unknown").await.is_err());
+        drop(new);
+        assert!(call("new").await.is_err());
+        assert_eq!(call("old").await.unwrap(), "old");
+        drop(old);
+        assert!(call("old").await.is_err());
+    }
+}
 
 #[cfg(test)]
 mod send_message_tests {

@@ -146,7 +146,7 @@ async fn run_inner() -> i32 {
                 return EXIT_USAGE;
             }
             let trusted = crate::session::resolve_project_trust(&args, &cwd);
-            let prepared = match prepare_extensions(&args, &cwd, trusted) {
+            let prepared = match prepare_extensions(&args, &cwd, trusted).await {
                 Ok(prepared) => prepared,
                 Err(error) => {
                     print_build_error(&error);
@@ -254,7 +254,7 @@ async fn run_inner() -> i32 {
 
     // ---- provider + model resolution ----
     let project_trusted = crate::session::resolve_project_trust(&parsed, &cwd);
-    let prepared = match prepare_extensions(&parsed, &cwd, project_trusted) {
+    let prepared = match prepare_extensions(&parsed, &cwd, project_trusted).await {
         Ok(prepared) => prepared,
         Err(error) => {
             print_build_error(&error);
@@ -688,7 +688,7 @@ fn emit_startup_warnings(parsed: &Args) {
 /// fuzzy-ish substring over provider, id, and display name.
 async fn list_models(search: &str, args: &Args, cwd: &Path) -> i32 {
     let trusted = crate::session::resolve_project_trust(args, cwd);
-    let prepared = match prepare_extensions(args, cwd, trusted) {
+    let prepared = match prepare_extensions(args, cwd, trusted).await {
         Ok(prepared) => prepared,
         Err(error) => {
             print_build_error(&error);

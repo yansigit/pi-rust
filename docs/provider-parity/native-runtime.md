@@ -48,7 +48,7 @@ republishing. Existing source-level `ProviderManifest` initializers must include
 ## Provider callbacks
 
 A runtime manifest declares `{version:1,id,actions}` with any of `preflight`,
-`refreshCatalog`, `authMethods`, and `credentialStore`. Each callback receives
+`refreshCatalog`, `authMethods`, `credentialStore`, and `initialize`. Each callback receives
 `{version:1,providerId,action,input}` and returns `{version:1,result}` or a public
 `{version:1,error}`. The callback and context remain pinned until foreign code
 returns, including after cancellation.
@@ -58,6 +58,23 @@ protocol. It runs before credential reads or network activity. `refreshCatalog`
 receives `allowNetwork` (default false) and `force` (default false), and returns
 `{models}`. `authMethods` returns the provider's currently available auth methods.
 Catalog replacement is explicit via `ProviderManifest.replaceCatalog`.
+
+Hosts advertising `providers.initialize` await each owning provider's `initialize`
+callback, in registration order, before model resolution or standalone `rpi auth`
+reads credentials. The input contains the host-selected `agentDir`. The private
+credential port is already bound; tools and session operations require the later
+harness startup. Initialization does not publish an executable catalog. A callback
+error aborts preparation and drains admitted credential writes. Providers whose
+upstream behavior keeps recovery menus available must retain their refusal state
+and acknowledge initialization, then reject authentication and streaming from that
+state until the user completes recovery.
+
+Reload initializes a fresh generation before resolving its credentials. Runtime
+bindings are weak and keyed by generation, so this preparation cannot redirect
+calls from the existing generation. Failed preparation leaves its binding intact.
+The source-level `prepare_extensions` function is now async; callers await it.
+This source change requires maintainer release coordination, without a contributor
+version bump or changes to existing C ABI layouts.
 
 ## Authentication operations
 
