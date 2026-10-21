@@ -581,6 +581,21 @@ pub type ToolWakeCb = extern "C" fn(callback_data: *mut c_void);
 pub type ToolSetWakerFn =
     extern "C" fn(handle: StepHandle, callback: Option<ToolWakeCb>, callback_data: *mut c_void);
 
+/// Begin shutdown without blocking: cancel work and reject new work.
+/// Must be idempotent; do not join workers or call back into locked host state.
+pub type PluginBeginShutdownFn = extern "C" fn(user_data: *mut c_void);
+/// Join workers and release resources on a host blocking cleanup thread.
+/// Return zero only when no background thread, task, or callback can execute
+/// plugin code again. Nonzero retains the library and host context forever;
+/// the host never times out shutdown and then unloads live code.
+pub type PluginFinishShutdownFn = extern "C" fn(user_data: *mut c_void) -> i32;
+/// Register shutdown hooks and their plugin-owned resource context.
+/// The host calls begin outside its session locks, then calls finish after all
+/// active FFI calls and plugin-owned string frees release their keepalives.
+/// The plugin may free `user_data` only after a successful finish.
+pub type RegisterPluginLifecycleFn =
+    extern "C" fn(PluginBeginShutdownFn, PluginFinishShutdownFn, *mut c_void) -> i32;
+
 // ---------------------------------------------------------------------------
 // StablePluginEvent — 33 on() categories (explicit tag + union)
 // ---------------------------------------------------------------------------
@@ -1539,6 +1554,9 @@ pub struct PluginApi {
             set_waker_fn: ToolSetWakerFn,
         ) -> i32,
     >,
+
+    /// Optional plugin shutdown hooks, appended after wake-driven tools.
+    pub register_plugin_lifecycle: Option<RegisterPluginLifecycleFn>,
 }
 unsafe impl Send for PluginApi {}
 unsafe impl Sync for PluginApi {}
@@ -1929,6 +1947,7 @@ mod tests {
             register_oauth_provider: None,
             register_streaming_provider: None,
             register_tool_with_wake: None,
+            register_plugin_lifecycle: None,
         };
         // All optional slots are null → plugin must degrade.
         assert!(api.register_tool.is_none());
@@ -2023,8 +2042,12 @@ mod tests {
             "wake registration must follow streaming registration"
         );
         assert_eq!(
-            size_of::<PluginApi>(),
+            core::mem::offset_of!(PluginApi, register_plugin_lifecycle),
             core::mem::offset_of!(PluginApi, register_tool_with_wake) + size_of::<usize>()
+        );
+        assert_eq!(
+            size_of::<PluginApi>(),
+            core::mem::offset_of!(PluginApi, register_plugin_lifecycle) + size_of::<usize>()
         );
         assert_eq!(align_of::<PluginApi>(), align_of::<*const ()>());
     }
@@ -2099,6 +2122,7 @@ mod tests {
             register_oauth_provider: None,
             register_streaming_provider: None,
             register_tool_with_wake: None,
+            register_plugin_lifecycle: None,
         }
     }
 
@@ -2150,6 +2174,7 @@ mod tests {
             core::mem::offset_of!(PluginApi, register_oauth_provider),
             core::mem::offset_of!(PluginApi, register_streaming_provider),
             core::mem::offset_of!(PluginApi, register_tool_with_wake),
+            core::mem::offset_of!(PluginApi, register_plugin_lifecycle),
         ] {
             let mut api = entrypoint_test_api();
             api.struct_size = size as u32;
@@ -2173,6 +2198,7 @@ mod tests {
                     assert_eq!(api.struct_size, size as u32);
                     assert!(api.register_streaming_provider.is_none());
                     assert!(api.register_tool_with_wake.is_none());
+                    assert!(api.register_plugin_lifecycle.is_none());
                     assert!(
                         api.register_provider.is_some(),
                         "one-shot fallback remains available"

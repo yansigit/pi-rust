@@ -167,6 +167,7 @@ fn api() -> sdk::PluginApi {
         register_oauth_provider: None,
         register_streaming_provider: None,
         register_tool_with_wake: None,
+        register_plugin_lifecycle: None,
     }
 }
 

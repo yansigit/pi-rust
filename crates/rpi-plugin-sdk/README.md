@@ -313,3 +313,23 @@ come from any thread and coalesce. The host serializes all lifecycle calls per
 handle and passes `None` to unregister before destroy. A racing late wake is safe;
 the opaque callback token must never be dereferenced. Partial callbacks still
 run synchronously within `poll` and must not be retained.
+
+Opt into registration-scoped resources with `provider::ProviderContext`, a
+`provider::ContextFactory`, and `export_provider_with_context!`. The context
+lazily starts one runtime worker; concurrent request threads drive their own
+streams through its handle, and emit callbacks stay on those request threads.
+`context.completions(model, options, anonymous)` returns a fallible provider
+using a bounded cache of 16 HTTP clients keyed by origin and effective proxy.
+Client construction keeps the existing proxy and idle-timeout rules and
+propagates errors. API keys and request headers stay on each request.
+
+The optional `PluginApi::register_plugin_lifecycle` slot follows the tool wake
+slot without changing earlier offsets. Register a pair of hooks for each owned resource context:
+`begin_shutdown` must be idempotent and return without joining workers, and
+`finish_shutdown` joins and releases all work on a blocking cleanup thread.
+A zero finish status guarantees that no background plugin code can run again.
+The host waits until active FFI calls and producer-side string frees finish;
+if shutdown fails, it logs and retains the DLL and host context for the process
+lifetime. It never uses a timeout to unload live code. Older hosts use the
+context helper's request-scoped runtime/client fallback. Existing `Factory`,
+`register`, `drive`, and `export_provider!` remain available.

@@ -1,5 +1,5 @@
 //! Provider packages use the same C ABI as tools. This bridge owns a runtime
-//! per request, so no plugin worker thread survives DLL unloading.
+//! per request by default; opt-in contexts reuse resources until lifecycle shutdown.
 //!
 //! Available with the optional `provider` feature. Use [`crate::export_provider!`]
 //! for single-provider plugins, or [`register`] and [`drive`] when registering
@@ -13,6 +13,9 @@ use rpi_ai::{
     StopReason,
 };
 use std::{ffi::c_void, sync::Arc, time::Duration};
+
+mod context;
+pub use context::{drive_with_context, register_with_context, ContextFactory, ProviderContext};
 
 pub type Factory = fn(&Model, &SimpleStreamOptions) -> Arc<dyn Provider>;
 
@@ -216,6 +219,76 @@ fn event_json(
     chunk
 }
 
+async fn drive_stream(
+    provider: Arc<dyn Provider>,
+    request: &Request,
+    options: &SimpleStreamOptions,
+    emit: Option<ProviderStreamEmitFn>,
+    emit_data: *mut c_void,
+    control: Option<&ProviderStreamControl>,
+) -> AssistantMessage {
+    let mut stream = provider
+        .stream_simple(&request.model, &request.context, options)
+        .await;
+    let mut partial = Arc::new(AssistantMessage::empty(
+        request.model.api.clone(),
+        request.model.provider.clone(),
+        request.model.id.clone(),
+        0,
+    ));
+    let mut previous_text = None;
+    let mut poll = tokio::time::interval(Duration::from_millis(10));
+    loop {
+        // Check synchronously too: an already-buffered provider can
+        // finish before the interval's initial tick becomes ready.
+        if options.signal.is_cancelled()
+            || control.is_some_and(|control| (control.is_cancelled)(control.user_data, 0) != 0)
+        {
+            options.signal.cancel();
+            let mut partial = (*partial).clone();
+            partial.stop_reason = StopReason::Aborted;
+            partial.error_message = Some("provider request was cancelled".into());
+            break partial;
+        }
+        tokio::select! {
+            biased;
+            _ = poll.tick() => {}
+            event = stream.next() => {
+                let Some(event) = event else {
+                    break stream.result().await.unwrap_or_else(|error| AssistantMessage::terminal(
+                        request.model.api.clone(), request.model.provider.clone(), request.model.id.clone(), StopReason::Error, error.to_string(), 0));
+                };
+                match &event {
+                    AssistantMessageEvent::Done { message, .. } => break message.clone(),
+                    AssistantMessageEvent::Error { error, .. } => break error.clone(),
+                    _ => {},
+                }
+                partial = match &event {
+                    AssistantMessageEvent::Start { partial }
+                    | AssistantMessageEvent::TextStart { partial, .. }
+                    | AssistantMessageEvent::TextDelta { partial, .. }
+                    | AssistantMessageEvent::TextEnd { partial, .. }
+                    | AssistantMessageEvent::ThinkingStart { partial, .. }
+                    | AssistantMessageEvent::ThinkingDelta { partial, .. }
+                    | AssistantMessageEvent::ThinkingEnd { partial, .. }
+                    | AssistantMessageEvent::ToolCallStart { partial, .. }
+                    | AssistantMessageEvent::ToolCallDelta { partial, .. }
+                    | AssistantMessageEvent::ToolCallEnd { partial, .. } => Arc::clone(partial),
+                    AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => unreachable!(),
+                };
+                let Some(emit) = emit else { continue; };
+                let chunk = event_json(&event, &mut previous_text);
+                if emit(StbString::from_string(chunk.to_string()), emit_data) != 0 {
+                    options.signal.cancel();
+                    let mut partial = (*partial).clone();
+                    partial.stop_reason = StopReason::Aborted;
+                    break partial;
+                }
+            }
+        }
+    }
+}
+
 /// Drive a synchronous plugin request without retaining any borrowed ABI data.
 ///
 /// # Safety
@@ -246,57 +319,7 @@ pub unsafe fn drive(
         let control = unsafe { control.as_ref() };
         let message = runtime.block_on(async {
             let provider = factory(&request.model, &options);
-            let mut stream = provider.stream_simple(&request.model, &request.context, &options).await;
-            let mut partial = Arc::new(AssistantMessage::empty(request.model.api.clone(), request.model.provider.clone(), request.model.id.clone(), 0));
-            let mut previous_text = None;
-            let mut poll = tokio::time::interval(Duration::from_millis(10));
-            loop {
-                // Check synchronously too: an already-buffered provider can
-                // finish before the interval's initial tick becomes ready.
-                if control.is_some_and(|control| (control.is_cancelled)(control.user_data, 0) != 0) {
-                    options.signal.cancel();
-                    let mut partial = (*partial).clone();
-                    partial.stop_reason = StopReason::Aborted;
-                    partial.error_message = Some("provider request was cancelled".into());
-                    break partial;
-                }
-                tokio::select! {
-                    biased;
-                    _ = poll.tick() => {}
-                    event = stream.next() => {
-                        let Some(event) = event else {
-                            break stream.result().await.unwrap_or_else(|error| AssistantMessage::terminal(
-                                request.model.api.clone(), request.model.provider.clone(), request.model.id.clone(), StopReason::Error, error.to_string(), 0));
-                        };
-                        match &event {
-                            AssistantMessageEvent::Done { message, .. } => break message.clone(),
-                            AssistantMessageEvent::Error { error, .. } => break error.clone(),
-                            _ => {},
-                        }
-                        partial = match &event {
-                            AssistantMessageEvent::Start { partial }
-                            | AssistantMessageEvent::TextStart { partial, .. }
-                            | AssistantMessageEvent::TextDelta { partial, .. }
-                            | AssistantMessageEvent::TextEnd { partial, .. }
-                            | AssistantMessageEvent::ThinkingStart { partial, .. }
-                            | AssistantMessageEvent::ThinkingDelta { partial, .. }
-                            | AssistantMessageEvent::ThinkingEnd { partial, .. }
-                            | AssistantMessageEvent::ToolCallStart { partial, .. }
-                            | AssistantMessageEvent::ToolCallDelta { partial, .. }
-                            | AssistantMessageEvent::ToolCallEnd { partial, .. } => Arc::clone(partial),
-                            AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => unreachable!(),
-                        };
-                        let Some(emit) = emit else { continue; };
-                        let chunk = event_json(&event, &mut previous_text);
-                        if emit(StbString::from_string(chunk.to_string()), emit_data) != 0 {
-                            options.signal.cancel();
-                            let mut partial = (*partial).clone();
-                            partial.stop_reason = StopReason::Aborted;
-                            break partial;
-                        }
-                    }
-                }
-            }
+            drive_stream(provider, &request, &options, emit, emit_data, control).await
         });
         // Convert via Value to normalize tagged Content's field representation.
         let json = serde_json::to_value(message)
