@@ -180,3 +180,13 @@ including a repeated selection with identical names. Child harnesses start with
 fresh selection state. Receipts remain immutable after subsequent writes. Tool
 requests, guidance and inherited selections retain the selected order, ignoring
 unknown and duplicate names as Pi 1.3.0 does.
+
+`tools.boundedProgress` uses the provider bridge's shared count/byte queue for both
+legacy and wake-capable tool progress: 64 queued items and 4 MiB of incoming JSON
+weight. One oversized item occupies the byte budget exclusively. This accounts
+for queued payload, not total allocator usage or the producer's current frame.
+Callbacks wait on capacity outside the async runtime; wake-driver pending progress
+awaits capacity. Terminal delivery remains separate. Cancellation releases blocked producers
+and retains accepted partials for terminal draining; consumer drop releases the
+queued items. Both paths keep the invocation/library alive through the sole
+destroy call.

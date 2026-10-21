@@ -25,12 +25,12 @@
 //! 1. **NOT owning a runtime.** Acquire the ambient runtime
 //!    (`tokio::runtime::Handle::try_current()`) — the adapter only ever runs
 //!    inside the agent loop's runtime.
-//! 2. Set up an **unbounded mpsc** for `ToolResultPartial` (async side drains +
+//! 2. Set up an **count/byte bounded queue** for `ToolResultPartial` (async side drains +
 //!    forwards to `on_update`) and a **oneshot** for the terminal
 //!    `AgentToolResult`.
 //! 3. `handle.spawn_blocking(move || drive(plugin, cancel_flag, partial_tx,
 //!    done_tx))` — the blocking driver loops `poll` until `Done`/`Err`,
-//!    forwarding `Pending` partials through the mpsc (via a `catch_unwind`
+//!    forwarding `Pending` partials through the queue (via a `catch_unwind`
 //!    trampoline so a panicking partial callback can't unwind across FFI),
 //!    then sends the terminal result + calls `destroy` **exactly once** on exit.
 //! 4. The async future `select!`s between the oneshot (terminal) and
@@ -39,7 +39,7 @@
 //!    awaiting the oneshot** (never drop the driver — `spawn_blocking` tasks
 //!    run to completion regardless of outer-future drop, so dropping is a
 //!    thread leak).
-//! 5. `Drop`/drop-guard sets **only the cancel flag** — never calls `destroy`
+//! 5. `Drop`/drop-guard **requests cancellation** — never calls `destroy`
 //!    synchronously (the driver may be mid-`poll`); `destroy` is called exactly
 //!    once by the blocking driver.
 //!
@@ -110,6 +110,7 @@ pub use translate::{
 
 pub use stdio::StdioLifecycle;
 mod actions;
+mod bounded;
 pub mod credential_store;
 mod editor_text;
 mod event_log;

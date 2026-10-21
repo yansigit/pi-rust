@@ -9,7 +9,7 @@
 //! See the crate-level docs for the load-bearing soundness rationale. The short
 //! version: a plugin tool is driven by **four** plugin fns (`execute`→handle,
 //! `poll`, `cancel`, `destroy`). The adapter spawns a **blocking** driver that
-//! loops `poll`, forwards `Pending` partials through an mpsc, sends the terminal
+//! loops `poll`, forwards `Pending` partials through a bounded queue, sends the terminal
 //! result through a oneshot, and calls `destroy` **exactly once**. Cancel sets
 //! an `AtomicBool` the driver observes; the async side keeps awaiting oneshot
 //! (never drops the driver). `cancel` ≠ `destroy`.
@@ -30,7 +30,7 @@ use rpi_plugin_sdk::{
     ToolPollFn,
 };
 use serde_json::Value;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 mod wake;
@@ -343,8 +343,25 @@ impl PluginToolAdapter {
     }
 }
 
+fn partial_channel(
+    signal: CancellationToken,
+) -> (
+    crate::bounded::Sender<AgentToolResult>,
+    crate::bounded::Receiver<AgentToolResult>,
+) {
+    let (sender, receiver) = crate::bounded::channel(64, 4 * 1024 * 1024);
+    let queue = sender.downgrade();
+    tokio::spawn(async move {
+        signal.cancelled().await;
+        if let Some(queue) = queue.upgrade() {
+            queue.cancel();
+        }
+    });
+    (sender, receiver)
+}
+
 struct PartialCallbackContext {
-    sender: mpsc::UnboundedSender<AgentToolResult>,
+    sender: crate::bounded::Sender<AgentToolResult>,
     plugin_free: FreeStringFn,
 }
 
@@ -364,8 +381,9 @@ extern "C" fn partial_cb_trampoline(partial: StbString, user_data: *mut c_void) 
         let context = unsafe { &*user_data.cast::<PartialCallbackContext>() };
         // SAFETY: the plugin transfers a live partial and its registered free fn.
         let owned = unsafe { OwnedString::from_raw(partial, Some(context.plugin_free)) };
-        let result = json_to_result(&owned.to_string_lossy());
-        let _ = context.sender.send(result);
+        let raw = owned.to_string_lossy();
+        let result = json_to_result(&raw);
+        let _ = context.sender.send(result, raw.len());
     }));
     if outcome.is_err() {
         // A panic inside host-side copying or parsing was caught above. Log it
@@ -425,8 +443,7 @@ impl AgentTool for PluginToolAdapter {
                 .await;
         }
 
-        // 2. Bridges: unbounded mpsc for partials, oneshot for terminal.
-        let (partial_tx, mut partial_rx) = mpsc::unbounded_channel::<AgentToolResult>();
+        // 2. Keep terminal delivery independent of progress capacity.
         let (done_tx, done_rx) = oneshot::channel::<Result<AgentToolResult, AgentError>>();
 
         // The cancel flag the blocking driver observes. Set by `signal.cancelled()`
@@ -434,6 +451,8 @@ impl AgentTool for PluginToolAdapter {
         // visibility with the blocking driver.
         let cancel_flag = Arc::new(AtomicBool::new(false));
         let invocation_signal = signal.child_token();
+        let (partial_tx, mut partial_rx) = partial_channel(invocation_signal.clone());
+        let cancel_signal_drive = invocation_signal.clone();
         let _cancel_on_drop = CancelOnDrop(cancel_flag.clone(), invocation_signal.clone());
         let background = rpi_agent::tool_execution_scope::track_background_tool();
         let invocation = self
@@ -487,7 +506,7 @@ impl AgentTool for PluginToolAdapter {
         //    threads.
         let cancel_flag_drive = Arc::clone(&cancel_flag);
         let callback_context = PartialCallbackContext {
-            sender: partial_tx.clone(),
+            sender: partial_tx,
             plugin_free,
         };
         let keepalive = self.keepalive.clone();
@@ -536,7 +555,7 @@ impl AgentTool for PluginToolAdapter {
 
             // poll loop
             let terminal: Result<AgentToolResult, AgentError> = loop {
-                if cancel_flag_drive.load(Ordering::SeqCst) {
+                if cancel_flag_drive.load(Ordering::SeqCst) || cancel_signal_drive.is_cancelled() {
                     // Observe cancel: tell the plugin, then break with an abort.
                     let _ = catch_unwind(AssertUnwindSafe(|| (cancel_fn)(step_handle)));
                     break Err(AgentError::Tool("plugin tool cancelled".into()));
@@ -555,7 +574,7 @@ impl AgentTool for PluginToolAdapter {
                 // SAFETY: poll transfers its live result to the registered
                 // producer deallocator. The SDK selects the arm and frees once.
                 let step = unsafe { take_step_result_with(step_result, plugin_free) };
-                if cancel_flag_drive.load(Ordering::SeqCst) {
+                if cancel_flag_drive.load(Ordering::SeqCst) || cancel_signal_drive.is_cancelled() {
                     // poll may return success after cancellation was requested.
                     let _ = catch_unwind(AssertUnwindSafe(|| (cancel_fn)(step_handle)));
                     break Err(AgentError::Tool("plugin tool cancelled".into()));
@@ -566,7 +585,7 @@ impl AgentTool for PluginToolAdapter {
                             // The plugin may also have pushed via the partial cb;
                             // both paths land in partial_rx. Forward this one too.
                             let pr = json_to_result(&progress);
-                            let _ = partial_tx.send(pr);
+                            let _ = callback_context.sender.send(pr, progress.len());
                         }
                         // poll is a nonblocking ABI. Empty Pending must not spin
                         // a dedicated CPU core while the plugin worker is idle.
@@ -723,7 +742,7 @@ mod tests {
     fn closed_partial_receiver_still_reclaims_the_plugin_payload() {
         let _guard = TEST_LOCK.lock().unwrap();
         PRODUCER_FREES.store(0, Ordering::SeqCst);
-        let (sender, receiver) = mpsc::unbounded_channel();
+        let (sender, receiver) = crate::bounded::channel(64, 4 * 1024 * 1024);
         drop(receiver);
         let context = PartialCallbackContext {
             sender,
@@ -734,6 +753,48 @@ mod tests {
             &context as *const _ as *mut c_void,
         );
         assert_eq!(PRODUCER_FREES.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn oversized_callback_progress_occupies_the_byte_budget_and_drop_releases_the_payload() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        PRODUCER_FREES.store(0, Ordering::SeqCst);
+        let signal = CancellationToken::new();
+        let (sender, receiver) = partial_channel(signal.clone());
+        let context = PartialCallbackContext {
+            sender,
+            plugin_free: counted_plugin_free,
+        };
+        let thread = std::thread::spawn(move || {
+            let raw =
+                serde_json::json!({"content":[{"type":"text","text":"x".repeat(4 * 1024 * 1024)}]})
+                    .to_string();
+            for _ in 0..2 {
+                partial_cb_trampoline(
+                    StbString::from_string(raw.clone()),
+                    &context as *const _ as *mut c_void,
+                );
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while PRODUCER_FREES.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert_eq!(PRODUCER_FREES.load(Ordering::SeqCst), 1);
+        drop(receiver);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            tokio::task::spawn_blocking(move || thread.join().unwrap()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        signal.cancel();
+        assert_eq!(PRODUCER_FREES.load(Ordering::SeqCst), 2);
     }
 
     /// The raw arguments string the most recent `stub_execute` was handed. The

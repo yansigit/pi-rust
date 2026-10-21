@@ -308,6 +308,7 @@ pub(crate) extern "C" fn request(
                     "tools.exactActivation",
                     "tools.registrationPolicy",
                     "tools.selectionState",
+                    "tools.boundedProgress",
                     "sessions.location",
                     "sessions.view",
                     "sessions.persistenceLease",

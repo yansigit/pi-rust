@@ -1,0 +1,54 @@
+{
+  "status": "Bounded native tool progress verified",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "platform": "Linux",
+  "checks": {
+    "extensions": {
+      "log": "/tmp/rpi-bounded-tool-extensions-final.log",
+      "sha256": "f32c2b2610f0b854c737097ddacfd6666394be6299ec510de4376b88f7da0583",
+      "passed": 201
+    },
+    "providerFeature": {
+      "log": "/tmp/rpi-bounded-tool-provider-performance.log",
+      "sha256": "e1307787c0abc220598e9fa7625d7a94dbfb2d0dfd20c85b47e600ff1719ddd0",
+      "passed": 202
+    },
+    "pendingPopulation": {
+      "log": "/tmp/rpi-bounded-tool-population.log",
+      "sha256": "622d0177172c779c15ed3cf5d58d391833adf8eccd151e1744e388f7d8daf2f7",
+      "passed": 1
+    },
+    "workspace": {
+      "log": "/tmp/rpi-bounded-tool-workspace.log",
+      "sha256": "6cef7da4283ed8575ebf2bd84f1aa449f3dfd377ee3dc533c1655a2a1b41f2f0"
+    },
+    "sdkCore": {
+      "log": "/tmp/rpi-bounded-tool-sdk-core.log",
+      "sha256": "6f42945f1f127af0c2369ea9ba1d1cc47d19939399c932ae92c3b0c552f3fd52"
+    },
+    "sdkProvider": {
+      "log": "/tmp/rpi-bounded-tool-sdk-provider.log",
+      "sha256": "3aa2c0dfd9cc3b8b275de7f7db4f2c0dd04ab75aa0b127bc24d5d39566d6a258"
+    },
+    "installedCursor": {
+      "log": "/tmp/rpi-cursor-bounded-tool-dll-host.log",
+      "sha256": "b9c38941841c7e9d06f84fcf0a3bf875565a6e45475ba6b3742631d7fd082b3a",
+      "passed": 3
+    }
+  },
+  "assertions": [
+    "Provider and tool bridges share the existing count/byte queue algorithm",
+    "Both legacy and wake-capable tools stop at 64 queued progress items with a stalled consumer",
+    "Cancellation completes producer cleanup before a blocked progress callback returns",
+    "Accepted progress remains ordered and lossless through terminal draining",
+    "Oversized progress exclusively occupies the byte budget and is freed after receiver drop",
+    "Destroy occurs once with serialized foreign calls",
+    "Idle wake populations 1/64/256 retain zero blocking workers"
+  ],
+  "review": "Manual exact-diff review of extracted queue algorithm, provider cancellation ownership, both tool producers, async capacity waits, callback deallocation, drop guards, fixtures and documentation. No ABI offsets, workspace versions or dependencies changed.",
+  "notTested": [
+    "Total allocator memory ceilings; accounting is incoming queued JSON weight",
+    "Full release performance matrix",
+    "macOS and Windows native loading"
+  ]
+}

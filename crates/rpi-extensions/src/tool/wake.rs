@@ -221,7 +221,7 @@ impl PluginToolAdapter {
         }
         let params = params.to_string();
         let id = tool_call_id.to_owned();
-        let (sender, mut partials) = mpsc::unbounded_channel();
+        let (sender, mut partials) = partial_channel(signal.clone());
         let (done_tx, mut done_rx) = oneshot::channel();
         let driver = Driver(Some(DriverState {
             functions: self.handle,
@@ -281,7 +281,11 @@ impl PluginToolAdapter {
                         Step::Err(error) => break Err(AgentError::Tool(error)),
                         Step::Pending(progress) => {
                             if !progress.is_empty() {
-                                let _ = driver.callback.sender.send(json_to_result(&progress));
+                                let _ = driver
+                                    .callback
+                                    .sender
+                                    .send_async(json_to_result(&progress), progress.len())
+                                    .await;
                             }
                             tokio::select! {
                                 _ = driver.registration.notify.notified() => {},
@@ -333,6 +337,8 @@ mod tests {
         callback: Mutex<Option<(ToolWakeCb, usize)>>,
         wake_during_install: AtomicBool,
         wake_during_poll: AtomicBool,
+        partial_count: usize,
+        partials_sent: AtomicUsize,
     }
     static STATES: OnceLock<Mutex<HashMap<String, Arc<State>>>> = OnceLock::new();
     static HANDLES: rpi_plugin_sdk::handles::ToolHandles<Arc<State>> =
@@ -378,10 +384,27 @@ mod tests {
             }
         }
     }
-    extern "C" fn poll(handle: StepHandle, _: Option<ToolPartialCb>, _: *mut c_void) -> StepResult {
+    extern "C" fn poll(
+        handle: StepHandle,
+        callback: Option<ToolPartialCb>,
+        data: *mut c_void,
+    ) -> StepResult {
         let state = state(handle);
         let _active = enter(&state);
         let polls = state.polls.fetch_add(1, Ordering::SeqCst);
+        if state.partial_count > 0 {
+            for index in 0..state.partial_count {
+                callback.unwrap()(
+                    StbString::from_string(
+                        serde_json::json!({"content":[{"type":"text","text":index.to_string()}]})
+                            .to_string(),
+                    ),
+                    data,
+                );
+                state.partials_sent.fetch_add(1, Ordering::SeqCst);
+            }
+            return StepResult::done(StbString::from_string("{}".into()));
+        }
         while state.blocked.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -462,6 +485,85 @@ mod tests {
                 .execute(&id, Value::Null, signal, Arc::new(|_| {}))
                 .await
         })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn slow_progress_consumers_bound_both_drivers_and_cancellation_releases_the_producer() {
+        struct Release(Arc<(Mutex<bool>, std::sync::Condvar)>);
+        impl Drop for Release {
+            fn drop(&mut self) {
+                *self.0 .0.lock().unwrap() = true;
+                self.0 .1.notify_all();
+            }
+        }
+        for wake in [false, true] {
+            for cancel in [false, true] {
+                let state = Arc::new(State {
+                    partial_count: 128,
+                    ..Default::default()
+                });
+                let (id, mut adapter) = adapter(&state);
+                if !wake {
+                    Arc::get_mut(&mut adapter).unwrap().handle.set_waker_fn = None;
+                }
+                let signal = CancellationToken::new();
+                let child_signal = signal.clone();
+                let gate = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
+                let release = Release(gate.clone());
+                let seen = Arc::new(Mutex::new(Vec::new()));
+                let updates = seen.clone();
+                let task = tokio::spawn(async move {
+                    adapter
+                        .execute(
+                            &id,
+                            Value::Null,
+                            child_signal,
+                            Arc::new(move |partial| {
+                                let text = match &partial.content[0] {
+                                    TextContentOrImage::Text(text) => text.text.clone(),
+                                    _ => panic!("expected text"),
+                                };
+                                let first = {
+                                    let mut seen = updates.lock().unwrap();
+                                    seen.push(text);
+                                    seen.len() == 1
+                                };
+                                if first {
+                                    let mut ready = gate.0.lock().unwrap();
+                                    while !*ready {
+                                        ready = gate.1.wait(ready).unwrap();
+                                    }
+                                }
+                            }),
+                        )
+                        .await
+                });
+                until(|| state.partials_sent.load(Ordering::SeqCst) == 65).await;
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                assert_eq!(state.partials_sent.load(Ordering::SeqCst), 65);
+                assert!(!task.is_finished());
+                if cancel {
+                    signal.cancel();
+                    until(|| state.destroys.load(Ordering::SeqCst) == 1).await;
+                    assert_eq!(state.cancels.load(Ordering::SeqCst), 1);
+                }
+                drop(release);
+                let result = tokio::time::timeout(Duration::from_secs(5), task)
+                    .await
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(result.is_err(), cancel);
+                let count = if cancel { 65 } else { 128 };
+                assert_eq!(
+                    *seen.lock().unwrap(),
+                    (0..count)
+                        .map(|index| index.to_string())
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(state.destroys.load(Ordering::SeqCst), 1);
+                assert_eq!(state.max_active.load(Ordering::SeqCst), 1);
+            }
+        }
     }
 
     extern "C" fn owned_execute(
