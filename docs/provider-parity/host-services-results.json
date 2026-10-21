@@ -1,0 +1,77 @@
+{
+  "status": "host-infrastructure-not-package-parity",
+  "platform": "linux",
+  "checks": [
+    {
+      "command": "RUSTFLAGS='-D warnings' cargo test -p rpi-extensions --lib --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-services-extensions-final-4.log",
+      "sha256": "198bdcaa0a3687953a8c2ddb0af82a4f871f6a5612cb3325582f1cbc0144afa0",
+      "testTotals": {
+        "passed": 177,
+        "failed": 0,
+        "ignored": 1
+      }
+    },
+    {
+      "command": "RUSTFLAGS='-D warnings' cargo test -p rpi-plugin-sdk --features provider --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-services-sdk-final.log",
+      "sha256": "b1d276828e45628dd7d0603341b5734b7eac2c4243437721c5cf5f4115cfc56d",
+      "testTotals": {
+        "passed": 67,
+        "failed": 0,
+        "ignored": 3
+      }
+    },
+    {
+      "command": "RUSTFLAGS='-D warnings' cargo +1.78.0 check --workspace --all-targets --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-services-msrv-final.log",
+      "sha256": "9cd10bc0bf57afc258eac374978c96a30cfa7a7dca5ea090d0ad37971445da00",
+      "testTotals": null
+    },
+    {
+      "command": "RUSTFLAGS='-D warnings' cargo test -p rpi-cli --test provider_packages native_ --locked -- --ignored",
+      "status": "passed",
+      "log": "/tmp/rpi-services-native-final.log",
+      "sha256": "5ac4feffbbfdc15532ed2c435a71c019ba3ca742c7da72b6f5fd3204ee54a3f5",
+      "testTotals": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "RPI_TEST_STUB_LIBRARY=/tmp/rpi-provider-baseline-abi/libplugin_stub.so RUSTFLAGS='-D warnings' cargo test -p rpi-extensions --test plugin_stub_smoke --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-services-old-library.log",
+      "sha256": "94c16512f6a59006619940afd9cf68e17521b1b34d13fee772093d4be910b075",
+      "testTotals": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 1
+      }
+    }
+  ],
+  "requiredNotTested": [
+    "Multiprovider account inventory/change services and compatible Fabric fixture",
+    "macOS/Windows library execution",
+    "All three candidate packages together",
+    "Live inference"
+  ],
+  "earlierFailures": [
+    {
+      "log": "/tmp/rpi-services-tests-2.log",
+      "reason": "Drop implementation required explicit construction of ToolExecutionScope fields; corrected"
+    },
+    {
+      "log": "/tmp/rpi-services-extensions-final.log",
+      "reason": "New nested-wrapper fixture used wrong continuation key; corrected"
+    },
+    {
+      "log": "/tmp/rpi-services-extensions-final-3.log",
+      "reason": "New fixture returned an unfinished assistant message; corrected"
+    }
+  ]
+}

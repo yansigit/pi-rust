@@ -3,7 +3,12 @@
 use crate::ActionBridge;
 use rpi_plugin_sdk::{AuthRequestControl, StbString, StbStringRef};
 use serde_json::{json, Value};
-use std::{ffi::c_void, sync::mpsc, time::Duration};
+use std::{
+    collections::HashMap,
+    ffi::c_void,
+    sync::{mpsc, Arc, Mutex, OnceLock},
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
@@ -23,6 +28,70 @@ pub trait NativeProviderRuntime: Send + Sync {
         args: Value,
         signal: CancellationToken,
     ) -> Result<Value, String>;
+}
+
+struct Lease {
+    bridge: Arc<ActionBridge>,
+}
+static LEASES: OnceLock<Mutex<HashMap<usize, Lease>>> = OnceLock::new();
+fn leases() -> &'static Mutex<HashMap<usize, Lease>> {
+    LEASES.get_or_init(Mutex::default)
+}
+
+pub(crate) fn retire_owner(owner: u64) {
+    let removed = {
+        let mut leases = leases().lock().unwrap_or_else(|e| e.into_inner());
+        let ids: Vec<_> = leases
+            .iter()
+            .filter(|(_, lease)| {
+                lease
+                    .bridge
+                    .native_owner()
+                    .is_some_and(|known| known.id == owner)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| {
+                ActionBridge::remove_handle(id);
+                leases.remove(&id)
+            })
+            .collect::<Vec<_>>()
+    };
+    drop(removed);
+}
+
+/// Acquire (0) or release (1) an opaque runtime context, never a raw bridge pointer.
+pub(crate) extern "C" fn context(operation: u32, handle: *mut c_void) -> *mut c_void {
+    rpi_plugin_sdk::guard_or(std::ptr::null_mut(), || {
+        if operation == 1 {
+            let removed = {
+                let mut leases = leases().lock().unwrap_or_else(|e| e.into_inner());
+                let removed = leases.remove(&(handle as usize));
+                if removed.is_some() {
+                    ActionBridge::remove_handle(handle as usize);
+                }
+                removed
+            };
+            drop(removed);
+            return std::ptr::null_mut();
+        }
+        if operation != 0 {
+            return std::ptr::null_mut();
+        }
+        let Some(bridge) =
+            ActionBridge::native_invocation(handle as usize).filter(|b| b.is_active())
+        else {
+            return std::ptr::null_mut();
+        };
+        let mut leases = leases().lock().unwrap_or_else(|e| e.into_inner());
+        if !bridge.is_active() || leases.len() >= 4096 {
+            return std::ptr::null_mut();
+        }
+        let id = bridge.new_handle() as usize;
+        leases.insert(id, Lease { bridge });
+        id as *mut c_void
+    })
 }
 
 pub(crate) extern "C" fn request(
@@ -60,8 +129,24 @@ pub(crate) extern "C" fn request(
             let (sender, receiver) = mpsc::sync_channel(1);
             let host = bridge.host.clone();
             let work_signal = signal.clone();
+            let services = bridge.services.clone();
+            let operation = bridge.operation.clone();
+            let tool_scope = bridge.tool_scope.clone();
             bridge.runtime.spawn(async move {
-                let result = host.native_request(owner, args, work_signal).await;
+                let work = async move {
+                    if args["port"] == "services" {
+                        services.request(owner, args, work_signal).await
+                    } else {
+                        host.native_request(owner, args, work_signal).await
+                    }
+                };
+                let result = rpi_agent::tool_execution_scope::inherit(tool_scope, async move {
+                    match operation {
+                        Some(identity) => rpi_ai::identity::scope(identity, work).await,
+                        None => work.await,
+                    }
+                })
+                .await;
                 let _ = sender.send(result);
             });
             loop {

@@ -1637,6 +1637,10 @@ pub struct PluginApi {
     /// Awaited, ordered event callbacks. Request and response use the versioned JSON event contract.
     pub register_event_result_handler:
         Option<extern "C" fn(EventTag, AuthRequestFn, FreeStringFn, *mut c_void) -> i32>,
+    /// Session-scoped versioned private services and bounded notifications.
+    pub register_service: Option<RegisterProviderAuthFn>,
+    /// Acquire (0) / release (1) an invocation context across foreign worker threads.
+    pub native_context: Option<extern "C" fn(u32, *mut c_void) -> *mut c_void>,
 }
 unsafe impl Send for PluginApi {}
 unsafe impl Sync for PluginApi {}
@@ -2037,6 +2041,8 @@ mod tests {
             native_request: None,
             register_provider_runtime: None,
             register_event_result_handler: None,
+            register_service: None,
+            native_context: None,
         };
         // All optional slots are null → plugin must degrade.
         assert!(api.register_tool.is_none());
@@ -2148,6 +2154,14 @@ mod tests {
         );
         assert_eq!(
             size_of::<PluginApi>(),
+            core::mem::offset_of!(PluginApi, native_context) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, native_context),
+            core::mem::offset_of!(PluginApi, register_service) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, register_service),
             core::mem::offset_of!(PluginApi, register_event_result_handler) + size_of::<usize>()
         );
         assert_eq!(
@@ -2252,6 +2266,8 @@ mod tests {
             native_request: None,
             register_provider_runtime: None,
             register_event_result_handler: None,
+            register_service: None,
+            native_context: None,
         }
     }
 
@@ -2312,6 +2328,8 @@ mod tests {
             core::mem::offset_of!(PluginApi, native_request),
             core::mem::offset_of!(PluginApi, register_provider_runtime),
             core::mem::offset_of!(PluginApi, register_event_result_handler),
+            core::mem::offset_of!(PluginApi, register_service),
+            core::mem::offset_of!(PluginApi, native_context),
         ] {
             let mut api = entrypoint_test_api();
             api.struct_size = size as u32;
@@ -2344,6 +2362,8 @@ mod tests {
                     assert!(api.native_request.is_none());
                     assert!(api.register_provider_runtime.is_none());
                     assert!(api.register_event_result_handler.is_none());
+                    assert!(api.register_service.is_none());
+                    assert!(api.native_context.is_none());
                     assert!(
                         api.register_provider.is_some(),
                         "one-shot fallback remains available"

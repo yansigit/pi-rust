@@ -32,6 +32,20 @@ extern "C" fn operations(
         0
     })
 }
+extern "C" fn service(
+    input: StbStringRef,
+    _: *const AuthRequestControl,
+    out: *mut StbString,
+    _: *mut c_void,
+) -> i32 {
+    guard_or(1, || {
+        let input: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+        unsafe {
+            *out = StbString::from_string(json!({"version":1,"result":input}).to_string());
+        }
+        0
+    })
+}
 extern "C" fn startup(_: StablePluginEvent, context: *mut c_void) -> i32 {
     guard_or(1, || {
         let api = unsafe { &*context.cast::<PluginApi>() };
@@ -42,6 +56,15 @@ extern "C" fn startup(_: StablePluginEvent, context: *mut c_void) -> i32 {
             .unwrap();
         runtime.block_on(async {
             let call = |args| client.request(args, rpi_ai::SimpleStreamOptions::default().signal);
+            let listed = call(json!({"port":"services","action":"list"})).await.unwrap();
+            assert!(listed.as_array().unwrap().iter().any(|service| service["id"] == "stub-accounts"));
+            let subscription = call(json!({"port":"services","action":"subscribe","service":"stub-accounts","serviceVersion":1,"topic":"changed"})).await.unwrap();
+            call(json!({"port":"services","action":"publish","service":"stub-accounts","serviceVersion":1,"topic":"changed","value":{"label":"fixture"}})).await.unwrap();
+            let event = call(json!({"port":"services","action":"next","subscription":subscription["subscription"]})).await.unwrap();
+            assert_eq!(event["value"]["label"], "fixture");
+            assert_eq!(event["sequence"], 1);
+            call(json!({"port":"services","action":"unsubscribe","subscription":subscription["subscription"]})).await.unwrap();
+            eprintln!("native services fixture passed");
             let before = call(json!({"port":"providers","action":"inspect"})).await.unwrap();
             let revision = before["revision"].as_u64().unwrap();
             let refreshed = call(json!({"port":"providers","action":"refresh","providerId":"stub-provider","allowNetwork":false})).await.unwrap();
@@ -80,7 +103,7 @@ extern "C" fn event(
     input: StbStringRef,
     _: *const AuthRequestControl,
     out: *mut StbString,
-    _: *mut c_void,
+    context: *mut c_void,
 ) -> i32 {
     guard_or(1, || {
         let request: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
@@ -88,6 +111,21 @@ extern "C" fn event(
         assert!(request["identity"]["operationId"].is_string());
         assert!(request["identity"]["sessionId"].is_string());
         let result = if tag == EventTag::BeforeAgentStart as u64 {
+            let api = unsafe { &*context.cast::<PluginApi>() };
+            let client = provider::native::Client::new(api)
+                .unwrap()
+                .scoped()
+                .unwrap();
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .unwrap();
+            let result = runtime.block_on(async move {
+                tokio::spawn(async move { client.request(json!({"port":"services","action":"call","service":"stub-accounts","serviceVersion":1,"method":"resolve"}), rpi_ai::SimpleStreamOptions::default().signal).await }).await.unwrap().unwrap()
+            });
+            assert_eq!(result["identity"], request["identity"]);
+            eprintln!("native scoped services fixture passed");
             eprintln!("native operation start fixture passed");
             json!({"systemPrompt":"native fixture system prompt", "message":{
                 "customType":"native-fixture", "content":"native custom context", "display":false
@@ -124,12 +162,31 @@ pub fn register(api: &PluginApi) -> Result<(), String> {
     let result_events = api
         .register_event_result_handler
         .ok_or("missing awaited events")?;
+    let context = Box::into_raw(Box::new(*api)).cast();
+    if lifecycle(begin, finish, context) != 0 {
+        unsafe {
+            drop(Box::from_raw(context.cast::<PluginApi>()));
+        }
+        return Err("lifecycle registration failed".into());
+    }
+    let register_service = api.register_service.ok_or("missing native services")?;
+    if register_service(
+        StbStringRef::from_str(
+            r#"{"version":1,"id":"stub-accounts","serviceVersion":1,"methods":["resolve"],"topics":["changed"]}"#,
+        ),
+        service,
+        callbacks::free_string,
+        std::ptr::null_mut(),
+    ) != 0
+    {
+        return Err("service registration failed".into());
+    }
     for tag in [
         EventTag::BeforeAgentStart,
         EventTag::Context,
         EventTag::MessageEnd,
     ] {
-        if result_events(tag, event, callbacks::free_string, std::ptr::null_mut()) != 0 {
+        if result_events(tag, event, callbacks::free_string, context) != 0 {
             return Err("event registration failed".into());
         }
     }
@@ -145,13 +202,6 @@ pub fn register(api: &PluginApi) -> Result<(), String> {
     ) != 0
     {
         return Err("provider operations registration failed".into());
-    }
-    let context = Box::into_raw(Box::new(*api)).cast();
-    if lifecycle(begin, finish, context) != 0 {
-        unsafe {
-            drop(Box::from_raw(context.cast::<PluginApi>()));
-        }
-        return Err("lifecycle registration failed".into());
     }
     if events(EventTag::SessionStart, startup, context) != 0 {
         return Err("startup registration failed".into());

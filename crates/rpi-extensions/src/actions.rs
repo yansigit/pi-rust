@@ -545,7 +545,11 @@ pub trait RuntimeActionHost: Send + Sync {
 /// owns its invocation bridge through its last foreign callback. Failed reloads
 /// and dropped candidate sessions cannot leave dereferenceable dangling pointers.
 pub struct ActionBridge {
+    handle: OnceLock<usize>,
     generation: String,
+    pub(crate) services: Arc<crate::services::Services>,
+    pub(crate) operation: Option<rpi_ai::identity::RequestIdentity>,
+    pub(crate) tool_scope: Option<Arc<rpi_agent::tool_execution_scope::ToolExecutionScope>>,
     /// Some(child) only for a live host-created tool invocation.
     invocation: Option<(bool, String, tokio_util::sync::CancellationToken)>,
     execution_context: Option<serde_json::Value>,
@@ -578,24 +582,24 @@ pub struct ActionBridge {
 impl ActionBridge {
     /// Stable opaque context, valid only while this bridge is retained.
     pub fn user_data(self: &Arc<Self>) -> *mut c_void {
+        *self.handle.get_or_init(|| self.new_handle() as usize) as *mut c_void
+    }
+    pub(crate) fn new_handle(self: &Arc<Self>) -> *mut c_void {
         static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
-        let mut registry = bridges().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((&id, _)) = registry
-            .iter()
-            .find(|(_, weak)| weak.as_ptr() == Arc::as_ptr(self))
-        {
-            return id as *mut c_void;
-        }
-        let mut id = NEXT.load(Ordering::Relaxed);
-        loop {
-            let next = id.checked_add(1).expect("runtime handle space exhausted");
-            match NEXT.compare_exchange_weak(id, next, Ordering::Relaxed, Ordering::Relaxed) {
-                Ok(_) => break,
-                Err(current) => id = current,
-            }
-        }
-        registry.insert(id, Arc::downgrade(self));
+        let id = NEXT
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+            .expect("runtime handle space exhausted");
+        bridges()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, Arc::downgrade(self));
         id as *mut c_void
+    }
+    pub(crate) fn remove_handle(id: usize) {
+        bridges()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
     }
     pub fn generation(&self) -> &str {
         &self.generation
@@ -633,7 +637,12 @@ impl ActionBridge {
         signal: tokio_util::sync::CancellationToken,
     ) -> Arc<Self> {
         Arc::new(Self {
+            handle: OnceLock::new(),
             invocation: Some((child, uuid::Uuid::new_v4().to_string(), signal)),
+            services: self.services.clone(),
+            operation: rpi_ai::identity::current().or_else(|| self.operation.clone()),
+            tool_scope: rpi_agent::tool_execution_scope::current_scope()
+                .or_else(|| self.tool_scope.clone()),
             execution_context: rpi_agent::tool_execution_scope::execution_context(),
             stdio: self.stdio.clone(),
             plugin_identity: self.plugin_identity.clone(),
@@ -661,7 +670,11 @@ impl ActionBridge {
     /// target runtime (pi-cli builds the bridge on the async main thread).
     pub fn new(runtime: Handle, host: Arc<dyn RuntimeActionHost>) -> Arc<Self> {
         Arc::new(Self {
+            handle: OnceLock::new(),
             invocation: None,
+            services: Arc::new(crate::services::Services::default()),
+            operation: None,
+            tool_scope: None,
             execution_context: None,
             stdio: crate::StdioLifecycle::default(),
             plugin_identity: None,
@@ -701,7 +714,11 @@ impl ActionBridge {
         ui_dialog: UiDialogMailbox,
     ) -> Arc<Self> {
         Arc::new(Self {
+            handle: OnceLock::new(),
             invocation: None,
+            services: Arc::new(crate::services::Services::default()),
+            operation: None,
+            tool_scope: None,
             execution_context: None,
             stdio: crate::StdioLifecycle::default(),
             plugin_identity: None,
@@ -727,7 +744,11 @@ impl ActionBridge {
         editor_text: crate::editor_text::EditorTextMailbox,
     ) -> Arc<Self> {
         Arc::new(Self {
+            handle: OnceLock::new(),
             invocation: None,
+            services: Arc::new(crate::services::Services::default()),
+            operation: None,
+            tool_scope: None,
             execution_context: None,
             stdio: crate::StdioLifecycle::default(),
             plugin_identity: None,
@@ -751,7 +772,11 @@ impl ActionBridge {
             .unwrap_or_else(|e| e.into_inner())
             .push(owner);
         Arc::new(Self {
+            handle: OnceLock::new(),
             invocation: None,
+            services: self.services.clone(),
+            operation: None,
+            tool_scope: None,
             execution_context: None,
             component_owners: self.component_owners.clone(),
             stdio: self.stdio.clone(),
@@ -806,6 +831,7 @@ impl ActionBridge {
     /// the old `user_data` pointer fail fast with a staleness error instead of
     /// driving the swapped-out session. Idempotent.
     pub fn invalidate(&self) {
+        self.services.close();
         let owners = {
             let owners = self
                 .component_owners
@@ -820,6 +846,7 @@ impl ActionBridge {
         // Host cancellation may contend with a job publishing through its
         // sink. Never invoke it while holding the sink's lifecycle gate.
         for owner in owners {
+            crate::native::retire_owner(owner);
             self.host.cancel_child_agents(owner);
             self.host.cancel_side_questions(owner);
         }
@@ -2128,6 +2155,7 @@ impl Drop for ActionBridge {
         }
         if let Some((owner, _)) = &self.plugin_identity {
             self.ext_status.remove_owner(*owner);
+            self.services.remove_owner(*owner);
             self.host.cancel_child_agents(*owner);
             self.host.cancel_side_questions(*owner);
         }

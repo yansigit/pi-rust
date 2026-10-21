@@ -123,6 +123,7 @@ pub mod provider_runtime;
 mod registry;
 mod resources;
 pub mod result_events;
+pub mod services;
 mod status;
 mod stdio;
 mod tool;
@@ -218,6 +219,12 @@ impl HostApi {
             .shutting_down
             .swap(true, std::sync::atomic::Ordering::AcqRel)
         {
+            if let Some(owner) = self.action_bridge.as_ref().and_then(|b| b.native_owner()) {
+                native::retire_owner(owner.id);
+                if let Some(bridge) = &self.action_bridge {
+                    bridge.services.remove_owner(owner.id);
+                }
+            }
             let lifecycle = self.lifecycle.lock().unwrap().clone();
             for lifecycle in lifecycle {
                 (lifecycle.begin)(lifecycle.user_data);
@@ -323,6 +330,8 @@ impl HostApi {
             native_request: Some(native::request),
             register_provider_runtime: Some(trampoline_register_provider_runtime),
             register_event_result_handler: Some(trampoline_register_event_result_handler),
+            register_service: Some(trampoline_register_service),
+            native_context: Some(native::context),
             register_command: Some(trampoline_register_command),
             register_shortcut: Some(trampoline_register_shortcut),
             register_flag: Some(trampoline_register_flag),
@@ -699,6 +708,7 @@ extern "C" fn trampoline_register_provider(
     }
     // SAFETY: the plugin guarantees the refs are valid for this call.
     let record = crate::registry::RegisteredProvider {
+        action_bridge: with_current_api(|api| api.action_bridge.clone()).flatten(),
         provider_id: unsafe { provider_id.as_str().to_string() },
         base_url: unsafe { base_url.as_str().to_string() },
         api_style: unsafe { api_style.as_str().to_string() },
@@ -752,6 +762,7 @@ extern "C" fn trampoline_register_streaming_provider(
     // The one-shot slot stays non-null (a placeholder that fails loudly) so the
     // record is uniform: the host prefers `stream_fn` whenever it is present.
     let record = crate::registry::RegisteredProvider {
+        action_bridge: with_current_api(|api| api.action_bridge.clone()).flatten(),
         provider_id: unsafe { provider_id.as_str().to_string() },
         base_url: unsafe { base_url.as_str().to_string() },
         api_style: unsafe { api_style.as_str().to_string() },
@@ -835,6 +846,7 @@ extern "C" fn trampoline_register_provider_wrapper(
         return -2;
     };
     let record = RegisteredWrapper {
+        action_bridge: with_current_api(|api| api.action_bridge.clone()).flatten(),
         plugin,
         manifest,
         stream,
@@ -876,6 +888,38 @@ extern "C" fn trampoline_register_credential_store(
         Some(Some(duplicate)) => i32::from(duplicate),
         _ => -1,
     }
+}
+
+extern "C" fn trampoline_register_service(
+    manifest: StbStringRef,
+    request: rpi_plugin_sdk::AuthRequestFn,
+    free: FreeStringFn,
+    context: *mut c_void,
+) -> i32 {
+    rpi_plugin_sdk::guard_or(-1, || {
+        let Ok(manifest) = services::ServiceManifest::parse(unsafe { manifest.as_str() }) else {
+            return -2;
+        };
+        match with_current_api(|api| {
+            let bridge = api.action_bridge.as_ref()?;
+            let owner = bridge.native_owner()?;
+            api.with_registry(|registry| {
+                registry.register_service(services::RegisteredService {
+                    manifest,
+                    callback: private_callback::Callback {
+                        request,
+                        free,
+                        context,
+                    },
+                    bridge: Arc::downgrade(bridge),
+                    owner,
+                })
+            })
+        }) {
+            Some(Some(duplicate)) => i32::from(duplicate),
+            _ => -1,
+        }
+    })
 }
 
 extern "C" fn trampoline_register_provider_runtime(

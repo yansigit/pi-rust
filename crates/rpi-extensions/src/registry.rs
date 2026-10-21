@@ -213,6 +213,7 @@ unsafe impl Sync for BeforeAgentStartHandler {}
 /// `user_data`.
 #[derive(Clone)]
 pub struct RegisteredProvider {
+    pub action_bridge: Option<Arc<crate::ActionBridge>>,
     pub provider_id: String,
     pub base_url: String,
     pub api_style: String,
@@ -366,6 +367,7 @@ pub struct ExtensionRegistry {
     oauth_providers: Vec<RegisteredOAuthProvider>,
     auth_providers: Vec<crate::provider_auth::RegisteredAuthProvider>,
     provider_runtimes: Vec<crate::provider_runtime::RegisteredProviderRuntime>,
+    services: Vec<crate::services::RegisteredService>,
     credential_stores: Vec<crate::credential_store::RegisteredCredentialStore>,
     provider_wrappers: Vec<crate::provider::wrappers::RegisteredWrapper>,
     /// Registered renderers (B5c), split by kind at registration. First-wins on
@@ -414,6 +416,7 @@ impl ExtensionRegistry {
             oauth_providers: Vec::new(),
             auth_providers: Vec::new(),
             provider_runtimes: Vec::new(),
+            services: Vec::new(),
             credential_stores: Vec::new(),
             provider_wrappers: Vec::new(),
             renderers: Vec::new(),
@@ -793,6 +796,17 @@ impl ExtensionRegistry {
         false
     }
 
+    pub(crate) fn register_service(&mut self, service: crate::services::RegisteredService) -> bool {
+        if self.services.iter().any(|known| {
+            known.manifest.id == service.manifest.id
+                && known.manifest.service_version == service.manifest.service_version
+        }) {
+            return true;
+        }
+        self.services.push(service);
+        false
+    }
+
     pub fn register_provider_runtime(
         &mut self,
         provider: crate::provider_runtime::RegisteredProviderRuntime,
@@ -891,6 +905,7 @@ impl ExtensionRegistry {
             oauth_providers: self.oauth_providers.clone(),
             auth_providers: self.auth_providers.clone(),
             provider_runtimes: self.provider_runtimes.clone(),
+            services: self.services.clone(),
             credential_stores: self.credential_stores.clone(),
             provider_wrappers: self.provider_wrappers.clone(),
             renderers: self.renderers.clone(),
@@ -1021,6 +1036,9 @@ impl ExtensionRegistry {
         for store in other.credential_stores.drain(..) {
             self.register_credential_store(store);
         }
+        for service in other.services {
+            self.register_service(service);
+        }
         for provider in other.provider_runtimes {
             self.register_provider_runtime(provider);
         }
@@ -1070,6 +1088,7 @@ pub struct RegistrySnapshot {
     oauth_providers: Vec<RegisteredOAuthProvider>,
     auth_providers: Vec<crate::provider_auth::RegisteredAuthProvider>,
     provider_runtimes: Vec<crate::provider_runtime::RegisteredProviderRuntime>,
+    services: Vec<crate::services::RegisteredService>,
     credential_stores: Vec<crate::credential_store::RegisteredCredentialStore>,
     provider_wrappers: Vec<crate::provider::wrappers::RegisteredWrapper>,
     renderers: Vec<RegisteredRenderer>,
@@ -1081,6 +1100,9 @@ pub struct RegistrySnapshot {
 }
 
 impl RegistrySnapshot {
+    pub(crate) fn services(&self) -> &[crate::services::RegisteredService] {
+        &self.services
+    }
     pub fn provider_runtimes(&self) -> &[crate::provider_runtime::RegisteredProviderRuntime] {
         &self.provider_runtimes
     }
@@ -1473,6 +1495,7 @@ mod provider_manifest_tests {
     }
     fn record() -> RegisteredProvider {
         RegisteredProvider {
+            action_bridge: None,
             provider_id: "package".into(),
             base_url: "http://localhost".into(),
             api_style: "openai-completions".into(),

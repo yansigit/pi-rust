@@ -41,6 +41,7 @@ fn runtime_shutdown_keeps_one_shot_provider_and_child_capacity_until_ffi_returns
     runtime.block_on(async {
         let provider = PluggableProvider::new(
             RegisteredProvider {
+                action_bridge: None,
                 provider_id: "paused".into(),
                 base_url: "https://example".into(),
                 api_style: "faux".into(),

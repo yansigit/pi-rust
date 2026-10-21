@@ -70,6 +70,7 @@ pub mod wrappers;
 /// Reserve child capacity before spawning the producer; move this ownership
 /// into the foreign driver so runtime shutdown cannot unload executing code.
 struct ProviderRequestLifetime {
+    invocation: Option<Arc<crate::ActionBridge>>,
     _keepalive: Arc<PluginKeepalive>,
     _background: Option<rpi_agent::tool_execution_scope::BackgroundToolGuard>,
     continuation: Option<Arc<wrappers::Continuation>>,
@@ -80,6 +81,7 @@ impl ProviderRequestLifetime {
             _keepalive: keepalive,
             _background: rpi_agent::tool_execution_scope::track_background_tool(),
             continuation: None,
+            invocation: None,
         }
     }
 }
@@ -267,6 +269,16 @@ impl Provider for PluggableProvider {
         // so a single clone carries every field into the task.
         let mut opts = opts.clone();
         opts.signal = prod.cancellation_token();
+        lifetime.invocation = self.record.action_bridge.as_ref().map(|bridge| {
+            let mut invocation = bridge.for_invocation(
+                rpi_agent::tool_execution_scope::is_child_execution(),
+                opts.signal.clone(),
+            );
+            if let Some(identity) = &opts.identity {
+                Arc::get_mut(&mut invocation).unwrap().operation = Some(identity.clone());
+            }
+            invocation
+        });
         if let Some(wrapper) = &self.wrapper {
             lifetime.continuation = Some(wrapper.continuation(&model, &ctx, &opts));
         }
@@ -350,6 +362,10 @@ async fn drive_plugin_provider(
     let request_model_id = model_id.clone();
     let join = runtime.spawn_blocking(move || {
         let _lifetime = lifetime;
+        let _invocation = _lifetime
+            .invocation
+            .as_ref()
+            .map(|bridge| bridge.enter_invocation());
         run_provider_request(&record, &request_json, &request_model_id)
     });
     let outcome = match join.await {
@@ -605,6 +621,10 @@ async fn drive_streaming_plugin_provider(
         // Cancellation detaches this task; keep the library and host-side
         // context alive until the FFI call and all plugin-owned frees finish.
         let _lifetime = lifetime;
+        let _invocation = _lifetime
+            .invocation
+            .as_ref()
+            .map(|bridge| bridge.enter_invocation());
         run_streaming_provider_request(
             &snapshot_owned,
             &record_owned,
@@ -1170,6 +1190,7 @@ mod tests {
     fn request_fn_round_trip_ok_and_err() {
         let mut registry = ExtensionRegistry::new();
         registry.register_provider(RegisteredProvider {
+            action_bridge: None,
             provider_id: "pluggy".to_string(),
             base_url: "https://example".to_string(),
             api_style: "anthropic-messages".to_string(),
@@ -1202,6 +1223,7 @@ mod tests {
             7
         }
         let err_record = RegisteredProvider {
+            action_bridge: None,
             provider_id: "pluggy".to_string(),
             base_url: "https://example".to_string(),
             api_style: "anthropic-messages".to_string(),
@@ -1264,6 +1286,7 @@ mod tests {
     fn an_aborted_message_terminates_with_aborted_not_error() {
         let (mut prod, mut stream) = create_assistant_message_event_stream();
         let record = RegisteredProvider {
+            action_bridge: None,
             provider_id: "pluggy".to_string(),
             base_url: "https://example".to_string(),
             api_style: "faux".to_string(),
@@ -1292,6 +1315,7 @@ mod tests {
         cancel_provider::OBSERVED.store(0, Ordering::SeqCst);
 
         let record = RegisteredProvider {
+            action_bridge: None,
             provider_id: "cancel-probe".to_string(),
             base_url: "https://example".to_string(),
             api_style: "faux".to_string(),

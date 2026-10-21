@@ -27,13 +27,24 @@ pub fn invocation_signal() -> Option<tokio_util::sync::CancellationToken> {
 pub struct ToolExecutionScope {
     pending: AtomicUsize,
     idle: Notify,
+    stopped: tokio_util::sync::CancellationToken,
     context: Option<serde_json::Value>,
 }
+impl Drop for ToolExecutionScope {
+    fn drop(&mut self) {
+        self.stopped.cancel();
+    }
+}
 impl ToolExecutionScope {
+    pub fn stopped(&self) -> tokio_util::sync::CancellationToken {
+        self.stopped.clone()
+    }
     pub fn with_context(context: serde_json::Value) -> Self {
         Self {
             context: Some(context),
-            ..Default::default()
+            pending: AtomicUsize::new(0),
+            idle: Notify::new(),
+            stopped: tokio_util::sync::CancellationToken::new(),
         }
     }
     pub async fn run<F: Future>(self: &Arc<Self>, future: F) -> F::Output {

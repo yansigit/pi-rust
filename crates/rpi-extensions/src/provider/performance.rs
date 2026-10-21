@@ -220,6 +220,7 @@ fn offline_provider_pipeline() {
                     .unwrap()
                 } else {
                     let record = RegisteredProvider {
+                        action_bridge: None,
                         provider_id: "fixture".into(),
                         base_url: "http://localhost".into(),
                         api_style: "faux".into(),

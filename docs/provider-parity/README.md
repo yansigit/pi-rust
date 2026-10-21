@@ -53,6 +53,12 @@ The native catalog fixture also verifies empty-catalog auth discovery and edits
 through an actually loaded library. [Event evidence](host-events-results.json) records
 the full workspace and targeted regression runs.
 
+[Native services](native-services.md) add versioned private calls, bounded ordered
+subscriptions, child ownership and leased invocation context across foreign workers.
+[Service evidence](host-services-results.json) covers loaded libraries, nested
+wrappers, old-library compatibility and the declared compiler. The multiprovider
+account/Fabric implementations remain pending.
+
 [baseline-results.json](baseline-results.json) records upstream results, lock
 hashes and evidence hashes. All three unchanged suites pass in
 [CI run 39569889592](https://github.com/yansigit/pi-rust/actions/runs/39569889592):
@@ -168,14 +174,14 @@ The executed integration installation's manifest and lock are retained in
 to `REFERENCE_ROOT/integrated/`, then run `npm ci --ignore-scripts` there. The
 manifest's relative tarball paths refer only to those locally built inputs.
 
-The declared Rust 1.78 compiler was checked explicitly: the standalone SDK with
-default features disabled builds, but `rpi-ai --features providers --locked`
-cannot parse the existing `idna_adapter 1.2.2` dependency's Edition 2024 manifest.
-The host lockfile and supported-version declaration were not changed. Resolving
-that baseline compatibility issue is a separate release prerequisite.
+The declared Rust 1.78 compiler now passes the warning-denied workspace/all-targets
+check; [compiler compatibility](compiler-compatibility.json) records the targeted
+lockfile updates and equivalent older standard-library APIs. The supported Rust
+version and workspace versions are unchanged. macOS/Windows execution is pending.
 
-Cursor SDK's installed `LICENSE.md` says use is subject to Cursor's Terms of
-Service. Redistribution review is outstanding; do not vendor its dependencies.
+The [Cursor SDK distribution review](cursor-sdk-distribution.md) requires the
+pinned SDK to be installed separately. Release archives must not vendor its
+proprietary dependencies or platform binaries.
 Antigravity's account-suspension warning and Cursor's native tool/cloud execution
 behavior remain operational risks. This work has performed no live inference or
 remote account/agent mutations.

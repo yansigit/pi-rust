@@ -55,6 +55,7 @@ extern "C" fn private_response(
 async fn private_response_frames_reach_only_the_invoking_observer_and_do_not_start_output() {
     let state = Arc::new(PausedRequest::default());
     let record = RegisteredProvider {
+        action_bridge: None,
         provider_id: "probe".into(),
         base_url: "https://example".into(),
         api_style: "faux".into(),
@@ -161,6 +162,7 @@ extern "C" fn paused_success(
 async fn cancellation_finishes_before_an_uncooperative_plugin_and_retains_its_library() {
     let state = Arc::new(PausedRequest::default());
     let record = RegisteredProvider {
+        action_bridge: None,
         provider_id: "probe".into(),
         base_url: "https://example".into(),
         api_style: "faux".into(),
@@ -390,6 +392,7 @@ async fn saturated_pipeline_cancels_uncommitted_content_and_frees_every_frame() 
         BURST_FREES.store(0, Ordering::SeqCst);
         let state = Arc::new(Burst::default());
         let record = RegisteredProvider {
+            action_bridge: None,
             provider_id: "probe".into(),
             base_url: "http://localhost".into(),
             api_style: "faux".into(),

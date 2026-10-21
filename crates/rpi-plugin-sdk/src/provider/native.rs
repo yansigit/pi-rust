@@ -6,13 +6,37 @@ use tokio_util::sync::CancellationToken;
 #[derive(Clone)]
 pub struct Client {
     api: PluginApi,
+    context: Option<std::sync::Arc<ContextLease>>,
 }
 impl Client {
     pub fn new(api: &PluginApi) -> Result<Self, String> {
         if api.native_request.is_none() {
             return Err("native runtime ports require a newer rpi host".into());
         }
-        Ok(Self { api: *api })
+        Ok(Self {
+            api: *api,
+            context: None,
+        })
+    }
+    /// Call on the foreign callback thread before moving work to a worker/runtime.
+    pub fn scoped(&self) -> Result<Self, String> {
+        let context = self
+            .api
+            .native_context
+            .ok_or("native invocation contexts require a newer rpi host")?;
+        let handle = context(0, self.api.user_data);
+        if handle.is_null() {
+            return Err("native invocation context expired or exhausted".into());
+        }
+        let mut api = self.api;
+        api.user_data = handle;
+        Ok(Self {
+            api,
+            context: Some(std::sync::Arc::new(ContextLease {
+                handle: handle as usize,
+                context,
+            })),
+        })
     }
     pub async fn request(
         &self,
@@ -23,11 +47,16 @@ impl Client {
             .as_object_mut()
             .ok_or("native request must be an object")?;
         object.insert("version".into(), 1.into());
-        let api = self.api;
+        let client = if self.api.native_context.is_some() {
+            self.scoped()?
+        } else {
+            self.clone()
+        };
         let signal = signal.child_token();
         let _cancel = signal.clone().drop_guard();
         tokio::task::spawn_blocking(move || {
-            let api = &api;
+            let api = &client.api;
+            let _context = &client.context;
             let control = AuthRequestControl {
                 struct_size: std::mem::size_of::<AuthRequestControl>() as u32,
                 is_cancelled,
@@ -64,4 +93,14 @@ impl Client {
 }
 extern "C" fn is_cancelled(data: *mut std::ffi::c_void) -> u8 {
     u8::from(unsafe { &*data.cast::<CancellationToken>() }.is_cancelled())
+}
+
+struct ContextLease {
+    handle: usize,
+    context: extern "C" fn(u32, *mut std::ffi::c_void) -> *mut std::ffi::c_void,
+}
+impl Drop for ContextLease {
+    fn drop(&mut self) {
+        (self.context)(1, self.handle as *mut std::ffi::c_void);
+    }
 }

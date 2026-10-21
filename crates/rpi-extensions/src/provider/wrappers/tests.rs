@@ -91,6 +91,7 @@ extern "C" fn wrapper(
 }
 fn register(registry: &mut ExtensionRegistry, wrapper_state: &Wrapper) {
     let record = RegisteredWrapper {
+        action_bridge: None,
         plugin: wrapper_state.name.into(),
         manifest: WrapperManifest::parse(
             &json!({"version":1,"id":"pool","providers":["probe"]}).to_string(),

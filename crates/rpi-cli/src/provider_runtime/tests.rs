@@ -104,6 +104,7 @@ fn fixture_with(
     let mut registry = rpi_extensions::ExtensionRegistry::new();
     registry.register_provider_owned(
         rpi_extensions::RegisteredProvider {
+            action_bridge: None,
             provider_id: "test".into(),
             base_url: "https://provider.invalid".into(),
             api_style: "openai-completions".into(),

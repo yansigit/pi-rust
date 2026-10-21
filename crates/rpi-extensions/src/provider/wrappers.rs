@@ -39,6 +39,7 @@ impl WrapperManifest {
 
 #[derive(Clone)]
 pub struct RegisteredWrapper {
+    pub action_bridge: Option<Arc<crate::ActionBridge>>,
     pub plugin: String,
     pub manifest: WrapperManifest,
     pub stream: ProviderStreamRequestFn,
@@ -79,6 +80,7 @@ pub fn wrap_providers(
                 }
                 next = Arc::new(PluggableProvider {
                     record: RegisteredProvider {
+                        action_bridge: wrapper.action_bridge.clone(),
                         provider_id: next.id().into(),
                         base_url: String::new(),
                         api_style: String::new(),
@@ -111,6 +113,7 @@ fn continuations() -> &'static Mutex<HashMap<String, Weak<Continuation>>> {
 }
 
 pub(super) struct Continuation {
+    tool_scope: Option<Arc<rpi_agent::tool_execution_scope::ToolExecutionScope>>,
     id: String,
     generation: String,
     plugin: String,
@@ -137,6 +140,7 @@ impl WrapperNext {
         options: &SimpleStreamOptions,
     ) -> Arc<Continuation> {
         let value = Arc::new(Continuation {
+            tool_scope: rpi_agent::tool_execution_scope::current_scope(),
             id: uuid::Uuid::new_v4().to_string(),
             generation: self.generation.clone(),
             plugin: self.plugin.clone(),
@@ -161,6 +165,15 @@ impl Drop for Continuation {
     }
 }
 impl Continuation {
+    async fn in_scope<F: std::future::Future>(&self, work: F) -> F::Output {
+        rpi_agent::tool_execution_scope::inherit(self.tool_scope.clone(), async move {
+            match &self.options.identity {
+                Some(identity) => rpi_ai::identity::scope(identity.clone(), work).await,
+                None => work.await,
+            }
+        })
+        .await
+    }
     pub(super) fn descriptor(&self) -> Value {
         json!({"version":1,"id":self.id,"generation":self.generation})
     }
@@ -320,7 +333,7 @@ pub(crate) extern "C" fn continuation_action(
             let task_signal = signal.clone();
             continuation.runtime.spawn(async move {
                 let result = pending
-                    .authenticate(input, task_signal)
+                    .in_scope(pending.authenticate(input, task_signal))
                     .await
                     .map_err(|error| error.to_string());
                 let _ = sender.send(result);
@@ -437,8 +450,15 @@ pub(crate) extern "C" fn delegate_stream(
             let pending = continuation.clone();
             let task_model = model.clone();
             continuation.runtime.spawn(async move {
-                let message =
-                    drive_delegate(&pending.next, &task_model, &context, &options, &sender).await;
+                let message = pending
+                    .in_scope(drive_delegate(
+                        &pending.next,
+                        &task_model,
+                        &context,
+                        &options,
+                        &sender,
+                    ))
+                    .await;
                 let _ = completed.send(message);
             });
             let mut mapper =

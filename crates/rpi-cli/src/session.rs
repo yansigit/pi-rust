@@ -2985,6 +2985,7 @@ mod tests {
         let mut registry = rpi_extensions::ExtensionRegistry::new();
         for id in ["package", "legacy"] {
             registry.register_provider(rpi_extensions::RegisteredProvider {
+                action_bridge: None,
                 provider_id: id.into(),
                 base_url: "http://localhost".into(),
                 api_style: "openai-completions".into(),

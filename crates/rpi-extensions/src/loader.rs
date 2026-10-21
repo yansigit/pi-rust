@@ -439,6 +439,9 @@ impl ExtensionSession {
         loaded_paths: Vec<PathBuf>,
         action_bridge: Option<Arc<ActionBridge>>,
     ) -> Self {
+        if let Some(bridge) = &action_bridge {
+            bridge.services.attach(snapshot.services(), &keepalive);
+        }
         Self {
             keepalive,
             auth_runtime: Arc::new(rpi_ai::auth::AuthRuntime::default()),
@@ -461,6 +464,9 @@ impl ExtensionSession {
 
     /// Cancel plugin background work. Call outside host/session locks.
     pub fn begin_shutdown(&self) {
+        if let Some(bridge) = &self.action_bridge {
+            bridge.services.close();
+        }
         self.auth_runtime.begin_shutdown();
         self.keepalive.begin_shutdown();
     }
@@ -598,13 +604,7 @@ pub fn load_session_mixed(
     let mut keepalive = PluginKeepalive::new(Vec::new(), action_bridge.clone());
     keepalive.plugins = loaded;
     let snapshot = Arc::new(session_registry.snapshot());
-    ExtensionSession {
-        auth_runtime: Arc::new(rpi_ai::auth::AuthRuntime::default()),
-        keepalive: Arc::new(keepalive),
-        snapshot: Some(snapshot),
-        loaded_paths,
-        action_bridge,
-    }
+    ExtensionSession::from_parts(snapshot, Arc::new(keepalive), loaded_paths, action_bridge)
 }
 
 // ---------------------------------------------------------------------------

@@ -997,6 +997,16 @@ fn native_catalog_refresh_and_login_commit_through_loaded_library() {
             ])
             .output()
             .unwrap();
+        for marker in [
+            "native services fixture passed",
+            "native scoped services fixture passed",
+        ] {
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(marker),
+                "missing {marker}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         assert!(
             output.status.success(),
             "{}",
