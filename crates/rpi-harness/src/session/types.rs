@@ -1295,6 +1295,30 @@ pub struct SessionCreateOptions {
 /// single `LaneRecord` type instead of a parallel `NewLaneRecord` enum.
 #[async_trait::async_trait]
 pub trait SessionStorage: Send + Sync {
+    /// An atomic tree view, including revisions that change on branch navigation.
+    async fn snapshot(&self) -> SessionResult<SessionSnapshot> {
+        Err(crate::error::SessionError::storage(
+            "session snapshots are unavailable",
+        ))
+    }
+
+    /// Return an actual stored entry only after the backend's durability barrier.
+    async fn commit_entry(
+        &self,
+        _entry: ProvisionedEntry,
+        _target: AppendTarget,
+    ) -> SessionResult<CommittedEntry> {
+        Err(crate::error::SessionError::storage(
+            "committed session append is unavailable",
+        ))
+    }
+    /// A barrier for acknowledged writes. Memory backends explicitly return Ephemeral.
+    async fn sync(&self) -> SessionResult<rpi_tools::Durability> {
+        Err(crate::error::SessionError::storage(
+            "session durability is unavailable",
+        ))
+    }
+
     fn metadata(&self) -> SessionMetadata;
     async fn get_metadata(&self) -> SessionMetadata {
         self.metadata()
@@ -1334,6 +1358,54 @@ pub trait SessionStorage: Send + Sync {
     async fn get_label(&self, id: &str) -> SessionResult<Option<String>>;
     async fn set_label(&self, id: &str, label: Option<&str>) -> SessionResult<()>;
     async fn get_stats(&self) -> SessionResult<SessionStats>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BranchRevision {
+    pub lane: String,
+    /// Last explicit lane movement; ordinary appends do not change this revision.
+    pub revision: u64,
+    pub leaf_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSnapshot {
+    pub metadata: SessionMetadata,
+    pub revision: u64,
+    pub branches: Vec<BranchRevision>,
+    pub entries: Vec<Entry>,
+    pub name: Option<String>,
+    pub labels: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum AppendTarget {
+    Current {
+        lane: String,
+        branch_revision: u64,
+    },
+    /// A late journal write keeps its anchor and cannot move a different active branch.
+    Origin {
+        lane: String,
+        branch_revision: u64,
+        anchor_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommittedEntry {
+    pub entry: Entry,
+    pub revision: u64,
+    pub advanced_lane: bool,
+    pub durability: rpi_tools::Durability,
 }
 
 /// Repo-level lifecycle. Mirrors TS `SessionRepo`.

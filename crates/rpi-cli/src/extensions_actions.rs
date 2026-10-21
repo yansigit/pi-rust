@@ -84,6 +84,7 @@ pub struct HarnessActionHost {
     tool_context: rpi_extensions::ToolCallContext,
     children: crate::child_agents::ChildAgents,
     side_questions: crate::side_questions::SideQuestions,
+    sessions: Arc<crate::native_sessions::SessionPorts>,
     #[allow(dead_code)]
     runtime: Handle,
 }
@@ -113,6 +114,7 @@ impl HarnessActionHost {
                 tool_context,
                 children: crate::child_agents::ChildAgents::default(),
                 side_questions: crate::side_questions::SideQuestions::default(),
+                sessions: Arc::new(crate::native_sessions::SessionPorts::default()),
                 runtime,
             },
             harness,
@@ -375,6 +377,19 @@ impl RuntimeActionHost for HarnessActionHost {
         args: serde_json::Value,
         signal: tokio_util::sync::CancellationToken,
     ) -> Result<serde_json::Value, String> {
+        if args["port"] == "sessions" {
+            return self
+                .sessions
+                .request(owner, args, signal, || {
+                    Ok(self
+                        .harness()?
+                        .for_current_execution()
+                        .map_err(|error| error.to_string())?
+                        .session()
+                        .storage())
+                })
+                .await;
+        }
         if args["port"] == "tools" {
             let target = self
                 .harness()?
@@ -408,6 +423,12 @@ impl RuntimeActionHost for HarnessActionHost {
             .and_then(std::sync::Weak::upgrade)
             .ok_or("provider runtime is unavailable")?;
         runtime.request(owner, args, signal).await
+    }
+    fn retire_native_owner(&self, owner: u64) {
+        self.sessions.retire(owner);
+    }
+    async fn drain_native_writes(&self, owners: Vec<u64>) {
+        self.sessions.drain(&owners).await;
     }
     async fn install_native_providers(
         &self,

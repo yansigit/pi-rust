@@ -222,6 +222,7 @@ impl HostApi {
             if let Some(owner) = self.action_bridge.as_ref().and_then(|b| b.native_owner()) {
                 native::retire_owner(owner.id);
                 if let Some(bridge) = &self.action_bridge {
+                    bridge.host.retire_native_owner(owner.id);
                     bridge.services.remove_owner(owner.id);
                     bridge.ui_dialog_mailbox().cancel_owner(owner.id);
                 }

@@ -38,6 +38,7 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 base64 = { workspace = true }
 tempfile = { workspace = true }
+same-file = "1.0.6"
 uuid = { workspace = true }
 
 # M4: path resolution, diff/patch, fuzzy-match normalization, shell detection

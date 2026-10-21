@@ -205,6 +205,38 @@ impl InMemorySessionStorage {
 
 #[async_trait]
 impl SessionStorage for InMemorySessionStorage {
+    async fn snapshot(&self) -> SessionResult<super::types::SessionSnapshot> {
+        Ok(self
+            .inner
+            .read_state(|state| state.snapshot(self.metadata.clone())))
+    }
+
+    async fn commit_entry(
+        &self,
+        entry: ProvisionedEntry,
+        target: super::types::AppendTarget,
+    ) -> SessionResult<super::types::CommittedEntry> {
+        self.inner.with_state(|state| {
+            let mutation = state.prepare_commit(entry, target, self.inner.clock.now_ms())?;
+            let SessionMutation::Entry { entry, lane, .. } = &mutation else {
+                unreachable!("prepared entry mutation")
+            };
+            let receipt = super::types::CommittedEntry {
+                entry: entry.clone(),
+                revision: entry.seq(),
+                advanced_lane: lane.is_some(),
+                durability: rpi_tools::Durability::Ephemeral,
+            };
+            state.apply_mutation(mutation)?;
+            Ok(receipt)
+        })
+    }
+
+    async fn sync(&self) -> SessionResult<rpi_tools::Durability> {
+        self.inner.read_state(|_| ());
+        Ok(rpi_tools::Durability::Ephemeral)
+    }
+
     fn metadata(&self) -> SessionMetadata {
         self.metadata.clone()
     }

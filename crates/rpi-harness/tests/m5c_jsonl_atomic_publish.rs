@@ -150,6 +150,135 @@ enum FaultTarget {
     WriteFile,
     /// Inject an error on the next `rename_file`.
     RenameFile,
+    SyncFile,
+    PartialAppend,
+    PauseAfterAppend,
+}
+
+#[tokio::test]
+async fn jsonl_durability_barrier_reports_sync_failure_and_ephemeral_backends() {
+    let base: Arc<dyn FileSystem> = Arc::new(rpi_tools::InMemoryExecutionEnv::new());
+    let faulty = FaultyFs::new(base, FaultTarget::SyncFile);
+    let storage =
+        JsonlSessionStorage::create(faulty, "/session.jsonl", header("sync"), clock(), ids())
+            .await
+            .unwrap();
+    storage
+        .append_entry(note_provisioned("entry"), "main")
+        .await
+        .unwrap();
+    assert!(storage
+        .sync()
+        .await
+        .unwrap_err()
+        .message
+        .contains("injected sync_file failure"));
+    assert!(storage.get_entry("entry").await.unwrap().is_some());
+    assert_eq!(
+        storage.sync().await.unwrap(),
+        rpi_tools::Durability::Ephemeral
+    );
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("new-parent/nested/session.jsonl");
+    let fs: Arc<dyn FileSystem> = Arc::new(rpi_tools::OsExecutionEnv::with_cwd(
+        directory.path().to_owned(),
+    ));
+    let storage =
+        JsonlSessionStorage::create(fs, path.to_str().unwrap(), header("real"), clock(), ids())
+            .await
+            .unwrap();
+    storage
+        .append_entry(note_provisioned("durable"), "main")
+        .await
+        .unwrap();
+    assert_eq!(
+        storage.sync().await.unwrap(),
+        rpi_tools::Durability::Durable
+    );
+    std::fs::remove_file(&path).unwrap();
+    assert!(storage.sync().await.is_err());
+}
+
+#[tokio::test]
+async fn failed_or_cancelled_committed_jsonl_append_requires_recovery_before_more_writes() {
+    use rpi_harness::session::types::AppendTarget;
+    for fault in [
+        FaultTarget::SyncFile,
+        FaultTarget::PartialAppend,
+        FaultTarget::PauseAfterAppend,
+    ] {
+        let base: Arc<dyn FileSystem> = Arc::new(rpi_tools::InMemoryExecutionEnv::new());
+        let path = "/session.jsonl";
+        let initial =
+            JsonlSessionStorage::create(base.clone(), path, header("recovery"), clock(), ids())
+                .await
+                .unwrap();
+        initial
+            .append_entry(note_provisioned("stable"), "main")
+            .await
+            .unwrap();
+        let faulty = FaultyFs::new(base.clone(), fault);
+        let storage = Arc::new(
+            JsonlSessionStorage::load(faulty.clone(), path, clock(), ids())
+                .await
+                .unwrap(),
+        );
+        let work = tokio::spawn({
+            let storage = storage.clone();
+            async move {
+                storage
+                    .commit_entry(
+                        note_provisioned("uncertain"),
+                        AppendTarget::Current {
+                            lane: "main".into(),
+                            branch_revision: 0,
+                        },
+                    )
+                    .await
+            }
+        });
+        if matches!(fault, FaultTarget::PauseAfterAppend) {
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while !base
+                    .read_text_file(path, None)
+                    .await
+                    .unwrap()
+                    .contains("uncertain")
+                {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            work.abort();
+            assert!(work.await.unwrap_err().is_cancelled());
+        } else {
+            assert!(work.await.unwrap().is_err());
+        }
+        let before = base.read_text_file(path, None).await.unwrap();
+        assert!(storage.snapshot().await.is_err());
+        assert!(storage.sync().await.is_err());
+        assert!(storage
+            .append_entry(note_provisioned("must-not-append"), "main")
+            .await
+            .is_err());
+        assert_eq!(base.read_text_file(path, None).await.unwrap(), before);
+        drop(storage);
+        let recovered = JsonlSessionStorage::load(base, path, clock(), ids())
+            .await
+            .unwrap();
+        assert!(recovered.get_entry("stable").await.unwrap().is_some());
+        assert_eq!(
+            recovered.get_entry("uncertain").await.unwrap().is_some(),
+            !matches!(fault, FaultTarget::PartialAppend)
+        );
+        assert!(recovered
+            .get_entry("must-not-append")
+            .await
+            .unwrap()
+            .is_none());
+    }
 }
 
 struct FaultyFs {
@@ -181,11 +310,16 @@ impl FaultyFs {
         let matches = match self.target {
             FaultTarget::WriteFile => is_write,
             FaultTarget::RenameFile => !is_write,
+            FaultTarget::SyncFile | FaultTarget::PartialAppend | FaultTarget::PauseAfterAppend => {
+                false
+            }
         };
         if matches && self.armed.swap(false, Ordering::SeqCst) {
             Some(Self::fault_error(match self.target {
                 FaultTarget::WriteFile => "write_file",
                 FaultTarget::RenameFile => "rename_file",
+                FaultTarget::SyncFile => "sync_file",
+                FaultTarget::PartialAppend | FaultTarget::PauseAfterAppend => "append_file",
             }))
         } else {
             None
@@ -195,6 +329,13 @@ impl FaultyFs {
 
 #[async_trait]
 impl FileSystem for FaultyFs {
+    async fn sync_file(&self, path: &str) -> Result<rpi_tools::Durability, FileError> {
+        if matches!(self.target, FaultTarget::SyncFile) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            return Err(Self::fault_error("sync_file"));
+        }
+        self.inner.sync_file(path).await
+    }
     fn cwd(&self) -> &std::path::Path {
         self.inner.cwd()
     }
@@ -259,6 +400,26 @@ impl FileSystem for FaultyFs {
         content: FileContent,
         cancel: Option<&CancellationToken>,
     ) -> Result<(), FileError> {
+        if matches!(
+            self.target,
+            FaultTarget::PartialAppend | FaultTarget::PauseAfterAppend
+        ) && self.armed.swap(false, Ordering::SeqCst)
+        {
+            if matches!(self.target, FaultTarget::PartialAppend) {
+                self.inner
+                    .append_file(
+                        path,
+                        FileContent::Bytes(
+                            content.as_bytes()[..content.as_bytes().len() / 2].to_vec(),
+                        ),
+                        cancel,
+                    )
+                    .await?;
+                return Err(Self::fault_error("partial append"));
+            }
+            self.inner.append_file(path, content, cancel).await?;
+            return std::future::pending().await;
+        }
         self.inner.append_file(path, content, cancel).await
     }
 

@@ -72,6 +72,15 @@ command traces and persisted outcomes remain pending. [Dialog evidence](host-dia
 includes 276 executable Pi search comparisons, affected-crate regressions, a
 loaded-library dialog fixture and Rust 1.78 checks.
 
+[Session storage](native-sessions.md) now exposes committed tree snapshots, branch
+revisions and durable appends with origin-bound late journal writes. JSONL rejects
+further writes after an uncertain append; SQLite uses durable transactions and
+fresh state under its writer lock. CLI reopening shares live writers across
+session switches. [Storage evidence](host-storage-results.json) covers Linux
+backends, native library acknowledgements, owner-scoped shutdown and failure
+recovery. Cursor's separate provider file journals remain pending, so H10 is not
+complete.
+
 [baseline-results.json](baseline-results.json) records upstream results, lock
 hashes and evidence hashes. All three unchanged suites pass in
 [CI run 39569889592](https://github.com/yansigit/pi-rust/actions/runs/39569889592):

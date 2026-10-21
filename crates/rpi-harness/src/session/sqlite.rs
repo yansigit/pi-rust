@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use rusqlite::{params, Connection, OptionalExtension};
+use futures::FutureExt;
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::error::{SessionError, SessionResult};
 use crate::session::memory::{Clock, InMemorySessionStorage, SystemClock};
@@ -24,102 +25,152 @@ use crate::session::types::{
 #[derive(Clone)]
 pub struct SqliteSessionStorage {
     db: Arc<Mutex<Connection>>,
-    inner: InMemorySessionStorage,
+    metadata: SessionMetadata,
+    clock: Arc<dyn Clock>,
+    ids: Arc<dyn IdGenerator>,
 }
 
 impl SqliteSessionStorage {
     fn new(
         db: Arc<Mutex<Connection>>,
         metadata: SessionMetadata,
-        state: SessionState,
         clock: Arc<dyn Clock>,
         ids: Arc<dyn IdGenerator>,
     ) -> Self {
         Self {
             db,
-            inner: InMemorySessionStorage::from_state(metadata, state, clock, ids),
+            metadata,
+            clock,
+            ids,
         }
     }
 
-    fn persist(&self) -> SessionResult<()> {
-        let metadata = self.inner.metadata();
-        let state = serde_json::to_string(&self.inner.snapshot_state())
-            .map_err(|e| SessionError::storage(format!("serialize SQLite session: {e}")))?;
-        let changed = self
+    fn write<T>(
+        &self,
+        mutate: impl FnOnce(&InMemorySessionStorage) -> SessionResult<T>,
+    ) -> SessionResult<T> {
+        let mut db = self
             .db
             .lock()
-            .map_err(|_| SessionError::storage("SQLite connection poisoned"))?
+            .map_err(|_| SessionError::storage("SQLite connection poisoned"))?;
+        let transaction = db
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|error| SessionError::storage(format!("begin SQLite mutation: {error}")))?;
+        let inner = self.load(&transaction)?;
+        let result = mutate(&inner)?;
+        let state = serde_json::to_string(&inner.snapshot_state())
+            .map_err(|e| SessionError::storage(format!("serialize SQLite session: {e}")))?;
+        let changed = transaction
             .execute(
                 "UPDATE sessions SET state_json = ?1 WHERE id = ?2",
-                params![state, metadata.id],
+                params![state, self.metadata.id],
             )
             .map_err(|e| SessionError::storage(format!("persist SQLite session: {e}")))?;
         if changed != 1 {
             return Err(SessionError::not_found(format!(
                 "Session not found: {}",
-                metadata.id
+                self.metadata.id
             )));
         }
-        Ok(())
+        transaction
+            .commit()
+            .map_err(|error| SessionError::storage(format!("commit SQLite mutation: {error}")))?;
+        Ok(result)
     }
 
-    fn refresh(&self) -> SessionResult<()> {
-        let id = self.inner.metadata().id;
-        let state_json: String = self
+    fn read<T>(
+        &self,
+        read: impl FnOnce(&InMemorySessionStorage) -> SessionResult<T>,
+    ) -> SessionResult<T> {
+        let db = self
             .db
             .lock()
-            .map_err(|_| SessionError::storage("SQLite connection poisoned"))?
+            .map_err(|_| SessionError::storage("SQLite connection poisoned"))?;
+        read(&self.load(&db)?)
+    }
+
+    fn load(&self, db: &Connection) -> SessionResult<InMemorySessionStorage> {
+        let state_json: String = db
             .query_row(
                 "SELECT state_json FROM sessions WHERE id = ?1",
-                params![id],
+                params![self.metadata.id],
                 |row| row.get(0),
             )
             .map_err(|e| SessionError::storage(format!("refresh SQLite session: {e}")))?;
         let state = serde_json::from_str(&state_json)
             .map_err(|e| SessionError::storage(format!("decode SQLite session: {e}")))?;
-        self.inner.replace_state(state);
-        Ok(())
+        Ok(InMemorySessionStorage::from_state(
+            self.metadata.clone(),
+            state,
+            self.clock.clone(),
+            self.ids.clone(),
+        ))
     }
+}
+
+// Memory operations do no I/O; never hold a SQLite transaction across an await.
+fn immediate<T>(
+    operation: impl std::future::Future<Output = SessionResult<T>>,
+) -> SessionResult<T> {
+    operation
+        .now_or_never()
+        .ok_or_else(|| SessionError::storage("in-memory reducer unexpectedly yielded"))?
 }
 
 #[async_trait]
 impl SessionStorage for SqliteSessionStorage {
+    async fn snapshot(&self) -> SessionResult<super::types::SessionSnapshot> {
+        self.read(|inner| immediate(inner.snapshot()))
+    }
+
+    async fn commit_entry(
+        &self,
+        entry: ProvisionedEntry,
+        target: super::types::AppendTarget,
+    ) -> SessionResult<super::types::CommittedEntry> {
+        let mut receipt = self.write(|inner| immediate(inner.commit_entry(entry, target)))?;
+        receipt.durability = self.sync().await?;
+        Ok(receipt)
+    }
+
+    async fn sync(&self) -> SessionResult<rpi_tools::Durability> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|_| SessionError::storage("SQLite connection poisoned"))?;
+        self.load(&db)?;
+        match db.path() {
+            Some("") => Ok(rpi_tools::Durability::Ephemeral),
+            Some(_) => Ok(rpi_tools::Durability::Durable),
+            None => Err(SessionError::storage(
+                "SQLite persistence location is unavailable",
+            )),
+        }
+    }
+
     fn metadata(&self) -> SessionMetadata {
-        self.inner.metadata()
+        self.metadata.clone()
     }
     async fn get_lanes(&self) -> SessionResult<Vec<LanePointer>> {
-        self.refresh()?;
-        self.inner.get_lanes().await
+        self.read(|inner| immediate(inner.get_lanes()))
     }
     async fn create_lane(&self, lane: &str, at: Option<&str>) -> SessionResult<()> {
-        self.refresh()?;
-        self.inner.create_lane(lane, at).await?;
-        self.persist()
+        self.write(|inner| immediate(inner.create_lane(lane, at)))
     }
     async fn move_lane(&self, lane: &str, to: Option<&str>) -> SessionResult<()> {
-        self.refresh()?;
-        self.inner.move_lane(lane, to).await?;
-        self.persist()
+        self.write(|inner| immediate(inner.move_lane(lane, to)))
     }
     async fn append_entry(&self, entry: ProvisionedEntry, lane: &str) -> SessionResult<Entry> {
-        self.refresh()?;
-        let result = self.inner.append_entry(entry, lane).await?;
-        self.persist()?;
-        Ok(result)
+        self.write(|inner| immediate(inner.append_entry(entry, lane)))
     }
     async fn append_record(&self, record: LaneRecord) -> SessionResult<LaneRecord> {
-        self.refresh()?;
-        let result = self.inner.append_record(record).await?;
-        self.persist()?;
-        Ok(result)
+        self.write(|inner| immediate(inner.append_record(record)))
     }
     async fn get_entry(&self, id: &str) -> SessionResult<Option<Entry>> {
-        self.refresh()?;
-        self.inner.get_entry(id).await
+        self.read(|inner| immediate(inner.get_entry(id)))
     }
     async fn find_entries(&self, query: &EntryQuery) -> SessionResult<Vec<Entry>> {
-        self.refresh()?;
-        self.inner.find_entries(query).await
+        self.read(|inner| immediate(inner.find_entries(query)))
     }
     async fn find_entries_on_branch(
         &self,
@@ -127,48 +178,35 @@ impl SessionStorage for SqliteSessionStorage {
         bounds: &BranchBounds,
         start: &str,
     ) -> SessionResult<Vec<Entry>> {
-        self.refresh()?;
-        self.inner
-            .find_entries_on_branch(query, bounds, start)
-            .await
+        self.read(|inner| immediate(inner.find_entries_on_branch(query, bounds, start)))
     }
     async fn find_records(&self, query: &RecordQuery) -> SessionResult<Vec<LaneRecord>> {
-        self.refresh()?;
-        self.inner.find_records(query).await
+        self.read(|inner| immediate(inner.find_records(query)))
     }
     async fn find_open_operations(
         &self,
         lane: &str,
         limit: Option<usize>,
     ) -> SessionResult<Vec<OperationStartedRecord>> {
-        self.refresh()?;
-        self.inner.find_open_operations(lane, limit).await
+        self.read(|inner| immediate(inner.find_open_operations(lane, limit)))
     }
     async fn get_log(&self, options: &LogOptions) -> SessionResult<Vec<LogItem>> {
-        self.refresh()?;
-        self.inner.get_log(options).await
+        self.read(|inner| immediate(inner.get_log(options)))
     }
     async fn get_name(&self) -> SessionResult<Option<String>> {
-        self.refresh()?;
-        self.inner.get_name().await
+        self.read(|inner| immediate(inner.get_name()))
     }
     async fn set_name(&self, name: Option<&str>) -> SessionResult<()> {
-        self.refresh()?;
-        self.inner.set_name(name).await?;
-        self.persist()
+        self.write(|inner| immediate(inner.set_name(name)))
     }
     async fn get_label(&self, id: &str) -> SessionResult<Option<String>> {
-        self.refresh()?;
-        self.inner.get_label(id).await
+        self.read(|inner| immediate(inner.get_label(id)))
     }
     async fn set_label(&self, id: &str, label: Option<&str>) -> SessionResult<()> {
-        self.refresh()?;
-        self.inner.set_label(id, label).await?;
-        self.persist()
+        self.write(|inner| immediate(inner.set_label(id, label)))
     }
     async fn get_stats(&self) -> SessionResult<SessionStats> {
-        self.refresh()?;
-        self.inner.get_stats().await
+        self.read(|inner| immediate(inner.get_stats()))
     }
 }
 
@@ -202,6 +240,7 @@ impl SqliteSessionRepo {
             .map_err(|e| SessionError::storage(format!("open SQLite database: {e}")))?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = FULL;
              CREATE TABLE IF NOT EXISTS sessions (
                  id TEXT PRIMARY KEY,
                  created_at INTEGER NOT NULL,
@@ -288,20 +327,18 @@ impl SessionRepo for SqliteSessionRepo {
         Ok(SqliteSessionStorage::new(
             self.db.clone(),
             metadata,
-            state,
             self.clock.clone(),
             self.ids.clone(),
         ))
     }
 
     async fn open(&self, metadata: &SessionMetadata) -> SessionResult<Self::Storage> {
-        let (metadata, state) = self.load_row(&metadata.id)?.ok_or_else(|| {
+        let (metadata, _) = self.load_row(&metadata.id)?.ok_or_else(|| {
             SessionError::not_found(format!("Session not found: {}", metadata.id))
         })?;
         Ok(SqliteSessionStorage::new(
             self.db.clone(),
             metadata,
-            state,
             self.clock.clone(),
             self.ids.clone(),
         ))
@@ -352,18 +389,14 @@ impl SessionRepo for SqliteSessionRepo {
             created_at: self.clock.now_ms(),
             parent_session_id: Some(source.id.clone()),
         };
-        let forked = source_storage.inner.fork_from(
-            metadata.clone(),
-            fork,
-            self.clock.clone(),
-            self.ids.clone(),
-        )?;
+        let forked = source_storage.read(|inner| {
+            inner.fork_from(metadata.clone(), fork, self.clock.clone(), self.ids.clone())
+        })?;
         let state = forked.snapshot_state();
         self.insert(&metadata, &state)?;
         Ok(SqliteSessionStorage::new(
             self.db.clone(),
             metadata,
-            state,
             self.clock.clone(),
             self.ids.clone(),
         ))
@@ -376,6 +409,108 @@ mod tests {
     use crate::session::memory::{CounterIdGenerator, FakeClock};
     use crate::session::types::{EntryQuery, ForkOptions, ProvisionedKind};
     use rpi_agent::message::AgentMessage;
+
+    fn note(id: impl Into<String>) -> ProvisionedEntry {
+        ProvisionedEntry {
+            id: id.into(),
+            kind: ProvisionedKind::Custom {
+                custom_type: "durability-test".into(),
+                data: None,
+            },
+        }
+    }
+
+    #[test]
+    fn separate_sqlite_connections_do_not_lose_concurrent_committed_entries() {
+        let (repo, _dir) = repo();
+        let session =
+            futures::executor::block_on(repo.create(&SessionCreateOptions::default())).unwrap();
+        let mut stores = Vec::new();
+        for _ in 0..4 {
+            let other = SqliteSessionRepo::open(repo.path()).unwrap();
+            stores.push(futures::executor::block_on(other.open(&session.metadata())).unwrap());
+        }
+        let barrier = Arc::new(std::sync::Barrier::new(stores.len()));
+        let workers: Vec<_> = stores
+            .into_iter()
+            .enumerate()
+            .map(|(worker, store)| {
+                let barrier = barrier.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for index in 0..30 {
+                        futures::executor::block_on(
+                            store.append_entry(note(format!("{worker}-{index}")), "main"),
+                        )
+                        .unwrap();
+                    }
+                })
+            })
+            .collect();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        let entries =
+            futures::executor::block_on(session.find_entries(&EntryQuery::default())).unwrap();
+        assert_eq!(entries.len(), 120);
+        let mut entries = entries;
+        entries.sort_by_key(Entry::seq);
+        for (index, entry) in entries.iter().enumerate() {
+            assert_eq!(entry.seq(), index as u64 + 1);
+            assert_eq!(
+                entry.parent_id(),
+                index.checked_sub(1).map(|previous| entries[previous].id())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn sqlite_failed_commit_keeps_the_previous_state_and_acknowledges_only_durable_storage() {
+        let (repo, _dir) = repo();
+        let session = repo.create(&SessionCreateOptions::default()).await.unwrap();
+        session.append_entry(note("before"), "main").await.unwrap();
+        {
+            let db = repo.db.lock().unwrap();
+            assert_eq!(
+                db.query_row("PRAGMA synchronous", [], |row| row.get::<_, i64>(0))
+                    .unwrap(),
+                2
+            );
+            db.execute_batch("CREATE TRIGGER fail_write BEFORE UPDATE ON sessions BEGIN SELECT RAISE(FAIL, 'injected commit failure'); END;").unwrap();
+        }
+        assert!(session.append_entry(note("failed"), "main").await.is_err());
+        assert!(session.get_entry("failed").await.unwrap().is_none());
+        assert_eq!(
+            session.get_lanes().await.unwrap()[0].leaf_id.as_deref(),
+            Some("before")
+        );
+        repo.db
+            .lock()
+            .unwrap()
+            .execute_batch("DROP TRIGGER fail_write;")
+            .unwrap();
+        let committed = session.append_entry(note("after"), "main").await.unwrap();
+        assert_eq!(committed.seq(), 2);
+        assert_eq!(
+            session.sync().await.unwrap(),
+            rpi_tools::Durability::Durable
+        );
+        let memory = SqliteSessionRepo::open(":memory:").unwrap();
+        let ephemeral = memory
+            .create(&SessionCreateOptions::default())
+            .await
+            .unwrap();
+        ephemeral
+            .append_entry(note("memory"), "main")
+            .await
+            .unwrap();
+        assert_eq!(
+            ephemeral.sync().await.unwrap(),
+            rpi_tools::Durability::Ephemeral
+        );
+        repo.delete(&session.metadata()).await.unwrap();
+        assert!(session.sync().await.is_err());
+    }
 
     fn repo() -> (SqliteSessionRepo, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

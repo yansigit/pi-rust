@@ -492,6 +492,10 @@ pub trait RuntimeActionHost: Send + Sync {
     ) -> Result<serde_json::Value, String> {
         Err("native runtime ports are not supported by this host".into())
     }
+    /// Stop admission for an unloading owner; already-started commits still finish.
+    fn retire_native_owner(&self, _owner: u64) {}
+    /// Wait for admitted native persistence before releasing the runtime.
+    async fn drain_native_writes(&self, _owners: Vec<u64>) {}
     fn bind_provider_runtime(
         &self,
         _runtime: std::sync::Weak<dyn crate::native::NativeProviderRuntime>,
@@ -925,9 +929,24 @@ impl ActionBridge {
         for owner in owners {
             crate::native::retire_owner(owner);
             self.ui_dialog.cancel_owner(owner);
+            self.host.retire_native_owner(owner);
             self.host.cancel_child_agents(owner);
             self.host.cancel_side_questions(owner);
         }
+    }
+
+    /// Call after shutdown handlers have flushed their journals, before stopping
+    /// the runtime. Commits already in progress finish even if their waiter left.
+    pub async fn finish_native_writes(&self) {
+        let owners = self
+            .component_owners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        for owner in &owners {
+            self.host.retire_native_owner(*owner);
+        }
+        self.host.drain_native_writes(owners).await;
     }
 
     /// Whether this bridge is still the live session's bridge.
@@ -2314,6 +2333,7 @@ impl Drop for ActionBridge {
             self.ext_status.remove_owner(*owner);
             self.services.remove_owner(*owner);
             self.ui_dialog.cancel_owner(*owner);
+            self.host.retire_native_owner(*owner);
             self.host.cancel_child_agents(*owner);
             self.host.cancel_side_questions(*owner);
         }

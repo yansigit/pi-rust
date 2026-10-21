@@ -291,6 +291,17 @@ impl JsonlSessionRepo {
         fork: &ForkOptions,
     ) -> SessionResult<JsonlSessionStorage> {
         let source_storage = self.open_by_jsonl_metadata(source).await?;
+        self.fork_from_storage(&source_storage, options, fork).await
+    }
+
+    /// Fork the authoritative live writer, without reopening its log mid-append.
+    pub async fn fork_from_storage(
+        &self,
+        source_storage: &JsonlSessionStorage,
+        options: &JsonlSessionCreateOptions,
+        fork: &ForkOptions,
+    ) -> SessionResult<JsonlSessionStorage> {
+        let source = source_storage.jsonl_metadata();
         // TS: parentSessionId ?? source.id.
         let mut create_options = options.clone();
         if create_options.parent_session_id.is_none() {

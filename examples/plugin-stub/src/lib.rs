@@ -96,6 +96,62 @@ pub extern "C" fn plugin_stub_native_dialog(api: rpi_plugin_sdk::PluginApi, outc
     })
 }
 
+/// Exercise committed session writes through the installed SDK boundary.
+#[no_mangle]
+pub extern "C" fn plugin_stub_native_session(api: rpi_plugin_sdk::PluginApi) -> i32 {
+    rpi_plugin_sdk::guard_or(1, || {
+        let client = rpi_plugin_sdk::provider::native::Client::new(&api)
+            .unwrap()
+            .scoped()
+            .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let request = |mut args: serde_json::Value| {
+                args["port"] = "sessions".into();
+                client.request(args, rpi_ai::SimpleStreamOptions::default().signal)
+            };
+            let capture = request(serde_json::json!({"action":"capture"}))
+                .await
+                .unwrap();
+            let origin = capture["origin"].clone();
+            let receipt = request(serde_json::json!({"action":"append","origin":origin,
+                "customType":"fixture:native-commit","data":{"receipt":"committed"}}))
+            .await
+            .unwrap();
+            assert_eq!(receipt["durability"], "durable");
+            assert_eq!(receipt["advancedLane"], true);
+            let id = receipt["entry"]["id"].as_str().unwrap();
+            let snapshot = request(serde_json::json!({"action":"snapshot","origin":origin}))
+                .await
+                .unwrap();
+            assert!(snapshot["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["id"] == id));
+            assert_eq!(snapshot["revision"], receipt["revision"]);
+            assert_eq!(
+                request(serde_json::json!({"action":"sync","origin":origin}))
+                    .await
+                    .unwrap()["durability"],
+                "durable"
+            );
+            request(serde_json::json!({"action":"release","origin":origin}))
+                .await
+                .unwrap();
+            assert!(
+                request(serde_json::json!({"action":"snapshot","origin":origin}))
+                    .await
+                    .is_err()
+            );
+        });
+        0
+    })
+}
+
 // ---------------------------------------------------------------------------
 // The echo tool's 4 lifecycle fns (extern "C", no captured state)
 // ---------------------------------------------------------------------------

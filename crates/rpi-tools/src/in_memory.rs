@@ -218,6 +218,17 @@ impl Default for InMemoryExecutionEnv {
 
 #[async_trait]
 impl FileSystem for InMemoryExecutionEnv {
+    async fn sync_file(&self, path: &str) -> Result<crate::env::Durability, FileError> {
+        let info = self.file_info(path, None).await?;
+        if info.kind != FileKind::File {
+            return Err(FileError::new(
+                FileErrorCode::Invalid,
+                "durability requires a regular file",
+            ));
+        }
+        Ok(crate::env::Durability::Ephemeral)
+    }
+
     fn cwd(&self) -> &Path {
         &self.cwd_snapshot
     }

@@ -393,6 +393,64 @@ async fn kill_process_tree(pid: u32) {
 
 #[async_trait]
 impl FileSystem for OsExecutionEnv {
+    async fn sync_file(&self, path: &str) -> Result<crate::env::Durability, FileError> {
+        let abs = Self::resolve_path(&self.cwd, path);
+        let error_path = abs.to_string_lossy().into_owned();
+        tokio::task::spawn_blocking(move || {
+            let metadata = std::fs::symlink_metadata(&abs)?;
+            if !metadata.is_file() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "durability requires a regular file",
+                ));
+            }
+            let mut options = std::fs::OpenOptions::new();
+            options.read(true).write(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                options.custom_flags(nix::libc::O_NOFOLLOW | nix::libc::O_NONBLOCK);
+            }
+            let file = same_file::Handle::from_file(options.open(&abs)?)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::MetadataExt;
+                let opened = file.as_file().metadata()?;
+                if (metadata.dev(), metadata.ino()) != (opened.dev(), opened.ino()) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "file changed while opening for synchronization",
+                    ));
+                }
+            }
+            let after = std::fs::symlink_metadata(&abs)?;
+            if !file.as_file().metadata()?.is_file()
+                || !after.is_file()
+                || file != same_file::Handle::from_file(options.open(&abs)?)?
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "file changed while opening for synchronization",
+                ));
+            }
+            file.as_file().sync_all()?;
+            // Include newly created ancestor directories, not only the file's name.
+            #[cfg(unix)]
+            for parent in abs.ancestors().skip(1) {
+                std::fs::File::open(parent)?.sync_all()?;
+            }
+            Ok(crate::env::Durability::Durable)
+        })
+        .await
+        .map_err(|error| {
+            FileError::new(
+                FileErrorCode::Unknown,
+                format!("file synchronization task failed: {error}"),
+            )
+        })?
+        .map_err(|error| io_to_file_error(error, Some(&error_path)))
+    }
+
     fn cwd(&self) -> &Path {
         &self.cwd
     }

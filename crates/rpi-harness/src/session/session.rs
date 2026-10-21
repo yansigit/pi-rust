@@ -188,6 +188,11 @@ impl Session {
         self.storage_arc()
     }
 
+    /// Synchronize the storage selected when this call begins.
+    pub async fn sync(&self) -> SessionResult<rpi_tools::Durability> {
+        self.storage_arc().sync().await
+    }
+
     /// `getMetadata()`. Mirrors TS `Session.getMetadata`.
     pub async fn get_metadata(&self) -> SessionResult<SessionMetadata> {
         Ok(self.storage_arc().metadata())

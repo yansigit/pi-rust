@@ -16,7 +16,15 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 
-use crate::error::{ExecutionError, FileError};
+use crate::error::{ExecutionError, FileError, FileErrorCode};
+
+/// An acknowledgement must distinguish persistent storage from a memory-only backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Durability {
+    Durable,
+    Ephemeral,
+}
 
 /// `file` | `directory` | `symlink`. Mirrors TS `FileKind`.
 ///
@@ -138,6 +146,16 @@ impl<'a> ShellExecOptions<'a> {
 /// `FileError::aborted()`) and honor cooperative cancel during long ops.
 #[async_trait]
 pub trait FileSystem: Send + Sync {
+    /// Synchronize an existing file and the directory entries needed to reach it.
+    /// Unsupported backends must fail instead of claiming persistence.
+    async fn sync_file(&self, path: &str) -> Result<Durability, FileError> {
+        Err(FileError::new(
+            FileErrorCode::NotSupported,
+            "file durability is unavailable",
+        )
+        .with_path(path))
+    }
+
     /// The environment's working directory (absolute).
     fn cwd(&self) -> &Path;
 

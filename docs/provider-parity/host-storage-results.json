@@ -1,0 +1,167 @@
+{
+  "status": "host-infrastructure-not-package-parity",
+  "platform": "linux",
+  "checks": [
+    {
+      "command": "cargo test -p rpi-harness -p rpi-tools --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-storage-regressions-2.log",
+      "sha256": "b61c780ec0f00cf29fdc36ccdd1b82ea1a66722d63f3a4caf47ef6c62926ecc6",
+      "reportedTestTotals": {
+        "passed": 528,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo test -p rpi-harness --lib session::jsonl --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-cache-fork-test.log",
+      "sha256": "38fe3ce4b1b985ab2b7ab5cccdc5f8843c4d2669e826b43a38b6b76bb9917be0",
+      "reportedTestTotals": {
+        "passed": 25,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo test --workspace --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-workspace.log",
+      "sha256": "24c3c54c69e7cdb1095d1ab2da4b615f39c587de1f52baf229eff8f85d5b2a07",
+      "reportedTestTotals": {
+        "passed": 2107,
+        "failed": 0,
+        "ignored": 13
+      }
+    },
+    {
+      "command": "cargo test -p rpi-cli -p rpi-extensions --lib --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-final-unit.log",
+      "sha256": "2d03451c969a0d7dbbb037b889bf2e19f776a39b736dfcc1425717112d629dab",
+      "reportedTestTotals": {
+        "passed": 801,
+        "failed": 0,
+        "ignored": 5
+      }
+    },
+    {
+      "command": "cargo test -p rpi-cli --lib native_sessions --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2",
+        "CARGO_PROFILE_TEST_DEBUG": "0"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-cancel-final.log",
+      "sha256": "b36e771993e816fb5b088aa15d4d2d8db9e63f12679912587719230e0bdd37d4",
+      "reportedTestTotals": {
+        "passed": 6,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo build -p plugin-stub --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2",
+        "CARGO_PROFILE_DEV_DEBUG": "0"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-native-session-fixture-build.log",
+      "sha256": "ef8e2608760254e402f434729446eaa62bbc4c34c7852e3bed6f41fa49e838e0"
+    },
+    {
+      "command": "cargo test -p rpi-cli --lib native_session_commits_cross_loaded_library_and_survive_reopen --locked -- --ignored",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2",
+        "CARGO_PROFILE_TEST_DEBUG": "0",
+        "RPI_TEST_STUB_LIBRARY": "/home/user/.codex/worktrees/d8fe/pi-rust/target/debug/libplugin_stub.so"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-native-final.log",
+      "sha256": "92b9e1647a255d3334030361d418c0cb48dc63fbaa57e5d64ae4f6a0c9067b60",
+      "reportedTestTotals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo +1.78.0 check --workspace --all-targets --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-msrv-final.log",
+      "sha256": "5410c168f9e5f6a4086028a32a3db5691662ac0250efdda16b6aa2a99a229231"
+    },
+    {
+      "command": "cargo +1.78.0 check -p rpi-cli --all-targets --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-msrv-followup.log",
+      "sha256": "615cd475c49fb4ea7f92a10cedbbcb0eaad41e5657ff30f04eb96db61fb75d27"
+    },
+    {
+      "command": "cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-sdk-minimal.log",
+      "sha256": "4cf86278c1e6d659943a46a3d7e3da429ac15be90f0f17742e24ef85228e7d3e"
+    },
+    {
+      "command": "cargo +1.78.0 check -p rpi-plugin-sdk --features provider --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "2"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-session-sdk-provider.log",
+      "sha256": "c8f076f05be116c48550565af9ed8b21b5a06439ec6abe77da0fd3ba43f87d4d"
+    }
+  ],
+  "scope": "Full workspace checks preceded the final cancellation-drop guard; affected-crate tests, six session port regressions, loaded library test and Rust 1.78 follow-up cover final changes. Reported totals include subprocess summaries when printed.",
+  "requiredNotTested": [
+    "Cursor separate cloud/cleanup/usage file-journal ports and async adapter call chains",
+    "macOS/Windows native execution and durability",
+    "All three candidate packages together",
+    "Live provider inference and remote mutation recovery"
+  ],
+  "earlierFailures": [
+    {
+      "log": "/tmp/rpi-storage-regressions.log",
+      "reason": "Two existing harness tests concurrently changed RPI_MAX_TURNS_PER_RUN. Isolated both environment-dependent runs in subprocesses; all harness tests now pass in parallel."
+    }
+  ]
+}

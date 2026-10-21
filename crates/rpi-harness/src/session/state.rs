@@ -60,6 +60,85 @@ impl Default for SessionState {
 }
 
 impl SessionState {
+    pub fn snapshot(&self, metadata: SessionMetadata) -> crate::session::types::SessionSnapshot {
+        use crate::session::types::{BranchRevision, SessionSnapshot};
+        SessionSnapshot {
+            metadata,
+            revision: self.sequence,
+            branches: self
+                .lanes
+                .iter()
+                .map(|(lane, leaf)| BranchRevision {
+                    lane: lane.clone(),
+                    revision: self.branch_revision(lane),
+                    leaf_id: leaf.clone(),
+                })
+                .collect(),
+            entries: self.entries.clone(),
+            name: self.name.clone(),
+            labels: self.labels.clone(),
+        }
+    }
+
+    fn branch_revision(&self, lane: &str) -> u64 {
+        self.log
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                LogItem::Lane {
+                    seq, lane: known, ..
+                } if known == lane => Some(*seq),
+                _ => None,
+            })
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn prepare_commit(
+        &self,
+        entry: crate::session::types::ProvisionedEntry,
+        target: crate::session::types::AppendTarget,
+        timestamp: i64,
+    ) -> SessionResult<SessionMutation> {
+        use crate::session::types::{provisioned_into_entry, AppendTarget};
+        let (lane, revision, anchor) = match target {
+            AppendTarget::Current {
+                lane,
+                branch_revision,
+            } => (lane, branch_revision, None),
+            AppendTarget::Origin {
+                lane,
+                branch_revision,
+                anchor_id,
+            } => (lane, branch_revision, Some(anchor_id)),
+        };
+        let current = self.require_lane(&lane)?;
+        self.validate_unused_id(&entry.id)?;
+        if revision > self.sequence {
+            return Err(SessionError::invalid_entry(
+                "session branch revision is in the future",
+            ));
+        }
+        if let Some(anchor) = &anchor {
+            self.validate_target(anchor.as_deref())?;
+        }
+        let (parent, lane) = if self.branch_revision(&lane) == revision {
+            (current, Some(lane))
+        } else if let Some(anchor) = anchor {
+            (anchor, None)
+        } else {
+            return Err(SessionError::invalid_entry(
+                "session branch changed before append",
+            ));
+        };
+        let seq = self.next_sequence();
+        Ok(SessionMutation::Entry {
+            seq,
+            timestamp,
+            lane,
+            entry: provisioned_into_entry(entry, seq, parent, timestamp),
+        })
+    }
+
     /// New state with a single `main` lane pointing at no leaf (mirrors TS
     /// `lanes = new Map([["main", null]])`).
     pub fn new() -> Self {

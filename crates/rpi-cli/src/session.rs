@@ -30,17 +30,18 @@
 //!   The interactive `-c`/`-r`/`--session` paths enable that mode and replay
 //!   the existing branch before appending new messages. See [`SessionSelection`].
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use rpi_ai::Provider;
 use rpi_harness::agent_harness::AgentHarness;
 use rpi_harness::context_files::{format_project_context, load_project_context_files};
+use rpi_harness::session::jsonl::JsonlSessionStorage;
 use rpi_harness::session::memory::{InMemorySessionStorage, SystemClock};
 use rpi_harness::session::session::DefaultIdGenerator;
-use rpi_harness::session::types::SessionMetadata;
+use rpi_harness::session::types::{SessionMetadata, SessionStorage};
 use rpi_harness::session::Session;
 use rpi_harness::system_prompt::compose_system_prompt;
 use rpi_harness::types::{
@@ -1175,10 +1176,12 @@ pub async fn dispatch_session_event_async(
             session.auth_runtime(),
         )
     };
+    let bridge = reload_context.action_bridge.lock().unwrap().clone();
+    let _keepalive = keepalive.clone();
     if tag == rpi_plugin_sdk::EventTag::SessionShutdown {
         auth_runtime.shutdown().await;
     }
-    match snapshot {
+    let result = match snapshot {
         Some(snapshot) => {
             let identity = rpi_ai::identity::RequestIdentity::operation(
                 reload_context.tool_context.session_id(),
@@ -1191,7 +1194,13 @@ pub async fn dispatch_session_event_async(
             .await
         }
         None => None,
+    };
+    if tag == rpi_plugin_sdk::EventTag::SessionShutdown {
+        if let Some(bridge) = bridge {
+            bridge.finish_native_writes().await;
+        }
     }
+    result
 }
 
 /// Join plugin teardown before unloading modules. A detached timed-out handler
@@ -1548,6 +1557,7 @@ where
     old_session.begin_shutdown();
     if let Some(old_b) = old_bridge {
         old_b.invalidate();
+        old_b.finish_native_writes().await;
     }
 
     // The session was swapped atomically above; expose its matching bridge.
@@ -2298,7 +2308,7 @@ async fn fork_session_at_launch(
     use rpi_harness::session::jsonl::{
         JsonlSessionCreateOptions, JsonlSessionRepo, JsonlSessionRepoOptions,
     };
-    use rpi_harness::session::types::{ForkOptions, SessionStorage};
+    use rpi_harness::session::types::ForkOptions;
     use rpi_tools::FileSystem;
 
     let dir = dir.to_path_buf();
@@ -2323,9 +2333,10 @@ async fn fork_session_at_launch(
             requested: format!("--fork {source}"),
             dir: dir.display().to_string(),
         })?;
+    let source_storage = live_session_storage(source_meta, cwd).await?;
     let fork_storage = repo
-        .fork_typed(
-            source_meta,
+        .fork_from_storage(
+            &source_storage,
             &JsonlSessionCreateOptions {
                 id: None,
                 parent_session_id: Some(source_meta.id.clone()),
@@ -2336,9 +2347,10 @@ async fn fork_session_at_launch(
         )
         .await
         .map_err(|e| BuildError::SessionDir(format!("fork {}: {e}", source_meta.path)))?;
-    claim_session_lock(&fork_storage.jsonl_metadata().path).map_err(BuildError::SessionOpen)?;
-    let storage_arc: Arc<dyn SessionStorage> = Arc::new(fork_storage);
-    Ok(Session::new(storage_arc, None))
+    let storage = register_session_storage(fork_storage)
+        .await
+        .map_err(BuildError::SessionOpen)?;
+    Ok(Session::new(storage, None))
 }
 
 /// Errors from [`open_session_by_id`], split so the CLI can map them to
@@ -2765,9 +2777,12 @@ pub(crate) async fn fork_session_storage(
     let Some(source) = metas.iter().find(|m| m.id == id) else {
         return Err(format!("current session {id} not found on disk"));
     };
+    let source_storage = live_session_storage(source, cwd)
+        .await
+        .map_err(|e| e.to_string())?;
     let fork_storage = repo
-        .fork_typed(
-            source,
+        .fork_from_storage(
+            &source_storage,
             &rpi_harness::session::jsonl::JsonlSessionCreateOptions {
                 id: None,
                 parent_session_id: Some(source.id.clone()),
@@ -2778,8 +2793,8 @@ pub(crate) async fn fork_session_storage(
         )
         .await
         .map_err(|e| e.to_string())?;
-    claim_session_lock(&fork_storage.jsonl_metadata().path)?;
-    Ok(Session::new(Arc::new(fork_storage), None))
+    let storage = register_session_storage(fork_storage).await?;
+    Ok(Session::new(storage, None))
 }
 
 /// Session logs this process has claimed, so re-claiming is a no-op.
@@ -2798,12 +2813,11 @@ static SESSION_LOCKS: OnceLock<Mutex<Vec<std::fs::File>>> = OnceLock::new();
 /// is a no-op, so the TUI's session hot-switch can re-open freely.
 fn claim_session_lock(session_path: &str) -> Result<(), String> {
     let lock_path = PathBuf::from(format!("{session_path}.lock"));
-    if SESSION_LOCK_PATHS
+    let mut paths = SESSION_LOCK_PATHS
         .get_or_init(|| Mutex::new(HashSet::new()))
         .lock()
-        .unwrap()
-        .contains(&lock_path)
-    {
+        .unwrap();
+    if paths.contains(&lock_path) {
         return Ok(());
     }
     let file = std::fs::OpenOptions::new()
@@ -2821,12 +2835,65 @@ fn claim_session_lock(session_path: &str) -> Result<(), String> {
         .lock()
         .unwrap()
         .push(file);
-    SESSION_LOCK_PATHS
-        .get_or_init(|| Mutex::new(HashSet::new()))
-        .lock()
-        .unwrap()
-        .insert(lock_path);
+    paths.insert(lock_path);
     Ok(())
+}
+
+// Journal origins may outlive a session switch. Every live writer for one path
+// must share its tail and state, including when that session is reopened.
+static SESSION_STORAGES: OnceLock<tokio::sync::Mutex<HashMap<PathBuf, Weak<JsonlSessionStorage>>>> =
+    OnceLock::new();
+
+async fn register_session_storage(
+    storage: JsonlSessionStorage,
+) -> Result<Arc<JsonlSessionStorage>, String> {
+    let path = std::fs::canonicalize(&storage.jsonl_metadata().path).map_err(|e| e.to_string())?;
+    let mut writers = SESSION_STORAGES.get_or_init(Default::default).lock().await;
+    claim_session_lock(&path.to_string_lossy())?;
+    if writers.get(&path).and_then(Weak::upgrade).is_some() {
+        return Err("session already has a live writer".into());
+    }
+    writers.retain(|_, writer| writer.strong_count() > 0);
+    let storage = Arc::new(storage);
+    writers.insert(path, Arc::downgrade(&storage));
+    Ok(storage)
+}
+
+async fn live_session_storage(
+    meta: &rpi_harness::session::jsonl::JsonlSessionMetadata,
+    cwd: &str,
+) -> Result<Arc<JsonlSessionStorage>, BuildError> {
+    use rpi_harness::session::jsonl::{JsonlSessionRepo, JsonlSessionRepoOptions};
+    let path =
+        std::fs::canonicalize(&meta.path).map_err(|e| BuildError::SessionOpen(e.to_string()))?;
+    let mut writers = SESSION_STORAGES.get_or_init(Default::default).lock().await;
+    claim_session_lock(&path.to_string_lossy()).map_err(BuildError::SessionOpen)?;
+    if let Some(storage) = writers.get(&path).and_then(Weak::upgrade) {
+        if storage.metadata().id != meta.id {
+            return Err(BuildError::SessionOpen("session identity changed".into()));
+        }
+        if storage.check_writer().await.is_ok() {
+            return Ok(storage);
+        }
+        // A failed/cancelled append permanently disables the old writer. Reload
+        // its uncertain tail before letting a new writer proceed.
+    }
+    let repo = JsonlSessionRepo::with_env_cwd(JsonlSessionRepoOptions {
+        fs: Arc::new(OsExecutionEnv::with_cwd(PathBuf::from(cwd))),
+        sessions_root: default_session_dir(Path::new(cwd))
+            .to_string_lossy()
+            .into_owned(),
+        clock: Arc::new(SystemClock),
+        ids: Arc::new(DefaultIdGenerator::new()),
+    });
+    let storage = Arc::new(
+        repo.open_by_jsonl_metadata(meta)
+            .await
+            .map_err(|e| BuildError::SessionOpen(format!("open {}: {e}", meta.path)))?,
+    );
+    writers.retain(|_, writer| writer.strong_count() > 0);
+    writers.insert(path, Arc::downgrade(&storage));
+    Ok(storage)
 }
 
 /// Wrap an opened [`JsonlSessionStorage`] in the `Session` facade (shared by
@@ -2835,24 +2902,7 @@ async fn open_session(
     meta: &rpi_harness::session::jsonl::JsonlSessionMetadata,
     cwd: &str,
 ) -> Result<Session, BuildError> {
-    use rpi_harness::session::jsonl::{JsonlSessionRepo, JsonlSessionRepoOptions};
-    use rpi_harness::session::types::SessionStorage;
-    use rpi_tools::FileSystem;
-
-    let dir = default_session_dir(Path::new(cwd));
-    let env = Arc::new(OsExecutionEnv::with_cwd(PathBuf::from(cwd)));
-    let fs: Arc<dyn FileSystem> = env.clone();
-    let repo = JsonlSessionRepo::with_env_cwd(JsonlSessionRepoOptions {
-        fs: fs.clone(),
-        sessions_root: dir.to_string_lossy().into_owned(),
-        clock: Arc::new(SystemClock),
-        ids: Arc::new(DefaultIdGenerator::new()),
-    });
-    claim_session_lock(&meta.path).map_err(BuildError::SessionOpen)?;
-    let storage = repo
-        .open_by_jsonl_metadata(meta)
-        .await
-        .map_err(|e| BuildError::SessionOpen(format!("open {}: {e}", meta.path)))?;
+    let storage = live_session_storage(meta, cwd).await?;
     // A session records the cwd it was created in. When that directory has
     // since been removed, continuing silently in it is confusing; warn the
     // user that we fell back to the process cwd (pi `getMissingSessionCwdIssue`).
@@ -2866,8 +2916,7 @@ async fn open_session(
             crate::session_cwd::format_missing_session_cwd_error(&issue)
         );
     }
-    let storage_arc: Arc<dyn SessionStorage> = Arc::new(storage);
-    Ok(Session::new(storage_arc, None))
+    Ok(Session::new(storage, None))
 }
 
 /// A fresh ephemeral in-memory session (no persistence). Used for `--no-session`.
@@ -2933,11 +2982,8 @@ pub(crate) async fn create_jsonl_session_with_id(
         .create_typed(&opts)
         .await
         .map_err(|e| format!("create session: {e}"))?;
-    claim_session_lock(&storage.jsonl_metadata().path)
-        .map_err(|e| format!("create session: {e}"))?;
-    // `JsonlSessionStorage` implements `SessionStorage`; wrap in the facade.
-    let storage_arc: Arc<dyn rpi_harness::session::types::SessionStorage> = Arc::new(storage);
-    Ok(Session::new(storage_arc, None))
+    let storage = register_session_storage(storage).await?;
+    Ok(Session::new(storage, None))
 }
 
 /// Read an `--append-system-prompt` target: if it's a readable file path, return
@@ -2972,6 +3018,68 @@ fn read_prompt_source(path: &Path, sources: &mut Vec<String>) -> Option<String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn session_reopen_reuses_journal_writer_and_preserves_branch_revision() {
+        use rpi_harness::session::jsonl::JsonlV4Header;
+        use rpi_harness::session::types::{AppendTarget, ProvisionedEntry, ProvisionedKind};
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_str().unwrap();
+        let path = dir.path().join("origin.jsonl");
+        let storage = JsonlSessionStorage::create(
+            Arc::new(OsExecutionEnv::with_cwd(dir.path().to_owned())),
+            path.to_str().unwrap(),
+            JsonlV4Header::new("origin".into(), 0, cwd.into(), None, None, None),
+            Arc::new(SystemClock),
+            Arc::new(DefaultIdGenerator::new()),
+        )
+        .await
+        .unwrap();
+        let meta = storage.jsonl_metadata().clone();
+        let origin = register_session_storage(storage).await.unwrap();
+        let note = |id: &str| ProvisionedEntry {
+            id: id.into(),
+            kind: ProvisionedKind::Custom {
+                custom_type: "journal".into(),
+                data: None,
+            },
+        };
+        origin.append_entry(note("base"), "main").await.unwrap();
+        let session = Session::new(origin.clone(), None);
+        session.set_storage(ephemeral_session().storage());
+        let (first, second) = tokio::join!(open_session(&meta, cwd), open_session(&meta, cwd));
+        let first = first.unwrap();
+        let second = second.unwrap();
+        let erased: Arc<dyn SessionStorage> = origin.clone();
+        assert!(Arc::ptr_eq(&erased, &first.storage()));
+        assert!(Arc::ptr_eq(&erased, &second.storage()));
+        first.storage().move_lane("main", None).await.unwrap();
+        second
+            .storage()
+            .append_entry(note("new-branch"), "main")
+            .await
+            .unwrap();
+        let late = origin
+            .commit_entry(
+                note("late"),
+                AppendTarget::Origin {
+                    lane: "main".into(),
+                    branch_revision: 0,
+                    anchor_id: Some("base".into()),
+                },
+            )
+            .await
+            .unwrap();
+        assert!(!late.advanced_lane);
+        assert_eq!(late.entry.parent_id(), Some("base"));
+        let snapshot = first.storage().snapshot().await.unwrap();
+        assert_eq!(snapshot.branches[0].leaf_id.as_deref(), Some("new-branch"));
+        assert_eq!(snapshot.entries.len(), 3);
+        assert_eq!(session.storage().metadata().id, "ephemeral");
+        let mut wrong = meta;
+        wrong.id = "different".into();
+        assert!(open_session(&wrong, cwd).await.is_err());
+    }
 
     #[tokio::test]
     async fn unauthenticated_packages_are_not_reintroduced_as_legacy_adapters() {

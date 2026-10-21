@@ -962,6 +962,38 @@ async fn directly_sent_prompt_emits_no_user_message_start() {
     );
 }
 
+// Isolate environment-dependent runs from each other and every other harness test.
+async fn run_budget_in_child(test: &str, limit: Option<u32>) -> bool {
+    const CHILD: &str = "RPI_TEST_RUN_BUDGET_CHILD";
+    if std::env::var(CHILD).as_deref() == Ok(test) {
+        return false;
+    }
+    let mut command = tokio::process::Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", test, "--nocapture"])
+        .env(CHILD, test);
+    match limit {
+        Some(limit) => {
+            command.env(rpi_harness::run_budget::MAX_TURNS_ENV, limit.to_string());
+        }
+        None => {
+            command.env_remove(rpi_harness::run_budget::MAX_TURNS_ENV);
+        }
+    }
+    command.kill_on_drop(true);
+    let output = tokio::time::timeout(std::time::Duration::from_secs(60), command.output())
+        .await
+        .expect("isolated budget test timed out")
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    true
+}
+
 /// The loop's only other exit is "the model stopped asking for tools", which
 /// nothing bounds — one observed session ran 112 turns / 867 s in a single run
 /// (`docs/debugging/llm-repetition-forensics.md` §二). The run budget is the backstop:
@@ -972,15 +1004,14 @@ async fn run_budget_stops_a_looping_run_and_records_why() {
     // A model that never stops asking for tools: far more scripted turns than
     // the ceiling, so only the guard can end this run.
     //
-    // The guard is off by default (upstream parity), so this test opts in for
-    // its duration. `std::env` is process-global — this is an integration-test
-    // binary whose other tests never approach the ceiling, so a parallel
-    // harness picking it up is harmless; the value is restored at the end.
-    let previous = std::env::var(rpi_harness::run_budget::MAX_TURNS_ENV).ok();
-    std::env::set_var(
-        rpi_harness::run_budget::MAX_TURNS_ENV,
-        rpi_harness::run_budget::DEFAULT_MAX_TURNS_PER_RUN.to_string(),
-    );
+    if run_budget_in_child(
+        "run_budget_stops_a_looping_run_and_records_why",
+        Some(rpi_harness::run_budget::DEFAULT_MAX_TURNS_PER_RUN),
+    )
+    .await
+    {
+        return;
+    }
 
     let script = FauxScript::new();
     let step = || FauxStep::tool_call("bash", serde_json::json!({ "command": "echo tick" }));
@@ -1064,11 +1095,6 @@ async fn run_budget_stops_a_looping_run_and_records_why() {
         "exactly one budget notice must be recorded; got {notices:?}"
     );
 
-    // Restore the process-wide switch (see the opt-in above).
-    match &previous {
-        Some(value) => std::env::set_var(rpi_harness::run_budget::MAX_TURNS_ENV, value),
-        None => std::env::remove_var(rpi_harness::run_budget::MAX_TURNS_ENV),
-    }
     assert!(
         notices[0].contains(&ceiling.to_string()) && notices[0].contains("unfinished"),
         "the notice must name the budget and warn the work may be incomplete: {}",
@@ -1082,8 +1108,9 @@ async fn run_budget_stops_a_looping_run_and_records_why() {
 /// guard by default.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn no_turn_ceiling_by_default_matches_native_pi() {
-    let previous = std::env::var(rpi_harness::run_budget::MAX_TURNS_ENV).ok();
-    std::env::remove_var(rpi_harness::run_budget::MAX_TURNS_ENV);
+    if run_budget_in_child("no_turn_ceiling_by_default_matches_native_pi", None).await {
+        return;
+    }
 
     // 199 tool-call turns, then a final plain answer so the loop's own exit
     // condition ("the model stopped asking for tools") is what ends the run.
@@ -1160,11 +1187,6 @@ async fn no_turn_ceiling_by_default_matches_native_pi() {
         notices.is_empty(),
         "an unbounded run must not record a budget notice: {notices:?}"
     );
-
-    match &previous {
-        Some(value) => std::env::set_var(rpi_harness::run_budget::MAX_TURNS_ENV, value),
-        None => std::env::remove_var(rpi_harness::run_budget::MAX_TURNS_ENV),
-    }
 }
 
 /// A crash mid-stream must not cost the whole run.

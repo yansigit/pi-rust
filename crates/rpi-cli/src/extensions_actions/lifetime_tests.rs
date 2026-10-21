@@ -73,3 +73,93 @@ async fn expired_reverse_bindings_fail_closed_but_still_reclaim_their_children()
         .await
         .is_err());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "requires RPI_TEST_STUB_LIBRARY built with the native session fixture"]
+async fn native_session_commits_cross_loaded_library_and_survive_reopen() {
+    use rpi_extensions::{ActionBridge, HostApi, NullDiagnostics};
+    use rpi_harness::session::jsonl::JsonlSessionStorage;
+    use rpi_harness::session::memory::SystemClock;
+    use rpi_harness::session::types::{Entry, SessionStorage};
+    use rpi_harness::session::DefaultIdGenerator;
+    let path = std::env::var_os("RPI_TEST_STUB_LIBRARY").expect("set current fixture library");
+    let dir = tempfile::tempdir().unwrap();
+    let session = crate::session::create_jsonl_session(dir.path(), dir.path().to_str().unwrap())
+        .await
+        .unwrap();
+    let provider = FauxProvider::new(FauxScript::new().with_text("unused"));
+    let harness = AgentHarness::create(AgentHarnessOptions {
+        session,
+        model: provider.default_model().clone(),
+        models: vec![provider],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let (host, cell) = HarnessActionHost::new_empty(
+        vec![],
+        dir.path().into(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    HarnessActionHost::set_harness(&cell, Arc::new(harness.clone()));
+    let bridge = ActionBridge::new(Handle::current(), Arc::new(host));
+    let api = HostApi::with_action_bridge(
+        "session-fixture",
+        Default::default(),
+        Arc::new(NullDiagnostics),
+        bridge.clone(),
+    );
+    let loaded =
+        rpi_extensions::load_one(path, Arc::new(NullDiagnostics), Some(bridge.clone())).unwrap();
+    let status = tokio::task::spawn_blocking(move || {
+        // The loaded library and API stay alive until the foreign call returns.
+        let call = unsafe {
+            loaded
+                .library
+                .get::<extern "C" fn(rpi_plugin_sdk::PluginApi) -> i32>(
+                    b"plugin_stub_native_session",
+                )
+                .unwrap()
+        };
+        let status = call(api.build_vtable());
+        (status, loaded, api)
+    })
+    .await
+    .unwrap();
+    assert_eq!(status.0, 0);
+    bridge.finish_native_writes().await;
+    let entries = harness
+        .session()
+        .storage()
+        .snapshot()
+        .await
+        .unwrap()
+        .entries;
+    assert!(entries.iter().any(|entry| matches!(entry, Entry::Custom(custom) if custom.custom_type == "fixture:native-commit")));
+    let mut paths = vec![dir.path().to_owned()];
+    let mut log = None;
+    while let Some(path) = paths.pop() {
+        for entry in std::fs::read_dir(path).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                paths.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "jsonl") {
+                log = Some(path);
+            }
+        }
+    }
+    let reopened = JsonlSessionStorage::load(
+        Arc::new(rpi_tools::OsExecutionEnv::with_cwd(dir.path().into())),
+        log.unwrap().to_str().unwrap(),
+        Arc::new(SystemClock),
+        Arc::new(DefaultIdGenerator::new()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(reopened.snapshot().await.unwrap().entries).unwrap(),
+        serde_json::to_value(entries).unwrap()
+    );
+}

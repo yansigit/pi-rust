@@ -47,7 +47,10 @@
 //! `append_entry` receives a [`ProvisionedEntry`] and stamps via the state +
 //! a [`Clock`], then encodes the resulting full `Entry`.
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use async_trait::async_trait;
 use tokio::sync::Mutex;
@@ -87,6 +90,24 @@ pub struct JsonlSessionStorage {
     /// Not `&self` across await points, so each mutating op holds it for its
     /// full duration.
     tail: Mutex<()>,
+    uncertain: AtomicBool,
+}
+
+struct PendingWrite<'a> {
+    uncertain: &'a AtomicBool,
+    applied: bool,
+}
+impl PendingWrite<'_> {
+    fn applied(mut self) {
+        self.applied = true;
+    }
+}
+impl Drop for PendingWrite<'_> {
+    fn drop(&mut self) {
+        if !self.applied {
+            self.uncertain.store(true, Ordering::Release);
+        }
+    }
 }
 
 impl JsonlSessionStorage {
@@ -105,6 +126,7 @@ impl JsonlSessionStorage {
             clock,
             ids,
             tail: Mutex::new(()),
+            uncertain: AtomicBool::new(false),
         }
     }
 
@@ -276,6 +298,12 @@ impl JsonlSessionStorage {
         Ok(storage)
     }
 
+    /// Wait for the current write before deciding whether this writer can be reused.
+    pub async fn check_writer(&self) -> SessionResult<()> {
+        let _tail = self.tail.lock().await;
+        self.require_certain()
+    }
+
     /// Fork into `path` by writing a fresh header then replaying the fork
     /// mutations. Mirrors TS `JsonlSessionStorage.fork`. The target file is
     /// built via [`publish_file_atomically`] so a crash leaves only a `.tmp`.
@@ -288,6 +316,8 @@ impl JsonlSessionStorage {
         ids: Arc<dyn IdGenerator>,
     ) -> SessionResult<Self> {
         let mutations = {
+            let _tail = self.tail.lock().await;
+            self.require_certain()?;
             let state = self.state.lock().await;
             state.create_fork_mutations(options)?
         };
@@ -338,14 +368,32 @@ impl JsonlSessionStorage {
 
     /// Append a mutation line to the file (no in-memory apply). Mirrors TS
     /// `appendMutation`.
-    async fn append_mutation_line(&self, mutation: &SessionMutation) -> SessionResult<()> {
+    fn require_certain(&self) -> SessionResult<()> {
+        if self.uncertain.load(Ordering::Acquire) {
+            return Err(SessionError::storage(
+                "session write outcome is uncertain; reopen the session before writing",
+            ));
+        }
+        Ok(())
+    }
+
+    async fn append_mutation_line(
+        &self,
+        mutation: &SessionMutation,
+    ) -> SessionResult<PendingWrite<'_>> {
+        self.require_certain()?;
+        let pending = PendingWrite {
+            uncertain: &self.uncertain,
+            applied: false,
+        };
         let line = encode_mutation(mutation);
         file_result(
             self.fs
                 .append_file(&self.metadata.path, FileContent::Text(line), None)
                 .await,
             &format!("Failed to append session {}", self.metadata.path),
-        )
+        )?;
+        Ok(pending)
     }
 }
 
@@ -384,6 +432,48 @@ fn chain_onto_lane_leaf(mutation: SessionMutation, state: &SessionState) -> Sess
 
 #[async_trait]
 impl SessionStorage for JsonlSessionStorage {
+    async fn snapshot(&self) -> SessionResult<super::super::types::SessionSnapshot> {
+        let _tail = self.tail.lock().await;
+        self.require_certain()?;
+        Ok(self.state.lock().await.snapshot(self.metadata.to_base()))
+    }
+
+    async fn commit_entry(
+        &self,
+        entry: ProvisionedEntry,
+        target: super::super::types::AppendTarget,
+    ) -> SessionResult<super::super::types::CommittedEntry> {
+        let _tail = self.tail.lock().await;
+        let mut state = self.state.lock().await;
+        let mutation = state.prepare_commit(entry, target, self.clock.now_ms())?;
+        let SessionMutation::Entry { entry, lane, .. } = &mutation else {
+            unreachable!("prepared entry mutation")
+        };
+        let mut receipt = super::super::types::CommittedEntry {
+            entry: entry.clone(),
+            revision: entry.seq(),
+            advanced_lane: lane.is_some(),
+            durability: rpi_tools::Durability::Ephemeral,
+        };
+        let pending = self.append_mutation_line(&mutation).await?;
+        state.apply_mutation(mutation)?;
+        receipt.durability = file_result(
+            self.fs.sync_file(&self.metadata.path).await,
+            "Failed to synchronize committed session entry",
+        )?;
+        pending.applied();
+        Ok(receipt)
+    }
+
+    async fn sync(&self) -> SessionResult<rpi_tools::Durability> {
+        let _tail = self.tail.lock().await;
+        self.require_certain()?;
+        file_result(
+            self.fs.sync_file(&self.metadata.path).await,
+            "Failed to synchronize session",
+        )
+    }
+
     fn metadata(&self) -> SessionMetadata {
         self.metadata.to_base()
     }
@@ -411,9 +501,10 @@ impl SessionStorage for JsonlSessionStorage {
             leaf_id: at,
         };
         drop(state);
-        self.append_mutation_line(&mutation).await?;
+        let pending = self.append_mutation_line(&mutation).await?;
         let mut state = self.state.lock().await;
         state.apply_mutation(mutation)?;
+        pending.applied();
         Ok(())
     }
 
@@ -431,9 +522,10 @@ impl SessionStorage for JsonlSessionStorage {
             leaf_id: to,
         };
         drop(state);
-        self.append_mutation_line(&mutation).await?;
+        let pending = self.append_mutation_line(&mutation).await?;
         let mut state = self.state.lock().await;
         state.apply_mutation(mutation)?;
+        pending.applied();
         Ok(())
     }
 
@@ -452,9 +544,10 @@ impl SessionStorage for JsonlSessionStorage {
             entry: full.clone(),
         };
         drop(state);
-        self.append_mutation_line(&mutation).await?;
+        let pending = self.append_mutation_line(&mutation).await?;
         let mut state = self.state.lock().await;
         state.apply_mutation(mutation)?;
+        pending.applied();
         match state.get_entry(full.id()) {
             Some(stamped) => Ok(stamped.clone()),
             None => Err(SessionError::storage("append_entry did not persist")),
@@ -484,9 +577,10 @@ impl SessionStorage for JsonlSessionStorage {
             record: stamped.clone(),
         };
         drop(state);
-        self.append_mutation_line(&mutation).await?;
+        let pending = self.append_mutation_line(&mutation).await?;
         let mut state = self.state.lock().await;
         state.apply_mutation(mutation)?;
+        pending.applied();
         Ok(stamped)
     }
 
@@ -543,9 +637,10 @@ impl SessionStorage for JsonlSessionStorage {
             name: name.map(|s| s.to_string()),
         };
         drop(state);
-        self.append_mutation_line(&mutation).await?;
+        let pending = self.append_mutation_line(&mutation).await?;
         let mut state = self.state.lock().await;
         state.apply_mutation(mutation)?;
+        pending.applied();
         Ok(())
     }
 
@@ -565,9 +660,10 @@ impl SessionStorage for JsonlSessionStorage {
             label: label.map(|s| s.to_string()),
         };
         drop(state);
-        self.append_mutation_line(&mutation).await?;
+        let pending = self.append_mutation_line(&mutation).await?;
         let mut state = self.state.lock().await;
         state.apply_mutation(mutation)?;
+        pending.applied();
         Ok(())
     }
 
