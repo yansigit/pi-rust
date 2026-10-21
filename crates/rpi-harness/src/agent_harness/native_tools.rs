@@ -5,6 +5,15 @@ use rpi_ai::{AssistantMessage, ToolCall};
 use serde_json::{json, Value};
 
 impl AgentHarness {
+    /// Freeze the same projection rules used by this execution's provider requests.
+    pub fn session_context_options(&self) -> HarnessResult<SessionContextBuildOptions> {
+        let snapshot = self.snapshot_config()?;
+        Ok(Self::build_opts(
+            &snapshot.entry_projectors,
+            &snapshot.entry_transforms,
+        ))
+    }
+
     pub fn inspect_tools(&self) -> HarnessResult<Vec<Value>> {
         let snapshot = self.snapshot_config()?;
         Ok(snapshot

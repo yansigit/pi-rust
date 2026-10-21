@@ -385,12 +385,16 @@ impl RuntimeActionHost for HarnessActionHost {
             return self
                 .sessions
                 .request(owner, args, signal, || {
-                    Ok(self
+                    let target = self
                         .harness()?
                         .for_current_execution()
-                        .map_err(|error| error.to_string())?
-                        .session()
-                        .storage())
+                        .map_err(|error| error.to_string())?;
+                    Ok((
+                        target.session().storage(),
+                        target
+                            .session_context_options()
+                            .map_err(|error| error.to_string())?,
+                    ))
                 })
                 .await;
         }
@@ -483,7 +487,10 @@ impl RuntimeActionHost for HarnessActionHost {
         &self,
         _args: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
-        let harness = self.harness()?;
+        let harness = self
+            .harness()?
+            .for_current_execution()
+            .map_err(|e| e.to_string())?;
         let mut context = harness.execution_context().map_err(|e| e.to_string())?;
         if let Some(serde_json::Value::Object(child)) =
             rpi_agent::tool_execution_scope::execution_context()

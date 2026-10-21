@@ -35,13 +35,121 @@ async fn capture(ports: &Arc<SessionPorts>, storage: Arc<dyn SessionStorage>) ->
             owner(),
             json!({"action":"capture"}),
             CancellationToken::new(),
-            || Ok(storage),
+            || Ok((storage, SessionContextBuildOptions::default())),
         )
         .await
         .unwrap()["origin"]
         .as_str()
         .unwrap()
         .into()
+}
+
+#[tokio::test]
+async fn view_projects_once_and_keeps_real_source_ids_and_the_origin_branch() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let ports = Arc::new(SessionPorts::default());
+    let storage = memory();
+    let message = |content: &str| {
+        serde_json::from_value(json!({
+            "kind":"user","role":"user","content":content,"timestamp":0
+        }))
+        .unwrap()
+    };
+    for (id, kind) in [
+        (
+            "old",
+            ProvisionedKind::Message {
+                message: message("summarized"),
+                terminate: None,
+            },
+        ),
+        (
+            "compact",
+            ProvisionedKind::Compaction {
+                summary: "summary".into(),
+                retained_tail: vec![message("retained")],
+                tokens_before: 100,
+                details: None,
+                usage: None,
+            },
+        ),
+        (
+            "project",
+            ProvisionedKind::Custom {
+                custom_type: "fixture:project".into(),
+                data: None,
+            },
+        ),
+    ] {
+        storage
+            .append_entry(
+                ProvisionedEntry {
+                    id: id.into(),
+                    kind,
+                },
+                "main",
+            )
+            .await
+            .unwrap();
+    }
+    let transforms = Arc::new(AtomicUsize::new(0));
+    let projectors = Arc::new(AtomicUsize::new(0));
+    let mut options = SessionContextBuildOptions::default();
+    let calls = transforms.clone();
+    options.entry_transforms.push(Arc::new(move |entries| {
+        calls.fetch_add(1, Ordering::SeqCst);
+        entries.to_vec()
+    }));
+    let calls = projectors.clone();
+    options.entry_projectors.insert(
+        "fixture:project".into(),
+        Arc::new(move |_, _, _| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            vec![message("projected")]
+        }),
+    );
+    let origin = ports
+        .request(
+            owner(),
+            json!({"action":"capture"}),
+            CancellationToken::new(),
+            || Ok((storage.clone(), options)),
+        )
+        .await
+        .unwrap()["origin"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let request = json!({"action":"view","origin":origin});
+    let view = call(&ports, owner(), request.clone()).await.unwrap();
+    assert_eq!(view["leafId"], "project");
+    assert_eq!(
+        view["projection"]["entries"][0]["sourceEntry"]["id"],
+        "compact"
+    );
+    assert_eq!(
+        view["projection"]["entries"][0]["messages"][1]["content"],
+        "retained"
+    );
+    assert_eq!(
+        view["projection"]["entries"][1]["messages"][0]["content"],
+        "projected"
+    );
+    assert_eq!(transforms.load(Ordering::SeqCst), 1);
+    assert_eq!(projectors.load(Ordering::SeqCst), 1);
+    storage.move_lane("main", Some("old")).await.unwrap();
+    let view = call(&ports, owner(), request.clone()).await.unwrap();
+    assert_eq!(view["snapshot"]["branches"][0]["leafId"], "old");
+    assert_eq!(view["leafId"], "project");
+    let late = call(&ports, owner(), append(&origin, "journalAppend"))
+        .await
+        .unwrap();
+    let view = call(&ports, owner(), request.clone()).await.unwrap();
+    assert_eq!(view["leafId"], late["entry"]["id"]);
+    assert_eq!(view["projection"]["entries"].as_array().unwrap().len(), 3);
+    assert!(call(&ports, NativeOwner { id: 18, ..owner() }, request)
+        .await
+        .is_err());
 }
 fn append(origin: &str, action: &str) -> Value {
     json!({"action":action,"origin":origin,"customType":"fixture:journal","data":{"turnId":"original-turn"}})
@@ -241,7 +349,7 @@ async fn capture_refuses_stale_identity_and_bounds_handles_and_untrusted_input()
             owner(),
             json!({"action":"capture"}),
             CancellationToken::new(),
-            || Ok(storage.clone())
+            || Ok((storage.clone(), SessionContextBuildOptions::default()))
         )
     )
     .await
@@ -254,7 +362,7 @@ async fn capture_refuses_stale_identity_and_bounds_handles_and_untrusted_input()
             owner(),
             json!({"action":"capture"}),
             CancellationToken::new(),
-            || Ok(storage.clone())
+            || Ok((storage.clone(), SessionContextBuildOptions::default()))
         )
         .await
         .is_err());
@@ -282,7 +390,7 @@ async fn capture_refuses_stale_identity_and_bounds_handles_and_untrusted_input()
             owner(),
             json!({"action":"capture"}),
             CancellationToken::new(),
-            || Ok(storage)
+            || Ok((storage, SessionContextBuildOptions::default()))
         )
         .await
         .is_err());

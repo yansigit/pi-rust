@@ -151,6 +151,7 @@ pub(crate) extern "C" fn request(
                     "auth.dynamicMethods",
                     "context.inspect",
                     "sessions.location",
+                    "sessions.view",
                     "commands.owned",
                     "ui.notifications"
                 ]));

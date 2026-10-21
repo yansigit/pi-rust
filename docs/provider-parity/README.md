@@ -13,6 +13,12 @@ Pi 1.3.0, Cursor SDK 1.0.37, and unchanged baseline commands. Source behavior is
 authoritative. Baseline failures are evidence about the reference, never a
 passing candidate test or an automatically approved exception.
 
+The user approved one additional exception on 2026-10-21: Antigravity body reads
+return timeout/cancellation errors and release resources, instead of retaining
+the pinned Node transport's pending read. The original fixture and candidate
+regressions remain recorded in the package ledger. Other transport checks remain
+required; this approval does not declare A05 complete.
+
 The [Cursor worker foundation](cursor-worker.md) retains the complete pinned
 adapter and implements private, bounded Rust/Node transport with cancellation,
 concurrent request ownership and shutdown draining. Its actual native provider,
@@ -141,8 +147,9 @@ Runtime-generated test names and imported test declarations still require review
 
 The behavioral ledger below supplements that file inventory. Each row requires
 passing differential evidence before completion. All rows are currently pending.
-The only agreed exceptions are native rpi presentation, native-only extension
-contracts, isolated import storage and fresh runtime ownership; original Pi keeps
+The agreed exceptions are native rpi presentation, native-only extension
+contracts, isolated import storage, fresh runtime ownership, and the approved
+Antigravity body-read timeout/cancellation behavior above; original Pi keeps
 authority over existing Cursor agents and vault enrollments.
 
 | ID | Required behavior | Source / intended port | Acceptance evidence required |

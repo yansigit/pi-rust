@@ -111,7 +111,12 @@ pub extern "C" fn plugin_stub_native_session(api: rpi_plugin_sdk::PluginApi) -> 
         runtime.block_on(async {
             client
                 .require_capabilities(
-                    &["assistant.durationMs", "json.exactNumbers"],
+                    &[
+                        "assistant.durationMs",
+                        "json.exactNumbers",
+                        "sessions.location",
+                        "sessions.view",
+                    ],
                     rpi_ai::SimpleStreamOptions::default().signal,
                 )
                 .await
@@ -150,6 +155,21 @@ pub extern "C" fn plugin_stub_native_session(api: rpi_plugin_sdk::PluginApi) -> 
                 .iter()
                 .any(|entry| entry["id"] == id));
             assert_eq!(snapshot["revision"], receipt["revision"]);
+            let location = request(serde_json::json!({"action":"location","origin":origin}))
+                .await
+                .unwrap();
+            assert!(std::path::Path::new(location["path"].as_str().unwrap()).is_absolute());
+            let view = request(serde_json::json!({"action":"view","origin":origin}))
+                .await
+                .unwrap();
+            assert_eq!(view["leafId"], id);
+            assert_eq!(view["snapshot"], snapshot);
+            assert!(view["projection"]["entries"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["sourceEntry"]["id"] == id
+                    && entry["messages"] == serde_json::json!([])));
             assert_eq!(
                 request(serde_json::json!({"action":"sync","origin":origin}))
                     .await

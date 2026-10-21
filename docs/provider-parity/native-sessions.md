@@ -49,6 +49,7 @@ native-request/context slots carry these operations; no C ABI structure changed.
 | --- | --- | --- |
 | `capture` | optional `lane` (default `main`) | Opaque `origin` handle and complete `snapshot` |
 | `snapshot` | `origin` | Complete current tree and revisions of that origin's storage |
+| `view` | `origin` | Atomic snapshot, origin branch leaf/revision and host-derived context projection; requires `sessions.view` |
 | `location` | `origin` | Host-owned backing `path`, or null; requires `sessions.location` |
 | `append` | `origin`, `customType`, optional `data` | Committed receipt; refuses a changed branch |
 | `journalAppend` | `origin`, `customType`, optional `data` | Committed receipt; preserves the original branch after navigation |
@@ -70,6 +71,21 @@ descriptor, not permission to bypass the host's writes, and does not acknowledge
 durability. Consumers must still await `append` and `sync`. The Rust storage
 trait adds a default optional location method; C ABI layouts and versions stay
 unchanged. Other storage implementations may return no location.
+
+`view` follows the captured lane while its navigation revision is unchanged.
+After navigation it follows the origin's anchor and subsequent journal appends,
+without selecting the newly active branch. Projection uses the captured execution's
+real context transforms and custom-entry projectors, each exactly once per view.
+Each contribution includes its source entry and messages. Compactions retain their
+actual entry IDs and own their retained-tail messages; clients need not infer
+old entry IDs from matching content. Projectors run after releasing the origin's
+write mutex. The worker's synchronous getters can therefore read one acknowledged
+view while retaining a stable manager identity across requests.
+
+Execution-context inspection and session capture select the same child harness.
+An expired child fails instead of returning the parent's session ID.
+[View verification](host-session-view-results.json) includes the loaded SDK fixture,
+branch/projector regressions and the warning-denied Rust 1.78 workspace check.
 
 A cancelled waiter receives an error, while an already-started commit completes.
 Inspect the journal before retrying an uncertain operation. Appends serialize per

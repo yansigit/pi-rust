@@ -3,6 +3,79 @@ use rpi_ai::providers::faux::{FauxProvider, FauxScript};
 use rpi_harness::types::AgentHarnessOptions;
 use serde_json::json;
 
+#[tokio::test]
+async fn native_execution_context_and_session_capture_agree_on_child_identity() {
+    use rpi_harness::session::types::SessionMetadata;
+    use rpi_harness::session::{DefaultIdGenerator, InMemorySessionStorage, Session, SystemClock};
+    let provider = FauxProvider::new(FauxScript::new().with_text("unused"));
+    let parent = AgentHarness::create(AgentHarnessOptions {
+        model: provider.default_model().clone(),
+        models: vec![provider],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let (host, cell) = HarnessActionHost::new_empty(
+        vec![],
+        std::env::temp_dir(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    HarnessActionHost::set_harness(&cell, Arc::new(parent.clone()));
+    let session = Session::new(
+        Arc::new(InMemorySessionStorage::new(
+            SessionMetadata {
+                id: "native-child".into(),
+                created_at: 0,
+                parent_session_id: None,
+            },
+            Arc::new(SystemClock),
+            Arc::new(DefaultIdGenerator::new()),
+        )),
+        None,
+    );
+    let child = parent
+        .create_child(
+            session,
+            Arc::new(rpi_agent::CollectorEmitter::new().0),
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+    let scope = child.execution_scope.clone();
+    scope
+        .run(async {
+            let context = host.get_execution_context(json!({})).await.unwrap();
+            assert_eq!(context["sessionId"], "native-child");
+            let captured = host
+                .native_request(
+                    rpi_extensions::native::NativeOwner {
+                        id: 1,
+                        generation: "generation".into(),
+                        plugin: "fixture".into(),
+                        child: true,
+                    },
+                    json!({"version":1,"port":"sessions","action":"capture"}),
+                    tokio_util::sync::CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(captured["snapshot"]["metadata"]["id"], context["sessionId"]);
+        })
+        .await;
+    drop(child);
+    assert!(scope
+        .run(host.get_execution_context(json!({})))
+        .await
+        .is_err());
+    assert_eq!(
+        host.get_execution_context(json!({})).await.unwrap()["sessionId"],
+        parent.session().storage().metadata().id
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn expired_reverse_bindings_fail_closed_but_still_reclaim_their_children() {
     let (host, cell) = HarnessActionHost::new_empty(

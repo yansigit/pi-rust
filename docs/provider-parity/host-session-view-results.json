@@ -1,0 +1,49 @@
+{
+  "status": "host session view implemented; full Cursor runtime integration pending",
+  "rust": "1.78.0",
+  "platform": "Linux x86_64",
+  "capabilities": [
+    "sessions.location",
+    "sessions.view"
+  ],
+  "tests": {
+    "location": {
+      "passed": 7,
+      "failed": 0
+    },
+    "nativeFilterIncludingLoadedLibrary": {
+      "passed": 36,
+      "failed": 0,
+      "ignored": 0
+    },
+    "workspaceAllTargetsWarningsDenied": "passed"
+  },
+  "review": {
+    "method": "manual exact-diff review",
+    "findingsFixed": [
+      "select the child harness before reporting execution context",
+      "evaluate transforms and projectors once per view",
+      "release the origin write mutex before invoking projection callbacks"
+    ],
+    "remainingMaterialFindings": 0
+  },
+  "logs": [
+    {
+      "path": "/tmp/rpi-native-session-location.log",
+      "sha256": "5d15803761725c856ac70d29557302751643adba941e21c722e45cd862e5d4ed"
+    },
+    {
+      "path": "/tmp/rpi-native-session-view-loaded.log",
+      "sha256": "e51daa0ffc9847929a282bc425f794991a83fd474ecb675e9cbe3c91d919bb17"
+    },
+    {
+      "path": "/tmp/rpi-session-view-workspace.log",
+      "sha256": "f9444a20313a702a3b7fae05e499161f410eb6fecf07e9848422c384d44222ac"
+    }
+  ],
+  "limits": [
+    "Linux execution only",
+    "Cursor Node session port is verified separately; these tests do not qualify complete worker runtime wiring",
+    "Existing Rust storage implementations use the default optional location method unless they implement it"
+  ]
+}

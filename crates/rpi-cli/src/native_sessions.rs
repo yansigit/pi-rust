@@ -1,8 +1,12 @@
 //! Private session handles freeze storage ownership across branch/session changes.
 use rpi_agent::tool_execution_scope::{current_scope, ToolExecutionScope};
 use rpi_extensions::native::NativeOwner;
+use rpi_harness::session::context::{
+    build_context_entries, derive_session_context_state, session_entry_to_context_messages,
+    SessionContextBuildOptions,
+};
 use rpi_harness::session::types::{
-    AppendTarget, ProvisionedEntry, ProvisionedKind, SessionStorage,
+    AppendTarget, ProvisionedEntry, ProvisionedKind, SessionSnapshot, SessionStorage,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -28,6 +32,9 @@ enum Request {
         lane: String,
     },
     Snapshot {
+        origin: String,
+    },
+    View {
         origin: String,
     },
     Location {
@@ -60,6 +67,7 @@ struct Origin {
     owner: NativeOwner,
     scope: Option<Weak<ToolExecutionScope>>,
     storage: Arc<dyn SessionStorage>,
+    context_options: SessionContextBuildOptions,
     lane: String,
     branch_revision: u64,
     anchor: tokio::sync::Mutex<Option<String>>,
@@ -133,7 +141,10 @@ impl SessionPorts {
         owner: NativeOwner,
         mut args: Value,
         signal: CancellationToken,
-        current_storage: impl FnOnce() -> Result<Arc<dyn SessionStorage>, String>,
+        current_storage: impl FnOnce() -> Result<
+            (Arc<dyn SessionStorage>, SessionContextBuildOptions),
+            String,
+        >,
     ) -> Result<Value, String> {
         let signal = signal.child_token();
         let _cancel = signal.clone().drop_guard();
@@ -145,14 +156,14 @@ impl SessionPorts {
         let scope = current_scope();
         check_signal(&signal, &scope)?;
         let storage = if matches!(request, Request::Capture { .. }) {
-            let storage = current_storage()?;
+            let (storage, options) = current_storage()?;
             if rpi_ai::identity::current()
                 .and_then(|identity| identity.session_id)
                 .is_some_and(|id| id != storage.metadata().id)
             {
                 return Err("session changed before origin capture".into());
             }
-            Some(storage)
+            Some((storage, options))
         } else {
             None
         };
@@ -185,11 +196,11 @@ impl SessionPorts {
         request: Request,
         scope: Option<Arc<ToolExecutionScope>>,
         signal: CancellationToken,
-        storage: Option<Arc<dyn SessionStorage>>,
+        storage: Option<(Arc<dyn SessionStorage>, SessionContextBuildOptions)>,
     ) -> Result<Value, String> {
         check_signal(&signal, &scope)?;
         if let Request::Capture { lane } = request {
-            let storage = storage.ok_or("missing session storage")?;
+            let (storage, context_options) = storage.ok_or("missing session storage")?;
             let snapshot = storage.snapshot().await.map_err(|e| e.to_string())?;
             let branch = snapshot
                 .branches
@@ -219,6 +230,7 @@ impl SessionPorts {
                     owner,
                     scope: scope.as_ref().map(Arc::downgrade),
                     storage,
+                    context_options,
                     lane,
                     branch_revision: branch.revision,
                     anchor: tokio::sync::Mutex::new(branch.leaf_id.clone()),
@@ -233,6 +245,7 @@ impl SessionPorts {
             | Request::JournalAppend { origin, .. }
             | Request::Sync { origin }
             | Request::Location { origin }
+            | Request::View { origin }
             | Request::Release { origin } => origin,
         };
         let origin = {
@@ -260,6 +273,21 @@ impl SessionPorts {
         }
         let journal = matches!(request, Request::JournalAppend { .. });
         match request {
+            Request::View { .. } => {
+                let snapshot = origin.storage.snapshot().await.map_err(|e| e.to_string())?;
+                let branch = snapshot.branches.iter().find(|b| b.lane == origin.lane);
+                let leaf = branch
+                    .filter(|b| b.revision == origin.branch_revision)
+                    .map(|b| b.leaf_id.as_deref())
+                    .unwrap_or(anchor.as_deref())
+                    .map(str::to_owned);
+                drop(anchor);
+                let projection = project_view(&snapshot, leaf.as_deref(), &origin.context_options)?;
+                Ok(
+                    json!({"snapshot":snapshot,"leafId":leaf,"projection":projection,
+                    "branchRevision":origin.branch_revision}),
+                )
+            }
             Request::Location { .. } => {
                 Ok(json!({"path":origin.storage.location().await.map_err(|e| e.to_string())?}))
             }
@@ -313,6 +341,42 @@ impl SessionPorts {
             _ => unreachable!(),
         }
     }
+}
+
+fn project_view(
+    snapshot: &SessionSnapshot,
+    leaf: Option<&str>,
+    options: &SessionContextBuildOptions,
+) -> Result<Value, String> {
+    let by_id: HashMap<_, _> = snapshot.entries.iter().map(|e| (e.id(), e)).collect();
+    let mut path = Vec::new();
+    let mut seen = HashSet::new();
+    let mut next = leaf;
+    while let Some(id) = next {
+        if !seen.insert(id) {
+            return Err("session projection contains a cycle".into());
+        }
+        let entry = by_id
+            .get(id)
+            .ok_or("session projection parent is missing")?;
+        path.push((*entry).clone());
+        next = entry.parent_id();
+    }
+    path.reverse();
+    let context = derive_session_context_state(&path);
+    let entries = build_context_entries(&path, options);
+    let projected: Vec<_> = entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            json!({"sourceEntry":entry,
+            "messages":session_entry_to_context_messages(entry,index,&entries,options)})
+        })
+        .collect();
+    Ok(
+        json!({"entries":projected,"thinkingLevel":context.thinking_level,
+        "model":context.model.map(|(provider,model_id)|json!({"provider":provider,"modelId":model_id}))}),
+    )
 }
 fn check_signal(
     signal: &CancellationToken,

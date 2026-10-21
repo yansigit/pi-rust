@@ -174,7 +174,7 @@ fn custom_to_context_messages(
 /// `deriveSessionContextState` — walk the FULL path (not the truncated context
 /// entries) to capture the latest `thinking_level`/`model`/`active_tool_names`.
 /// Mirrors TS `deriveSessionContextState`.
-fn derive_session_context_state(path_entries: &[Entry]) -> SessionContext {
+pub fn derive_session_context_state(path_entries: &[Entry]) -> SessionContext {
     let mut thinking_level = "off".to_string();
     let mut model: Option<(String, String)> = None;
     let mut active_tool_names: Option<Vec<String>> = None;
