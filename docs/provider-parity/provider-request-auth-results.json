@@ -58,5 +58,24 @@
   "not_tested": [
     "complete Antigravity custody startup and sends",
     "macOS and Windows native execution"
-  ]
+  ],
+  "providerResolutionPolicy": {
+    "status": "passed",
+    "qualification": "An attempt-scoped policy narrows API-key/OAuth support and provides a literal fallback only when the store is empty. Direct request-auth overrides retain their bypass contract. Explicit request keys/headers/env preserve Pi 1.3 precedence. No C ABI or workspace version changes.",
+    "unit": {
+      "command": "RUSTFLAGS=-Dwarnings cargo +1.78.0 test -p rpi-cli --lib provider:: --locked",
+      "log": "/tmp/rpi-provider-policy.log",
+      "sha256": "01fd9c5d4ffae3e16709d0258fc525b444eca89fcab1afb37ff6d835f776a704",
+      "passed": 74,
+      "failed": 0
+    },
+    "loaded": {
+      "command": "RUSTFLAGS=-Dwarnings cargo +1.78.0 test -p rpi-cli --test provider_packages native_request_ --locked -- --ignored",
+      "log": "/tmp/rpi-provider-policy-loaded.log",
+      "sha256": "98712faa5d325ca80f44e2fd2fa4cbc2eefed0f1e677e351f2da2b889b96540c",
+      "passed": 2,
+      "failed": 0
+    },
+    "platform": "Linux; macOS and Windows execution not tested"
+  }
 }

@@ -1,5 +1,5 @@
 //! Session-owned provider auth, resolved anew for each physical request.
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 use rpi_ai::auth::{
     AuthContext, AuthError, AuthOptions, AuthRuntime, CredentialStore, ProviderAuth, SystemClock,
@@ -20,6 +20,7 @@ impl AuthBinding {
         model: &mut Model,
         options: &mut SimpleStreamOptions,
     ) -> Result<(), AuthError> {
+        let mut provider = self.provider.clone();
         let override_auth = if let Some(operations) = &self.operations {
             let mut env = self.context.env.clone();
             env.extend(
@@ -48,6 +49,22 @@ impl AuthBinding {
                 .await?;
             if result.is_null() {
                 None
+            } else if let Some(policy) = result.get("resolve") {
+                if result.as_object().map_or(true, |value| value.len() != 1) {
+                    return Err(AuthError::Resolve);
+                }
+                let policy: super::auth_policy::Policy =
+                    serde_json::from_value(policy.clone()).map_err(|_| AuthError::Resolve)?;
+                if policy.fallback_api_key.is_some()
+                    && (!policy.api_key || !provider.supports_api_key())
+                {
+                    return Err(AuthError::Resolve);
+                }
+                provider = Arc::new(super::auth_policy::Restricted {
+                    inner: provider,
+                    policy,
+                });
+                None
             } else {
                 Some(
                     serde_json::from_value::<rpi_ai::auth::RequestAuth>(result)
@@ -57,14 +74,17 @@ impl AuthBinding {
         } else {
             None
         };
+        let resolved = override_auth.is_none();
         let auth = match override_auth {
             Some(auth) => auth,
             None => self
                 .runtime
                 .resolve(
                     model.provider.clone(),
-                    self.provider.clone(),
-                    self.store.clone()?,
+                    provider,
+                    self.store.clone().unwrap_or_else(|error| {
+                        Arc::new(super::auth_policy::UnavailableStore(error))
+                    }),
                     self.context.clone(),
                     AuthOptions {
                         api_key: options.api_key.clone(),
@@ -78,16 +98,29 @@ impl AuthBinding {
                 .await?
                 .ok_or(AuthError::Resolve)?,
         };
-        options.api_key = auth.api_key;
+        if !resolved || options.api_key.is_none() {
+            options.api_key = auth.api_key;
+        }
         if let Some(base_url) = auth.base_url {
             model.base_url = base_url;
         }
-        let headers = options.headers.get_or_insert_with(BTreeMap::new);
-        for (name, value) in auth.headers {
+        let (mut headers, overrides) = if resolved {
+            (auth.headers, options.headers.take().unwrap_or_default())
+        } else {
+            (options.headers.take().unwrap_or_default(), auth.headers)
+        };
+        for (name, value) in overrides {
             headers.retain(|known, _| !known.eq_ignore_ascii_case(&name));
             headers.insert(name, value);
         }
-        options.env.extend(auth.env);
+        options.headers = Some(headers);
+        if resolved {
+            let mut env = auth.env;
+            env.extend(std::mem::take(&mut options.env));
+            options.env = env;
+        } else {
+            options.env.extend(auth.env);
+        }
         Ok(())
     }
 }

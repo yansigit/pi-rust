@@ -103,6 +103,22 @@ endpoint and environment changes apply only to that request; they never enter
 public model metadata or observer events. Explicit replacement-account attempts
 bypass this ambient callback and retain their independently resolved credentials.
 
+Hosts advertising `auth.providerPolicy` additionally accept a callback result of
+`{resolve:{apiKey:boolean,oauth:boolean,fallbackApiKey?:string}}`. This form narrows
+the registered auth handlers for this attempt; it cannot enable a method absent
+from the registration. The optional fallback is an already-resolved literal API
+key used only when no credential is stored. Explicit keys and stored credentials
+retain their precedence. A stored OAuth credential with OAuth disabled is
+unavailable; it cannot refresh or fall through to the fallback. Unknown policy
+fields or a fallback without API-key support are rejected. Replacement attempts
+retain their separate account policy and bypass this ambient callback.
+
+The normal resolution path preserves explicit request keys (including empty
+strings), case-insensitive request headers, and request environment values after
+provider auth resolution, matching Pi 1.3. An explicit key can resolve without
+reading an unavailable dormant store. A direct `RequestAuth` callback result
+continues to supply the complete request auth as before.
+
 A provider opting into this callback can start with a malformed credential file
 so its recovery controls remain available. Other providers retain store errors
 and cannot run from that session's catalog while the file is unreadable. Unrelated

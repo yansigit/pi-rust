@@ -146,6 +146,7 @@ pub(crate) extern "C" fn request(
                     "auth.credentialStoreLock",
                     "providers.initialize",
                     "auth.providerRequest",
+                    "auth.providerPolicy",
                     "auth.dynamicMethods",
                     "context.inspect"
                 ]));

@@ -39,6 +39,12 @@ extern "C" fn request(
                 json!({"version":1,"result":{"apiKey":"provider-prepared-key","headers":{"X-Provider-Private":"private-header"},"env":{"RPI_PRIVATE_REQUEST_ENV":"request-only"}}})
             }
             "ambient" => json!({"version":1,"result":null}),
+            "policy" => {
+                json!({"version":1,"result":{"resolve":{"apiKey":true,"oauth":false,"fallbackApiKey":"fallback-fixture-key"}}})
+            }
+            "invalid_policy" => {
+                json!({"version":1,"result":{"resolve":{"apiKey":true,"oauth":false,"unknown":true}}})
+            }
             "invalid" => json!({"version":1,"result":{"apiKey":42}}),
             _ => json!({"version":1,"error":"fixture provider refused request authentication"}),
         };

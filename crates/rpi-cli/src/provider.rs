@@ -78,6 +78,7 @@ use rpi_ai::{
 };
 
 mod auth;
+mod auth_policy;
 mod binding;
 mod factories;
 use binding::{ExecutionBinding, RequestAuth};

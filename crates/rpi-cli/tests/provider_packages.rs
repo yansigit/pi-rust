@@ -246,6 +246,83 @@ fn native_request_auth_preserves_dormant_credentials_and_legacy_failure() {
 }
 
 #[test]
+#[ignore = "requires cargo build -p plugin-stub with private request auth"]
+fn native_request_policy_preserves_explicit_keys_and_never_refreshes_disabled_oauth() {
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    for (credential, stored_key) in [
+        ("{}", Some("fallback-fixture-key")),
+        (
+            r#"{"stub-provider":{"type":"api_key","key":"stored-fixture-key"}}"#,
+            Some("stored-fixture-key"),
+        ),
+        (
+            r#"{"stub-provider":{"type":"oauth","access":"expired","refresh":"dormant-refresh","expires":1}}"#,
+            None,
+        ),
+        ("malformed", None),
+    ] {
+        for explicit in [false, true] {
+            for mode in ["policy", "invalid_policy"] {
+                let temp = tempfile::tempdir().unwrap();
+                let agent = temp.path().join("agent");
+                std::fs::create_dir_all(&agent).unwrap();
+                let path = agent.join("auth.json");
+                std::fs::write(&path, credential).unwrap();
+                let mut command = command(&temp, &library);
+                command
+                    .env("RPI_STUB_REQUEST_AUTH", mode)
+                    .env(
+                        "RPI_STUB_EXPECT_API_KEY",
+                        if explicit {
+                            "explicit-fixture-key"
+                        } else {
+                            stored_key.unwrap_or("must-not-stream")
+                        },
+                    )
+                    .args([
+                        "--provider",
+                        "stub-provider",
+                        "--model",
+                        "stub-model",
+                        "--print",
+                        "--no-session",
+                        "--no-tools",
+                        "hello",
+                    ]);
+                if explicit {
+                    command.args(["--api-key", "explicit-fixture-key"]);
+                }
+                let output = bounded_output(&mut command);
+                let text = format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&output.stdout),
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                let success = mode == "policy" && (explicit || stored_key.is_some());
+                assert_eq!(
+                    output.status.success(),
+                    success,
+                    "{mode}, explicit={explicit}: {text}"
+                );
+                assert_eq!(
+                    String::from_utf8_lossy(&output.stdout).contains("from-stub-provider"),
+                    success
+                );
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), credential);
+                for secret in [
+                    "stored-fixture-key",
+                    "fallback-fixture-key",
+                    "explicit-fixture-key",
+                    "dormant-refresh",
+                ] {
+                    assert!(!text.contains(secret));
+                }
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires cargo build -p plugin-stub with provider initialization"]
 fn native_initialization_precedes_auth_and_session_credential_reads() {
     let library = library("plugin_stub").expect("build the current plugin-stub first");
