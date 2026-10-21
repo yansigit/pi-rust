@@ -31,9 +31,17 @@ impl WakeRegistration {
         // Tokens never wrap or identify an allocation, so late callbacks cannot
         // dereference freed memory or wake a later invocation.
         static NEXT: AtomicUsize = AtomicUsize::new(1);
-        let token = NEXT
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_add(1))
-            .expect("tool wake token space exhausted");
+        // A CAS loop supports the MSRV without the deprecated fetch_update API.
+        let mut token = NEXT.load(Ordering::Relaxed);
+        loop {
+            let next = token
+                .checked_add(1)
+                .expect("tool wake token space exhausted");
+            match NEXT.compare_exchange_weak(token, next, Ordering::Relaxed, Ordering::Relaxed) {
+                Ok(_) => break,
+                Err(current) => token = current,
+            }
+        }
         let notify = Arc::new(Notify::new());
         wakes()
             .lock()
