@@ -3169,6 +3169,7 @@ impl AgentHarness {
         base: Option<&str>,
         resources: &AgentHarnessResources,
         active_tool_names: &[String],
+        tools: &[HarnessTool],
     ) -> String {
         let all_skills: &[Skill] = resources.skills.as_deref().unwrap_or(&[]);
         let skills: &[Skill] = if active_tool_names.iter().any(|n| n == "read") {
@@ -3176,7 +3177,39 @@ impl AgentHarness {
         } else {
             &[]
         };
-        compose_system_prompt(base, skills, None, None)
+        let mut prompt = compose_system_prompt(base, skills, None, None);
+        if resources.include_tool_guidance {
+            let active = tools.iter().filter(|tool| {
+                active_tool_names.is_empty() || active_tool_names.contains(&tool.tool.schema().name)
+            });
+            let mut snippets = Vec::new();
+            let mut guidelines = Vec::new();
+            for tool in active {
+                if let Some(snippet) = tool
+                    .tool
+                    .prompt_snippet()
+                    .filter(|snippet| !snippet.is_empty())
+                {
+                    snippets.push(format!("- {}: {snippet}", tool.tool.schema().name));
+                }
+                for guideline in tool.tool.prompt_guidelines() {
+                    let guideline = guideline.trim();
+                    if !guideline.is_empty() && !guidelines.contains(&guideline) {
+                        guidelines.push(guideline);
+                    }
+                }
+            }
+            if !snippets.is_empty() {
+                prompt.push_str(&format!("\n\nAdditional tools:\n{}", snippets.join("\n")));
+            }
+            if !guidelines.is_empty() {
+                prompt.push_str("\n\nTool guidelines:");
+                for guideline in guidelines {
+                    prompt.push_str(&format!("\n- {guideline}"));
+                }
+            }
+        }
+        prompt
     }
 
     /// Reserve an entry id. Exposed so a settle observer can name an entry in a
@@ -3843,6 +3876,7 @@ impl AgentHarness {
             snap.system_prompt.as_deref(),
             &snap.resources,
             &snap.active_tool_names,
+            &snap.tools,
         );
         let tools = Self::active_tools(&snap.tools, &snap.active_tool_names);
 
@@ -3868,12 +3902,28 @@ impl AgentHarness {
                 ..Default::default()
             };
             let prompt_context = snap.resources.prompt_context.as_ref();
+            let tool_snippets: std::collections::BTreeMap<_, _> = snap
+                .tools
+                .iter()
+                .filter_map(|tool| {
+                    tool.tool
+                        .prompt_snippet()
+                        .map(|snippet| (&tool.tool.schema().name, snippet))
+                })
+                .collect();
+            let tool_guidelines: std::collections::BTreeMap<_, _> = snap
+                .tools
+                .iter()
+                .map(|tool| (&tool.tool.schema().name, tool.tool.prompt_guidelines()))
+                .collect();
             let prompt_options = serde_json::json!({
                 "cwd": prompt_context.map(|context| context.cwd.as_str()).unwrap_or_default(),
                 "contextFiles": prompt_context.map(|context| context.files.as_slice()).unwrap_or_default(),
                 "skills": snap.resources.skills.as_deref().unwrap_or_default(),
                 "selectedTools": snap.active_tool_names,
                 "forceSystemPrompt": agent_context.system_prompt,
+                "toolSnippets": tool_snippets,
+                "toolGuidelines": tool_guidelines,
             });
             if let Some(patch) = hooks
                 .begin_operation_with_prompt_options(

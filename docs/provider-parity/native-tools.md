@@ -128,3 +128,27 @@ uses identical tool-call IDs in two concurrent registrations, cancels one, and
 verifies independent completion and exactly one cleanup per handle. Results are
 recorded in `host-owned-tools-results.json`; complete Cursor tool integration and
 recorded execution counts remain separate acceptance work.
+
+## Tool metadata
+
+`tools.metadata` extends the existing `declare` JSON contract without changing
+any C structure. After registering its tools, a plugin can declare:
+
+```json
+{"toolMetadata":{"question":{"label":"Question","executionMode":"sequential","promptSnippet":"Ask once","promptGuidelines":["Wait for the answer"]}}}
+```
+
+Names must already belong to the registration registry; unknown names, fields,
+modes and malformed guidance reject the declaration before any metadata changes.
+Metadata survives snapshots and first-registration-wins merges. Host adapters use
+the label and execution mode, and tool inspection includes guidance and the host's
+existing `direct` exposure. Source information remains host-stamped. This does
+not add Pi's unrelated deferred/codemode exposure policies.
+
+Default CLI prompts include active tools' snippets and deduplicated guidelines;
+explicit/custom prompt sources retain control of their own text. Before-operation
+hooks receive all registered `toolSnippets` and `toolGuidelines` alongside the
+selected names. Image and child tool wrappers preserve these methods. Existing
+plugins default to their tool name, parallel execution and no extra guidance.
+Rust API additions require coordinated release review; versions are unchanged.
+`host-tool-metadata-results.json` records the checks and their limits.

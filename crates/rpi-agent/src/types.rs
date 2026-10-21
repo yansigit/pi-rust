@@ -18,7 +18,8 @@ use crate::message::AgentMessage;
 /// - `Parallel`: calls are prepared sequentially, then allowed tools execute
 ///   concurrently. `tool_execution_end` fires in completion order; tool-result
 ///   `MessageEnd` fires later in assistant source order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ToolExecutionMode {
     Sequential,
     #[default]

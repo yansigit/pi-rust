@@ -40,6 +40,14 @@ pub trait AgentTool: Send + Sync {
         ToolExecutionMode::Parallel
     }
 
+    /// Optional model-facing guidance, retained separately from the JSON schema.
+    fn prompt_snippet(&self) -> Option<&str> {
+        None
+    }
+    fn prompt_guidelines(&self) -> &[String] {
+        &[]
+    }
+
     /// Optional compatibility shim for raw tool-call arguments before schema
     /// validation. Default is identity. Mirrors TS `prepareArguments`.
     fn prepare_arguments(&self, args: serde_json::Value) -> Result<serde_json::Value, AgentError> {

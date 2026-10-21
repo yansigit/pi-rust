@@ -23,6 +23,11 @@ impl AgentHarness {
                 let schema = tool.tool.schema();
                 let mut info = serde_json::to_value(schema).expect("tool schema serializes");
                 info["label"] = json!(tool.tool.label());
+                info["exposure"] = json!("direct");
+                if let Some(snippet) = tool.tool.prompt_snippet() {
+                    info["promptSnippet"] = json!(snippet);
+                }
+                info["promptGuidelines"] = json!(tool.tool.prompt_guidelines());
                 info["sourceInfo"] = tool.source_info.clone().unwrap_or_else(|| {
                     json!({"source":"inline","path":schema.name,"scope":"temporary","origin":"top-level"})
                 });
@@ -65,6 +70,7 @@ impl AgentHarness {
                 snapshot.system_prompt.as_deref(),
                 &snapshot.resources,
                 &snapshot.active_tool_names,
+                &snapshot.tools,
             ),
             messages: context.messages,
             tools: Self::active_tools(&snapshot.tools, &snapshot.active_tool_names),
@@ -98,5 +104,78 @@ impl AgentHarness {
             _ = lifetime.cancelled() => Err(HarnessError::io("tool invocation target is no longer active")),
             result = rpi_agent::invoke_tool(&context, &assistant, &call, &options, &emitter) => result.map_err(|error| HarnessError::io(error.to_string())),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct GuidedTool {
+        schema: rpi_ai::Tool,
+        guidelines: Vec<String>,
+    }
+    #[async_trait::async_trait]
+    impl rpi_agent::AgentTool for GuidedTool {
+        fn schema(&self) -> &rpi_ai::Tool {
+            &self.schema
+        }
+        fn label(&self) -> &str {
+            "Guided"
+        }
+        fn prompt_snippet(&self) -> Option<&str> {
+            Some("Ask once")
+        }
+        fn prompt_guidelines(&self) -> &[String] {
+            &self.guidelines
+        }
+        async fn execute(
+            &self,
+            _: &str,
+            _: Value,
+            _: CancellationToken,
+            _: Arc<dyn Fn(rpi_agent::ToolResultPartial) + Send + Sync>,
+        ) -> Result<rpi_agent::AgentToolResult, rpi_agent::AgentError> {
+            panic!("prompt inspection must not execute tools")
+        }
+    }
+    #[test]
+    fn tool_prompt_guidance_respects_activation_custom_prompts_and_wrapper_metadata() {
+        let tool: Arc<dyn rpi_agent::AgentTool> = Arc::new(GuidedTool {
+            schema: rpi_ai::Tool {
+                name: "question".into(),
+                description: "Ask".into(),
+                parameters: rpi_ai::Schema::empty_object(),
+                constrained_sampling: None,
+            },
+            guidelines: vec![
+                " Wait for the answer ".into(),
+                "Wait for the answer".into(),
+                " ".into(),
+            ],
+        });
+        let wrapped = crate::image_tool::wrap(tool);
+        assert_eq!(wrapped.prompt_snippet(), Some("Ask once"));
+        let tools = vec![HarnessTool::new(wrapped)];
+        let resources = AgentHarnessResources {
+            include_tool_guidance: true,
+            ..Default::default()
+        };
+        let prompt =
+            AgentHarness::compose_prompt(Some("Base"), &resources, &["question".into()], &tools);
+        assert!(prompt.contains("- question: Ask once"));
+        assert_eq!(prompt.matches("- Wait for the answer").count(), 1);
+        assert_eq!(
+            AgentHarness::compose_prompt(Some("Base"), &resources, &["other".into()], &tools),
+            "Base"
+        );
+        assert_eq!(
+            AgentHarness::compose_prompt(
+                Some("Custom"),
+                &Default::default(),
+                &["question".into()],
+                &tools
+            ),
+            "Custom"
+        );
     }
 }

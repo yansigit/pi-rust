@@ -1,0 +1,51 @@
+{
+  "status": "Native tool metadata, policy and prompt forwarding verified",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "platform": "Linux",
+  "checks": {
+    "extensions": {
+      "log": "/tmp/rpi-tool-metadata-extensions.log",
+      "sha256": "917161b7df221dafeb5330eeb7d661d46537b356154249119021e1d6e618ef67",
+      "passed": 199,
+      "ignored": 2
+    },
+    "guidance": {
+      "log": "/tmp/rpi-tool-metadata-harness.log",
+      "sha256": "49f01084ed8a9c061e970e82043189e85503cded9e3488b2451d18795f2693e1",
+      "passed": 1
+    },
+    "harness": {
+      "log": "/tmp/rpi-tool-metadata-harness-regressions.log",
+      "sha256": "77f01ed3d16f7c66cc4d48bfce1bfdb5428ad26bc56fc53ecaad29ceb4010ce9",
+      "passed": 51
+    },
+    "agent": {
+      "log": "/tmp/rpi-tool-metadata-agent.log",
+      "sha256": "82cd8391c69d8c1569d801e9251a299e5070d6f001f08903e59e4e2cd5c61798",
+      "passed": 44,
+      "ignored": 1
+    },
+    "nativeLibrary": {
+      "log": "/tmp/rpi-cursor-tool-metadata-dll-host.log",
+      "sha256": "4329cf10451e362463041f7aa1a9420626599f8ae78b487ef443e0a168ba756b",
+      "passed": 3
+    },
+    "workspace": {
+      "log": "/tmp/rpi-tool-metadata-workspace.log",
+      "sha256": "2b10ae19a049f5091bf02f29d6b956bd7766045ac70c597ff411e73f6e83ef7f"
+    }
+  },
+  "assertions": [
+    "Malformed metadata rejected before application; source spoofing and unknown names rejected",
+    "First registration retains its label/mode/guidance after merge",
+    "Default prompts include only active tool guidance; duplicate trimmed guidelines suppressed; custom prompts unchanged",
+    "Actual Cursor DLL question tool reports original label, sequential execution, two guidelines and snippet",
+    "Existing agent sequential/parallel execution regressions pass"
+  ],
+  "review": "Manual exact-diff review of declaration validation, default behavior, caller wiring, child/image wrappers, fixtures and docs",
+  "notTested": [
+    "Cursor SDK/bridge/replay execution-count acceptance",
+    "Complete tool activation parity",
+    "macOS and Windows native loading"
+  ]
+}

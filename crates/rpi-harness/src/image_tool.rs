@@ -24,6 +24,12 @@ impl AgentTool for ImageTool {
     fn execution_mode(&self) -> ToolExecutionMode {
         self.0.execution_mode()
     }
+    fn prompt_snippet(&self) -> Option<&str> {
+        self.0.prompt_snippet()
+    }
+    fn prompt_guidelines(&self) -> &[String] {
+        self.0.prompt_guidelines()
+    }
     fn prepare_arguments(&self, args: serde_json::Value) -> Result<serde_json::Value, AgentError> {
         self.0.prepare_arguments(args)
     }

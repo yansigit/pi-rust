@@ -111,6 +111,9 @@ pub struct AgentHarnessResources {
     /// Loaded inputs used by prompt hooks; never reread paths after prompt composition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_context: Option<PromptContext>,
+    /// Default CLI prompts include active tool guidance; custom prompts opt out.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub include_tool_guidance: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_templates: Option<Vec<PromptTemplate>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

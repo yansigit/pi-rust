@@ -84,11 +84,14 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
         .tools()
         .iter()
         .map(|tool| {
-            HarnessTool::new(Arc::new(rpi_extensions::PluginToolAdapter::new(
-                tool.tool.clone(),
-                tool.handle(),
-                extensions.keepalive(),
-            )))
+            HarnessTool::new(Arc::new(
+                rpi_extensions::PluginToolAdapter::new(
+                    tool.tool.clone(),
+                    tool.handle(),
+                    extensions.keepalive(),
+                )
+                .with_metadata(tool.metadata.clone()),
+            ))
         })
         .collect();
     let harness = AgentHarness::create(AgentHarnessOptions {
@@ -105,6 +108,19 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
     })
     .await
     .unwrap();
+    let inventory = harness.inspect_tools().unwrap();
+    let question = inventory
+        .iter()
+        .find(|tool| tool["name"] == "cursor_ask_question")
+        .unwrap();
+    assert_eq!(question["label"], "Cursor question");
+    assert_eq!(question["executionMode"], "sequential");
+    assert_eq!(question["exposure"], "direct");
+    assert!(question["promptSnippet"]
+        .as_str()
+        .unwrap()
+        .contains("unless they asked"));
+    assert_eq!(question["promptGuidelines"].as_array().unwrap().len(), 2);
     HarnessActionHost::set_harness(&cell, Arc::new(harness.clone()));
     let runtime = crate::provider_runtime::ProviderRuntime::new(
         &extensions,

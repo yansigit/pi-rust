@@ -57,6 +57,7 @@ pub struct ExtensionTool {
     pub tool: Tool,
     /// Host-stamped registration source, retained across snapshots and merges.
     pub plugin: Option<String>,
+    pub metadata: crate::tool::ToolMetadata,
     pub(crate) handle: PluginToolHandle,
 }
 
@@ -66,6 +67,7 @@ impl ExtensionTool {
             tool,
             handle,
             plugin: None,
+            metadata: Default::default(),
         }
     }
 
@@ -458,6 +460,7 @@ impl ExtensionRegistry {
             tool,
             handle,
             plugin,
+            metadata: Default::default(),
         });
         false
     }
@@ -614,14 +617,29 @@ impl ExtensionRegistry {
         applied
     }
 
-    /// Parse a v3 `declare` JSON payload and apply it (P2). Recognised keys:
-    /// `priority` (integer), `platforms` (array of strings) and `ownsStdio`
-    /// (boolean; see [`ExtensionRegistry::declared_owns_stdio`]). Returns `true`
-    /// if the payload parsed as JSON (even with no recognised keys), `false` on
-    /// a parse error.
+    /// Apply registration declarations, including provider catalogs and metadata
+    /// for already registered tools. Invalid catalogs/metadata reject the call;
+    /// unrecognized top-level keys retain the legacy ignored-key behavior.
     pub fn apply_declaration_json(&mut self, json: &str) -> bool {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
             return false;
+        };
+        let metadata = match value.get("toolMetadata") {
+            Some(value) => {
+                let Ok(metadata) = serde_json::from_value::<
+                    std::collections::BTreeMap<String, crate::tool::ToolMetadata>,
+                >(value.clone()) else {
+                    return false;
+                };
+                if metadata
+                    .keys()
+                    .any(|name| !self.tools.iter().any(|tool| tool.tool.name == *name))
+                {
+                    return false;
+                }
+                metadata
+            }
+            None => Default::default(),
         };
         if let Some(providers) = value.get("providers") {
             let Ok(manifests) = serde_json::from_value::<Vec<ProviderManifest>>(providers.clone())
@@ -660,6 +678,11 @@ impl ExtensionRegistry {
             self.owns_stdio = self.owns_stdio || owns;
         }
         self.apply_declaration(priority, platforms);
+        for tool in &mut self.tools {
+            if let Some(metadata) = metadata.get(&tool.tool.name) {
+                tool.metadata = metadata.clone();
+            }
+        }
         true
     }
 

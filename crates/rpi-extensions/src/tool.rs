@@ -38,6 +38,16 @@ mod wake;
 use crate::host_free_string;
 use crate::loader::PluginKeepalive;
 
+/// Registration-time policy. Provenance is stamped by the host separately.
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct ToolMetadata {
+    pub label: Option<String>,
+    pub execution_mode: ToolExecutionMode,
+    pub prompt_snippet: Option<String>,
+    pub prompt_guidelines: Vec<String>,
+}
+
 // ---------------------------------------------------------------------------
 // PluginToolHandle — the 4-fn bundle + the plugin's free_string
 // ---------------------------------------------------------------------------
@@ -289,7 +299,7 @@ fn inject_tool_context(params: Value, context: &ToolCallContext) -> Value {
 /// last drop — which can only happen once the harness's tool vec drops — unloads.
 pub struct PluginToolAdapter {
     schema: Tool,
-    label: String,
+    metadata: ToolMetadata,
     handle: PluginToolHandle,
     /// Injected into every call's arguments under
     /// [`rpi_plugin_sdk::HOST_CONTEXT_KEY`]. `Default` (nothing known) until the
@@ -310,10 +320,9 @@ impl PluginToolAdapter {
     /// keepalive. `label` defaults to the tool name. The keepalive clone keeps
     /// the owning cdylib mapped for the adapter's lifetime.
     pub fn new(schema: Tool, handle: PluginToolHandle, keepalive: Arc<PluginKeepalive>) -> Self {
-        let label = schema.name.clone();
         Self {
             schema,
-            label,
+            metadata: ToolMetadata::default(),
             handle,
             context: ToolCallContext::default(),
             keepalive,
@@ -325,6 +334,11 @@ impl PluginToolAdapter {
     /// working for callers that have no session (tests, the SDK smoke test).
     pub fn with_context(mut self, context: ToolCallContext) -> Self {
         self.context = context;
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: ToolMetadata) -> Self {
+        self.metadata = metadata;
         self
     }
 }
@@ -375,13 +389,18 @@ impl AgentTool for PluginToolAdapter {
     }
 
     fn label(&self) -> &str {
-        &self.label
+        self.metadata.label.as_deref().unwrap_or(&self.schema.name)
     }
 
     fn execution_mode(&self) -> ToolExecutionMode {
-        // Plugin tools default to Parallel (the AgentTool default). A plugin
-        // could declare Sequential via a future schema field; v1 keeps Parallel.
-        ToolExecutionMode::Parallel
+        self.metadata.execution_mode
+    }
+
+    fn prompt_snippet(&self) -> Option<&str> {
+        self.metadata.prompt_snippet.as_deref()
+    }
+    fn prompt_guidelines(&self) -> &[String] {
+        &self.metadata.prompt_guidelines
     }
 
     async fn execute(
@@ -812,6 +831,42 @@ mod tests {
             constrained_sampling: None,
         };
         PluginToolAdapter::new(tool, stub_handle(), PluginKeepalive::empty())
+    }
+
+    #[test]
+    fn declared_tool_metadata_is_validated_atomic_and_survives_registry_merge() {
+        let mut registry = crate::registry::ExtensionRegistry::new();
+        let tool = echo_adapter().schema().clone();
+        registry.register_tool(tool.clone(), stub_handle());
+        assert!(registry.apply_declaration_json(r#"{"toolMetadata":{"echo":{"label":"Question","executionMode":"sequential","promptSnippet":"Ask once","promptGuidelines":["Wait for the answer"]}}}"#));
+        for invalid in [
+            r#"{"toolMetadata":{"echo":{"executionMode":"sometimes"}}}"#,
+            r#"{"toolMetadata":{"echo":{"sourceInfo":{"source":"builtin"}}}}"#,
+            r#"{"toolMetadata":{"echo":{"label":"changed"},"missing":{}}}"#,
+            r#"{"toolMetadata":{"echo":{"promptGuidelines":[1]}}}"#,
+        ] {
+            assert!(!registry.apply_declaration_json(invalid));
+        }
+        let mut later = crate::registry::ExtensionRegistry::new();
+        later.register_tool(tool, stub_handle());
+        assert!(later.apply_declaration_json(
+            r#"{"toolMetadata":{"echo":{"label":"losing registration"}}}"#
+        ));
+        registry.absorb(later);
+        let snapshot = registry.snapshot();
+        let registered = &snapshot.tools()[0];
+        let adapter = PluginToolAdapter::new(
+            registered.tool.clone(),
+            registered.handle(),
+            PluginKeepalive::empty(),
+        )
+        .with_metadata(registered.metadata.clone());
+        assert_eq!(adapter.label(), "Question");
+        assert_eq!(adapter.execution_mode(), ToolExecutionMode::Sequential);
+        assert_eq!(adapter.prompt_snippet(), Some("Ask once"));
+        assert_eq!(adapter.prompt_guidelines(), ["Wait for the answer"]);
+        assert_eq!(echo_adapter().label(), "echo");
+        assert_eq!(echo_adapter().execution_mode(), ToolExecutionMode::Parallel);
     }
 
     fn reset_counters() {

@@ -475,6 +475,8 @@ pub async fn build_prepared(
         None => default_system_prompt(&cwd_str, prior_reasoning_replayed),
     };
 
+    let include_tool_guidance = args.system_prompt.is_none() && context_paths.is_empty();
+
     // ---- Append-text sources (precedence: --append-system-prompt > APPEND_SYSTEM.md) ----
     // Mirrors pi `appendSystemPrompt` (`resource-loader.ts:525-542`). Explicit
     // `--append-system-prompt` flags are joined together; when none are given, a
@@ -779,6 +781,7 @@ pub async fn build_prepared(
         system_prompt: Some(system_prompt),
         resources: AgentHarnessResources {
             context_files: context_paths,
+            include_tool_guidance,
             prompt_context: Some(rpi_harness::types::PromptContext {
                 cwd: cwd_str.clone(),
                 files: context_files.into_iter().map(Into::into).collect(),
@@ -1732,6 +1735,7 @@ where
         },
         None => default_system_prompt(&cwd_str, prior_reasoning_replayed),
     };
+    let include_tool_guidance = effective_args.system_prompt.is_none() && context_paths.is_empty();
     let mut append_texts: Vec<String> = Vec::new();
     for extra in &effective_args.append_system_prompt {
         let text = read_append_target(extra, &mut context_paths).unwrap_or_else(|| extra.clone());
@@ -1780,6 +1784,7 @@ where
     // ---- 5. Push the rebuilt state into the live harness via the B5d setters ----
     let resources = AgentHarnessResources {
         context_files: context_paths,
+        include_tool_guidance,
         prompt_context: Some(rpi_harness::types::PromptContext {
             cwd: cwd_str.clone(),
             files: context_files.into_iter().map(Into::into).collect(),
@@ -2159,6 +2164,7 @@ fn merge_extension_tools(
             continue;
         }
         let adapter = PluginToolAdapter::new(et.tool.clone(), et.handle(), session.keepalive())
+            .with_metadata(et.metadata.clone())
             .with_context(tool_context.clone());
         let harness_tool =
             HarnessTool::new(Arc::new(adapter)).with_source_info(serde_json::json!({

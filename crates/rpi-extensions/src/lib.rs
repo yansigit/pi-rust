@@ -101,7 +101,7 @@ pub use status::ExtensionStatusMailbox;
 pub mod commands;
 mod panel;
 pub use panel::{ExtensionPanel, PanelAnchor, PanelHighlight, PanelHighlightColor, PanelLayout};
-pub use tool::{PluginToolAdapter, PluginToolHandle, ToolCallContext};
+pub use tool::{PluginToolAdapter, PluginToolHandle, ToolCallContext, ToolMetadata};
 pub use translate::{
     dispatch_data_event, dispatch_data_event_claiming, dispatch_empty_event,
     dispatch_lifecycle_event, dispatch_lifecycle_event_with_data, dispatch_tool_call_event,

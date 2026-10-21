@@ -303,6 +303,7 @@ pub(crate) extern "C" fn request(
                     "events.lifecycleReasons",
                     "events.promptContext",
                     "tools.provenance",
+                    "tools.metadata",
                     "tools.activation",
                     "sessions.location",
                     "sessions.view",
