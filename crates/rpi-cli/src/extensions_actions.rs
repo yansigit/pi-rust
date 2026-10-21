@@ -489,9 +489,18 @@ impl RuntimeActionHost for HarnessActionHost {
             return match args["action"].as_str() {
                 Some("setActive") => {
                     let names = arg_str_array(&args, "tools")?;
+                    let tools = target.inspect_tools().map_err(|e| e.to_string())?;
+                    let mut selected = Vec::new();
+                    for name in names {
+                        if !selected.contains(&name)
+                            && tools.iter().any(|tool| tool["name"] == name)
+                        {
+                            selected.push(name);
+                        }
+                    }
                     target
                         .lane("main")
-                        .set_active_tools(names)
+                        .set_active_tools(selected)
                         .await
                         .map_err(|e| e.to_string())?;
                     Ok(serde_json::Value::Null)

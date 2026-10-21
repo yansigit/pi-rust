@@ -752,12 +752,21 @@ impl AgentHarness {
         }
 
         let child_scope = Arc::new(Mutex::new(CancellationToken::new()));
+        let active_tool_names = if options.active_tool_names.is_empty() {
+            options
+                .tools
+                .iter()
+                .map(|tool| tool.tool.schema().name.clone())
+                .collect()
+        } else {
+            options.active_tool_names
+        };
         let inner = HarnessInner {
             child_scope: child_scope.clone(),
             execution_scope: None,
             model: options.model,
             thinking_level: options.thinking_level,
-            active_tool_names: options.active_tool_names,
+            active_tool_names,
             tools: options.tools,
             resources: options.resources,
             stream_options: options.stream_options,
@@ -3137,15 +3146,8 @@ impl AgentHarness {
         })
     }
 
-    /// Build the agent tools vec, filtered by `active_tool_names`. An empty
-    /// `active_tool_names` means "all tools active" (mirrors TS default).
+    /// Defaults are expanded at construction; an explicitly empty set disables tools.
     fn active_tools(tools: &[HarnessTool], active: &[String]) -> Vec<Arc<dyn AgentTool>> {
-        if active.is_empty() {
-            return tools
-                .iter()
-                .map(|t| crate::image_tool::wrap(Arc::clone(&t.tool)))
-                .collect();
-        }
         tools
             .iter()
             .filter(|t| active.contains(&t.tool.schema().name))
@@ -3179,9 +3181,9 @@ impl AgentHarness {
         };
         let mut prompt = compose_system_prompt(base, skills, None, None);
         if resources.include_tool_guidance {
-            let active = tools.iter().filter(|tool| {
-                active_tool_names.is_empty() || active_tool_names.contains(&tool.tool.schema().name)
-            });
+            let active = tools
+                .iter()
+                .filter(|tool| active_tool_names.contains(&tool.tool.schema().name));
             let mut snippets = Vec::new();
             let mut guidelines = Vec::new();
             for tool in active {
@@ -3967,6 +3969,10 @@ impl AgentHarness {
                     self.emit_appended_messages(vec![message]).await;
                 }
             }
+            // Awaited start hooks may change the live tool loadout for this request.
+            let tool_snapshot = self.snapshot_config()?;
+            agent_context.tools =
+                Self::active_tools(&tool_snapshot.tools, &tool_snapshot.active_tool_names);
         }
 
         // Build the config.

@@ -125,7 +125,7 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
             assert_eq!(snapshot["projectTrustResolved"], true);
             host.native_request(
                 owner.clone(),
-                json!({"port":"tools","action":"setActive","tools":["read"]}),
+                json!({"port":"tools","action":"setActive","tools":["read","missing","read"]}),
                 Default::default(),
             )
             .await
@@ -134,6 +134,23 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
                 child.harness.lane("main").get_active_tools().await.unwrap(),
                 vec!["read"]
             );
+            assert_eq!(
+                parent.lane("main").get_active_tools().await.unwrap(),
+                vec!["read", "write"]
+            );
+            host.native_request(
+                owner.clone(),
+                json!({"port":"tools","action":"setActive","tools":[]}),
+                Default::default(),
+            )
+            .await
+            .unwrap();
+            assert!(child
+                .harness
+                .inspect_tools()
+                .unwrap()
+                .iter()
+                .all(|tool| tool["active"] == false));
             assert_eq!(
                 parent.lane("main").get_active_tools().await.unwrap(),
                 vec!["read", "write"]

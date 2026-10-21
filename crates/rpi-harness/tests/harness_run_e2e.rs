@@ -4493,3 +4493,79 @@ async fn interrupted_recorded_activity_recovers_without_executing_even_a_safe_na
         }
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn before_operation_tool_changes_reach_requests_and_execution_including_disable_all() {
+    struct Hooks {
+        harness: rpi_harness::agent_harness::WeakAgentHarness,
+        enabled: bool,
+    }
+    #[async_trait::async_trait]
+    impl rpi_ai::ProviderHooks for Hooks {
+        async fn begin_operation(
+            &self,
+            _: &rpi_ai::Model,
+            _: &rpi_ai::Context,
+            _: &rpi_ai::SimpleStreamOptions,
+        ) -> Option<rpi_ai::provider::OperationStartPatch> {
+            self.harness
+                .upgrade()
+                .unwrap()
+                .lane("main")
+                .set_active_tools(if self.enabled {
+                    vec!["write".into()]
+                } else {
+                    vec![]
+                })
+                .await
+                .unwrap();
+            None
+        }
+    }
+    for enabled in [true, false] {
+        let script = FauxScript::new();
+        script.set_responses(vec![
+            FauxStep::factory(move |context| {
+                assert_eq!(
+                    context
+                        .tools
+                        .iter()
+                        .map(|tool| tool.name.as_str())
+                        .collect::<Vec<_>>(),
+                    if enabled { vec!["write"] } else { vec![] }
+                );
+                faux_assistant_message(
+                    vec![rpi_ai::providers::faux::FauxBlock::tool_call(
+                        "write",
+                        serde_json::json!({"path":"activation.txt","content":"once"}),
+                    )],
+                    rpi_ai::StopReason::ToolUse,
+                )
+            }),
+            FauxStep::text("done"),
+        ]);
+        let (harness, _, env) = harness_with(script).await;
+        harness
+            .lane("main")
+            .set_active_tools(vec!["read".into()])
+            .await
+            .unwrap();
+        harness
+            .set_provider_hooks(Some(Arc::new(Hooks {
+                harness: harness.downgrade(),
+                enabled,
+            })))
+            .await
+            .unwrap();
+        harness.prompt_text("fixture", vec![]).await.unwrap();
+        assert_eq!(
+            env.read_text_file("/activation.txt", None).await.is_ok(),
+            enabled
+        );
+        assert!(harness
+            .inspect_tools()
+            .unwrap()
+            .iter()
+            .all(|tool| tool["active"] == (enabled && tool["name"] == "write")));
+    }
+}

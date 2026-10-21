@@ -279,3 +279,29 @@ async fn native_tool_provenance_survives_registry_updates_without_becoming_model
     assert_eq!(inspected[0]["active"], false);
     assert_eq!(inspected[1]["active"], true);
 }
+
+#[tokio::test]
+async fn default_activation_expands_once_and_explicit_empty_updates_disable_all_tools() {
+    let harness = AgentHarness::create(AgentHarnessOptions {
+        tools: vec![HarnessTool::new(DummyTool::new("alpha"))],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        harness.lane("main").get_active_tools().await.unwrap(),
+        ["alpha"]
+    );
+    harness.lane("main").set_active_tools(vec![]).await.unwrap();
+    assert_eq!(harness.inspect_tools().unwrap()[0]["active"], false);
+    harness
+        .set_tools(vec![HarnessTool::new(DummyTool::new("beta"))], Some(vec![]))
+        .await
+        .unwrap();
+    assert_eq!(harness.inspect_tools().unwrap()[0]["active"], false);
+    harness
+        .set_tools(vec![HarnessTool::new(DummyTool::new("beta"))], None)
+        .await
+        .unwrap();
+    assert_eq!(harness.inspect_tools().unwrap()[0]["active"], true);
+}

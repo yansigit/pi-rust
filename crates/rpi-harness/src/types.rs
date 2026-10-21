@@ -102,6 +102,9 @@ impl From<crate::context_files::ContextFile> for PromptContextFile {
 /// the defensive-copy contract.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AgentHarnessResources {
+    /// Registration filters for native extensions that keep presentation tools locally.
+    #[serde(default)]
+    pub tool_registration: ToolRegistrationPolicy,
     /// Paths of files successfully used to compose the system prompt, in load
     /// order: base prompt, append prompts, then project instruction files.
     /// This is provenance for resource listings; contents are already composed
@@ -118,6 +121,13 @@ pub struct AgentHarnessResources {
     pub prompt_templates: Option<Vec<PromptTemplate>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<Skill>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ToolRegistrationPolicy {
+    pub disabled: bool,
+    pub allow: Option<Vec<String>>,
+    pub deny: Vec<String>,
 }
 
 impl AgentHarnessResources {
@@ -409,6 +419,8 @@ pub use rpi_ai::types::Usage as HarnessUsage;
 pub struct AgentHarnessOptions {
     pub model: Model,
     pub thinking_level: ThinkingLevel,
+    /// Empty at construction defaults to every registered tool. Later setters
+    /// use an exact selection, where empty disables all tools.
     pub active_tool_names: Vec<String>,
     pub tools: Vec<HarnessTool>,
     pub system_prompt: Option<String>,

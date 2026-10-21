@@ -1,0 +1,50 @@
+{
+  "status": "Exact tool activation and captured registration filters verified",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "platform": "Linux",
+  "checks": {
+    "harness": {
+      "log": "/tmp/rpi-tool-activation-harness-all.log",
+      "sha256": "a7721efae18594793d29cfd1488fa928f3be38b16c0bc5826fca10eb60e37a02",
+      "passed": 400
+    },
+    "finalHarness": {
+      "log": "/tmp/rpi-tool-activation-harness-final.log",
+      "sha256": "d76f8f962bcfe52401b352bad9fd47fe9c901ad3d61a942a639b57396883c0e7",
+      "passed": 53
+    },
+    "nativeContext": {
+      "log": "/tmp/rpi-tool-activation-context-final.log",
+      "sha256": "375c4689bd583f192039668f1b207c7ad4470bd2253816db147a7880a9a9d3a5",
+      "passed": 1
+    },
+    "registrationPolicy": {
+      "log": "/tmp/rpi-tool-activation-policy.log",
+      "sha256": "2ea0824eaec113b469e307d1d9012fe4359b74b7c7ceb67fcb993173f7692ce6",
+      "passed": 1
+    },
+    "workspace": {
+      "log": "/tmp/rpi-tool-activation-workspace-final.log",
+      "sha256": "7b89fc901ba56b27def5514d2cde725418aae315cb14a39e7e9fd202eab750fe"
+    },
+    "nativeLibrary": {
+      "log": "/tmp/rpi-cursor-tool-policy-dll-host.log",
+      "sha256": "7dc035b873242938c60cd17de663bded0eff5aaa21df3e5337ef7767e8894650",
+      "passed": 3
+    }
+  },
+  "assertions": [
+    "Empty selection disables inspection, request schemas, executable tools and inherited child permissions",
+    "Before-operation changes apply before provider request and execution",
+    "Unknown and duplicate native activation names ignored; child selection does not alter parent",
+    "CLI startup/reload expose actual registration policy",
+    "Installed Cursor hooks preserve explicitly empty host selection"
+  ],
+  "review": "Manual exact-diff review of defaults, callers, child inheritance, request execution, policy validation, fixtures and documentation",
+  "notTested": [
+    "Selection revision across unchanged physical names",
+    "Optional builtin bridge when builtins omitted",
+    "Complete SDK/bridge/replay execution counts",
+    "macOS and Windows native loading"
+  ]
+}

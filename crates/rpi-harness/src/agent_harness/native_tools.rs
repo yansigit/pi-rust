@@ -32,8 +32,7 @@ impl AgentHarness {
                     json!({"source":"inline","path":schema.name,"scope":"temporary","origin":"top-level"})
                 });
                 info["active"] = json!(
-                    snapshot.active_tool_names.is_empty()
-                        || snapshot.active_tool_names.contains(&schema.name)
+                    snapshot.active_tool_names.contains(&schema.name)
                 );
                 info["executionMode"] = json!(match tool.tool.execution_mode() {
                     rpi_agent::ToolExecutionMode::Sequential => "sequential",

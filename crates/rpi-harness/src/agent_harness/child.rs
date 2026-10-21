@@ -86,6 +86,7 @@ impl AgentHarness {
             "thinkingLevel":inner.thinking_level,
             "isIdle":!inner.active_run.as_ref().is_some_and(|run| run.lane == self.lane),
             "hasPendingMessages":pending,
+            "toolRegistration":inner.resources.tool_registration,
             "tools":Self::active_tools(&inner.tools, &inner.active_tool_names).iter().map(|tool|tool.schema().name.clone()).collect::<Vec<_>>(),
             "sessionId":self.session.storage().metadata().id,
         }))
@@ -145,8 +146,7 @@ impl AgentHarness {
             .iter()
             .filter(|tool| {
                 let name = &tool.tool.schema().name;
-                name != "delegate_task"
-                    && (snap.active_tool_names.is_empty() || snap.active_tool_names.contains(name))
+                name != "delegate_task" && snap.active_tool_names.contains(name)
             })
             .cloned()
             .collect();

@@ -230,6 +230,25 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
             .contains("UI is unavailable"),
         "{result:?}"
     );
+    let active = harness.lane("main").get_active_tools().await.unwrap();
+    harness.lane("main").set_active_tools(vec![]).await.unwrap();
+    rpi_ai::ProviderHooks::begin_operation_with_prompt_options(
+        &hooks,
+        &model,
+        &prompt_context,
+        &Default::default(),
+        json!({"cwd":cwd.path(),"contextFiles":[],"skills":[]}),
+    )
+    .await;
+    assert!(
+        harness
+            .inspect_tools()
+            .unwrap()
+            .iter()
+            .all(|tool| tool["active"] == false),
+        "Cursor hooks must preserve explicit tool disablement"
+    );
+    harness.lane("main").set_active_tools(active).await.unwrap();
     #[cfg(target_os = "linux")]
     let parent_processes = node_children();
     let child_session =

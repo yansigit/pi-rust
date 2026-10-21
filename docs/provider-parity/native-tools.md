@@ -152,3 +152,19 @@ selected names. Image and child tool wrappers preserve these methods. Existing
 plugins default to their tool name, parallel execution and no extra guidance.
 Rust API additions require coordinated release review; versions are unchanged.
 `host-tool-metadata-results.json` records the checks and their limits.
+
+## Activation and registration filters
+
+`tools.exactActivation` makes an empty active selection disable all tools for
+inspection, requests, execution and inherited child permissions. The initial
+empty constructor default still selects all registered tools, expanded once at
+construction. Awaited before-operation hooks can update the live selection before
+the first request is built. The native activation port ignores unknown names and
+duplicates; changing a child's selection leaves its parent unchanged.
+
+`tools.registrationPolicy` adds `toolRegistration` to native context snapshots:
+`{"disabled":false,"allow":null,"deny":[]}`. These are the CLI's actual
+registration filters, captured at startup/reload and inherited by children.
+Worker-owned presentation declarations apply the same filters without becoming
+executable host tools. A native package that relies on either capability must
+require it. No C ABI layouts or workspace versions change.

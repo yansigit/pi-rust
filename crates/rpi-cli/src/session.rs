@@ -780,6 +780,7 @@ pub async fn build_prepared(
         tools,
         system_prompt: Some(system_prompt),
         resources: AgentHarnessResources {
+            tool_registration: tool_registration_policy(args),
             context_files: context_paths,
             include_tool_guidance,
             prompt_context: Some(rpi_harness::types::PromptContext {
@@ -1783,6 +1784,7 @@ where
 
     // ---- 5. Push the rebuilt state into the live harness via the B5d setters ----
     let resources = AgentHarnessResources {
+        tool_registration: tool_registration_policy(&effective_args),
         context_files: context_paths,
         include_tool_guidance,
         prompt_context: Some(rpi_harness::types::PromptContext {
@@ -2310,6 +2312,14 @@ pub(crate) fn tool_name_allowed(name: &str, args: &Args) -> bool {
         return false;
     }
     true
+}
+
+fn tool_registration_policy(args: &Args) -> rpi_harness::types::ToolRegistrationPolicy {
+    rpi_harness::types::ToolRegistrationPolicy {
+        disabled: args.no_tools,
+        allow: args.tools.clone(),
+        deny: args.exclude_tools.clone().unwrap_or_default(),
+    }
 }
 
 pub(crate) fn filter_active_tool_names<I>(names: I, args: &Args) -> Vec<String>
@@ -4064,6 +4074,7 @@ mod tests {
             filter_active_tool_names(names.clone(), &args),
             vec!["read", "ask_user_question"]
         );
+        assert_eq!(tool_registration_policy(&args).allow, args.tools);
 
         let args = Args {
             exclude_tools: Some(vec!["ask_user_question".into()]),
@@ -4073,12 +4084,17 @@ mod tests {
             filter_active_tool_names(names.clone(), &args),
             vec!["read", "write"]
         );
+        assert_eq!(
+            tool_registration_policy(&args).deny,
+            vec!["ask_user_question"]
+        );
 
         let args = Args {
             no_tools: true,
             ..Args::default()
         };
         assert!(filter_active_tool_names(names, &args).is_empty());
+        assert!(tool_registration_policy(&args).disabled);
     }
 
     #[test]

@@ -305,6 +305,8 @@ pub(crate) extern "C" fn request(
                     "tools.provenance",
                     "tools.metadata",
                     "tools.activation",
+                    "tools.exactActivation",
+                    "tools.registrationPolicy",
                     "sessions.location",
                     "sessions.view",
                     "sessions.persistenceLease",
