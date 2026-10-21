@@ -1049,6 +1049,83 @@ impl AssistantMessageEvent {
     }
 }
 
+/// Accounted in-memory payload, without serialization or allocation. Shared
+/// snapshots are charged for each queued event. This is a queue budget, not RSS:
+/// capacities, allocator overhead and consumer-held/final messages are excluded.
+impl AssistantMessageEvent {
+    pub fn accounted_payload_bytes(&self) -> usize {
+        let extra = match self {
+            Self::TextDelta { delta, .. }
+            | Self::ThinkingDelta { delta, .. }
+            | Self::ToolCallDelta { delta, .. } => delta.len(),
+            Self::TextEnd { content, .. } | Self::ThinkingEnd { content, .. } => content.len(),
+            Self::ToolCallEnd { tool_call, .. } => tool_payload_bytes(tool_call),
+            _ => 0,
+        };
+        std::mem::size_of::<Self>() + message_payload_bytes(self.partial()) + extra
+    }
+}
+
+fn json_payload_bytes(value: &serde_json::Value) -> usize {
+    use serde_json::Value;
+    std::mem::size_of::<Value>()
+        + match value {
+            Value::String(s) => s.len(),
+            Value::Array(values) => values.iter().map(json_payload_bytes).sum(),
+            Value::Object(values) => values
+                .iter()
+                .map(|(k, v)| k.len() + json_payload_bytes(v))
+                .sum(),
+            _ => 0,
+        }
+}
+
+fn tool_payload_bytes(tool: &ToolCall) -> usize {
+    tool.id.len()
+        + tool.name.len()
+        + json_payload_bytes(&tool.arguments)
+        + tool.thought_signature.as_ref().map_or(0, String::len)
+        + tool.namespace.as_ref().map_or(0, String::len)
+}
+
+fn message_payload_bytes(message: &AssistantMessage) -> usize {
+    let mut bytes = std::mem::size_of::<AssistantMessage>()
+        + message.api.as_str().len()
+        + message.provider.len()
+        + message.model.len();
+    for value in [
+        &message.response_model,
+        &message.response_id,
+        &message.error_message,
+        &message.raw_stop_reason,
+    ] {
+        bytes += value.as_ref().map_or(0, String::len);
+    }
+    if let Some(handle) = &message.deferred {
+        bytes += std::mem::size_of::<DeferredHandle>()
+            + handle.provider.len()
+            + handle.model_id.len()
+            + handle.api.len()
+            + handle.id.len()
+            + handle.data.as_ref().map_or(0, json_payload_bytes);
+    }
+    for content in &message.content {
+        bytes += std::mem::size_of::<Content>()
+            + match content {
+                Content::Text(text) => {
+                    text.text.len() + text.text_signature.as_ref().map_or(0, String::len)
+                }
+                Content::Thinking(thinking) => {
+                    thinking.thinking.len()
+                        + thinking.thinking_signature.as_ref().map_or(0, String::len)
+                }
+                Content::Image(image) => image.data.len() + image.mime_type.len(),
+                Content::ToolCall(tool) => tool_payload_bytes(tool),
+            };
+    }
+    bytes
+}
+
 // serde for AssistantMessageEvent — tagged on "type" matching the wire protocol.
 impl Serialize for AssistantMessageEvent {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {

@@ -40,7 +40,7 @@ for case in dict.fromkeys(cases):
         if platform.system() == "Linux":
             command = ["/usr/bin/time", "-f", 'RPI_OS {"user_s":%U,"system_s":%S,"max_rss_kib":%M}', *command]
         result = subprocess.run(command, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        metrics = next(json.loads(line.removeprefix("RPI_BENCH ")) for line in result.stdout.splitlines() if line.startswith("RPI_BENCH "))
+        metrics = next(json.loads(line.split("RPI_BENCH ", 1)[1]) for line in result.stdout.splitlines() if "RPI_BENCH " in line)
         for line in result.stderr.splitlines():
             if line.startswith("RPI_OS "):
                 metrics.update(json.loads(line.removeprefix("RPI_OS ")))

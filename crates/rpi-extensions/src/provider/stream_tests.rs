@@ -243,3 +243,141 @@ fn null_snapshot_is_malformed_and_absent_snapshot_uses_the_delta() {
     }
     assert_eq!(mapper.accumulated().content, vec![Content::text("xx")]);
 }
+
+#[derive(Default)]
+struct Burst {
+    calls: std::sync::atomic::AtomicUsize,
+    finished: AtomicBool,
+}
+static BURST_FREES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+unsafe extern "C" fn burst_free(raw: StbString) {
+    if raw.len != 0 {
+        BURST_FREES.fetch_add(1, Ordering::SeqCst);
+    }
+    unsafe { rpi_plugin_sdk::callbacks::free_string(raw) };
+}
+extern "C" fn burst_request(
+    _: StbStringRef,
+    emit: Option<ProviderStreamEmitFn>,
+    data: *mut c_void,
+    _: *const ProviderStreamControl,
+    _: Option<ProviderStreamCompletionFn>,
+    _: *mut c_void,
+    _: *mut StbString,
+    state: *mut c_void,
+) -> i32 {
+    let state = unsafe { Arc::from_raw(state.cast::<Burst>()) };
+    let emit = emit.unwrap();
+    let mut usage = rpi_ai::Usage::zero();
+    usage.input = 3;
+    state.calls.fetch_add(1, Ordering::SeqCst);
+    emit(
+        StbString::from_string(serde_json::json!({"type":"usage","usage":usage}).to_string()),
+        data,
+    );
+    for _ in 0..1000 {
+        state.calls.fetch_add(1, Ordering::SeqCst);
+        if emit(
+            StbString::from_string(r#"{"type":"text_delta","contentIndex":0,"delta":"x"}"#.into()),
+            data,
+        ) != 0
+        {
+            break;
+        }
+    }
+    state.finished.store(true, Ordering::SeqCst);
+    1
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saturated_pipeline_cancels_uncommitted_content_and_frees_every_frame() {
+    for drop_consumer in [false, true] {
+        BURST_FREES.store(0, Ordering::SeqCst);
+        let state = Arc::new(Burst::default());
+        let record = RegisteredProvider {
+            provider_id: "probe".into(),
+            base_url: "http://localhost".into(),
+            api_style: "faux".into(),
+            request_fn: unused_request,
+            stream_fn: Some(burst_request),
+            plugin_free_string: burst_free,
+            user_data: Arc::into_raw(Arc::clone(&state)) as *mut c_void,
+        };
+        let options = SimpleStreamOptions::default();
+        let parent = options.signal.clone();
+        let (mut prod, mut stream) =
+            rpi_ai::event_stream::create_assistant_message_event_stream_with_limits(
+                1, 4096, &parent,
+            );
+        let mut driver_options = options;
+        driver_options.signal = prod.cancellation_token();
+        let task = tokio::spawn(async move {
+            let snapshot = Arc::new(ExtensionRegistry::new().snapshot());
+            let model = Model::new("m", "M", Api::Faux, "probe", "http://localhost");
+            let message = drive_streaming_plugin_provider(
+                &snapshot,
+                &record,
+                burst_request,
+                Handle::current(),
+                ProviderRequestLifetime::new(PluginKeepalive::empty()),
+                &model,
+                &Context::new(vec![]),
+                &driver_options,
+                &mut prod,
+            )
+            .await;
+            push_terminal(&mut prod, message).await;
+        });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while state.calls.load(Ordering::SeqCst) < 65 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            !state.finished.load(Ordering::SeqCst),
+            "bounded queues must stop the burst"
+        );
+        if drop_consumer {
+            drop(stream);
+        } else {
+            parent.cancel();
+            let terminal = tokio::time::timeout(Duration::from_secs(2), async {
+                loop {
+                    let event = stream.next().await.unwrap();
+                    if event.is_terminal() {
+                        break event;
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(terminal.partial().stop_reason, StopReason::Aborted);
+            assert!(
+                terminal.partial().content.is_empty(),
+                "blocked delta must not commit"
+            );
+            assert_eq!(
+                terminal.partial().usage.input,
+                3,
+                "applied metadata must commit"
+            );
+        }
+        tokio::time::timeout(Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while !state.finished.load(Ordering::SeqCst) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            BURST_FREES.load(Ordering::SeqCst),
+            state.calls.load(Ordering::SeqCst)
+        );
+    }
+}
