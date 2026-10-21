@@ -107,6 +107,53 @@ async fn exercise(storage: &dyn SessionStorage, durability: Durability) {
     assert_eq!(snapshot.name.as_deref(), Some("Test session"));
     assert_eq!(snapshot.branches[0].leaf_id.as_deref(), Some("active"));
     assert_eq!(snapshot.revision, active.revision);
+
+    let captured_revision = snapshot.branches[0].revision;
+    assert!(storage
+        .move_lane_at_revision("main", captured_revision, Some("missing"))
+        .await
+        .is_err());
+    assert!(storage
+        .move_lane_at_revision("missing", captured_revision, None)
+        .await
+        .is_err());
+    assert_eq!(
+        storage.snapshot().await.unwrap().revision,
+        snapshot.revision
+    );
+    // Appends do not revoke a captured branch; competing moves do.
+    storage
+        .commit_entry(note("before-move"), current(captured_revision))
+        .await
+        .unwrap();
+    let (first, second) = tokio::join!(
+        storage.move_lane_at_revision("main", captured_revision, Some("base")),
+        storage.move_lane_at_revision("main", captured_revision, Some("same")),
+    );
+    assert_ne!(first.is_ok(), second.is_ok());
+    let moved = first.or(second).unwrap();
+    assert!(moved.revision > captured_revision);
+    assert_eq!(
+        storage.snapshot().await.unwrap().branches[0].leaf_id,
+        moved.leaf_id
+    );
+    // Moving back to the same entry cannot revive a stale authority.
+    let returned = storage
+        .move_lane_at_revision("main", moved.revision, Some("active"))
+        .await
+        .unwrap();
+    assert!(storage
+        .move_lane_at_revision("main", captured_revision, None)
+        .await
+        .is_err());
+    assert!(storage
+        .commit_entry(note("late-summary"), current(moved.revision))
+        .await
+        .is_err());
+    assert!(storage.get_entry("late-summary").await.unwrap().is_none());
+    let snapshot = storage.snapshot().await.unwrap();
+    assert_eq!(snapshot.revision, returned.revision);
+    assert_eq!(snapshot.branches[0].leaf_id.as_deref(), Some("active"));
 }
 
 #[tokio::test]

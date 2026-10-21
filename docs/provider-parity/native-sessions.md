@@ -121,3 +121,20 @@ hold only weak execution references; retaining a writer does not grant access to
 another child or parent origin. The bridge and storage regressions are recorded
 in `host-session-persistence-results.json`. Cursor's actual native router and
 worker shutdown integration remain separate acceptance work.
+
+## Conditional navigation
+
+`SessionStorage::move_lane_at_revision` compares and moves a branch under the
+backend's write lock/transaction, returning the committed branch revision.
+Ordinary entry appends do not revoke the captured revision; any explicit move
+does, even a move back to the same leaf. JSONL synchronizes before returning,
+SQLite commits its FULL-synchronous transaction, and memory remains ephemeral.
+A failed or cancelled JSONL write poisons that handle until recovery. Invalid
+targets and stale revisions leave storage unchanged. The trait default reports
+unsupported storage, so existing implementors continue compiling without an
+unsafe check-then-write fallback. No C ABI or workspace version changes.
+
+`session_origins` covers all three backends, competing moves, stale summary
+appends and reopen; `m5c_jsonl_atomic_publish` injects synchronization, partial
+append and cancellation faults. The tree operation's hook and summary wiring
+is a separate change; this primitive alone does not establish tree parity.

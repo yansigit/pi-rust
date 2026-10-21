@@ -174,6 +174,14 @@ impl SessionStorage for SqliteSessionStorage {
     async fn move_lane(&self, lane: &str, to: Option<&str>) -> SessionResult<()> {
         self.write(|inner| immediate(inner.move_lane(lane, to)))
     }
+    async fn move_lane_at_revision(
+        &self,
+        lane: &str,
+        revision: u64,
+        to: Option<&str>,
+    ) -> SessionResult<super::types::BranchRevision> {
+        self.write(|inner| immediate(inner.move_lane_at_revision(lane, revision, to)))
+    }
     async fn append_entry(&self, entry: ProvisionedEntry, lane: &str) -> SessionResult<Entry> {
         self.write(|inner| immediate(inner.append_entry(entry, lane)))
     }

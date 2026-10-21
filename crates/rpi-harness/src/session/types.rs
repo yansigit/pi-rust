@@ -1325,6 +1325,20 @@ pub trait SessionStorage: Send + Sync {
         ))
     }
 
+    /// Move only the captured branch generation and await the backend's durability barrier.
+    /// In-memory storage remains ephemeral, as reported by `sync`.
+    /// Ordinary appends preserve this authority; another lane move revokes it.
+    async fn move_lane_at_revision(
+        &self,
+        _lane: &str,
+        _revision: u64,
+        _to: Option<&str>,
+    ) -> SessionResult<BranchRevision> {
+        Err(crate::error::SessionError::storage(
+            "conditional session navigation is unavailable",
+        ))
+    }
+
     fn metadata(&self) -> SessionMetadata;
     async fn get_metadata(&self) -> SessionMetadata {
         self.metadata()

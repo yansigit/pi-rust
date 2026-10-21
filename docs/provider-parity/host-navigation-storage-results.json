@@ -1,0 +1,33 @@
+{
+  "status": "Conditional branch movement verified; tree lifecycle integration remains pending",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "backends": {
+      "log": "/tmp/rpi-navigation-storage.log",
+      "sha256": "93b7e8af8ae7483d525a1373442cea763266a4b3a0ea31e31f22731771f437b1",
+      "passed": 1
+    },
+    "faults": {
+      "log": "/tmp/rpi-navigation-storage-faults.log",
+      "sha256": "8a98828096c59adedf4de7a21c762d11a3610eafa096ee89109102f52750d0bd",
+      "passed": 12
+    },
+    "workspace": {
+      "log": "/tmp/rpi-navigation-storage-workspace.log",
+      "sha256": "5febc9b6531ddf2a17096ec76acbe68353ba28c5d9fa9e0e2e6b5826dc4361fe"
+    }
+  },
+  "assertions": [
+    "Memory, JSONL and SQLite atomically reject stale branch revisions",
+    "Competing movements have one winner; returning to the same leaf does not revive stale authority",
+    "Ordinary appends preserve the captured branch revision",
+    "Stale summary append cannot move the newly selected branch",
+    "Reopened durable stores preserve the acknowledged state",
+    "Failed sync, truncated append and caller cancellation produce no receipt and require JSONL handle recovery"
+  ],
+  "review": "Manual exact-diff review checked transaction boundaries, revision checks, validation before mutation, JSONL uncertain-write guards, no lock reentry and unchanged legacy move_lane. No C ABI or workspace version change. The new trait method has an unsupported default.",
+  "notTested": [
+    "Full tree navigation lifecycle and default summary integration",
+    "macOS and Windows execution"
+  ]
+}

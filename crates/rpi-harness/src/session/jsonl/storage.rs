@@ -487,6 +487,26 @@ impl SessionStorage for JsonlSessionStorage {
         )
     }
 
+    async fn move_lane_at_revision(
+        &self,
+        lane: &str,
+        revision: u64,
+        to: Option<&str>,
+    ) -> SessionResult<super::super::types::BranchRevision> {
+        let _tail = self.tail.lock().await;
+        self.require_certain()?;
+        let mut state = self.state.lock().await;
+        let (mutation, receipt) = state.prepare_lane_move(lane, revision, to)?;
+        let pending = self.append_mutation_line(&mutation).await?;
+        state.apply_mutation(mutation)?;
+        file_result(
+            self.fs.sync_file(&self.metadata.path).await,
+            "Failed to synchronize session navigation",
+        )?;
+        pending.applied();
+        Ok(receipt)
+    }
+
     fn metadata(&self) -> SessionMetadata {
         self.metadata.to_base()
     }

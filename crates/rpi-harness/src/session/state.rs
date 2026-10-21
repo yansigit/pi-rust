@@ -93,6 +93,34 @@ impl SessionState {
             .unwrap_or(0)
     }
 
+    pub(crate) fn prepare_lane_move(
+        &self,
+        lane: &str,
+        revision: u64,
+        to: Option<&str>,
+    ) -> SessionResult<(SessionMutation, crate::session::types::BranchRevision)> {
+        self.require_lane(lane)?;
+        self.validate_target(to)?;
+        if self.branch_revision(lane) != revision {
+            return Err(SessionError::invalid_entry(
+                "session branch changed before navigation",
+            ));
+        }
+        let revision = crate::session::types::BranchRevision {
+            lane: lane.into(),
+            revision: self.next_sequence(),
+            leaf_id: to.map(str::to_owned),
+        };
+        Ok((
+            SessionMutation::Lane {
+                seq: revision.revision,
+                lane: revision.lane.clone(),
+                leaf_id: revision.leaf_id.clone(),
+            },
+            revision,
+        ))
+    }
+
     pub(crate) fn prepare_commit(
         &self,
         entry: crate::session::types::ProvisionedEntry,

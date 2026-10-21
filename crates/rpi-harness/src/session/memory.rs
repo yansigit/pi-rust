@@ -237,6 +237,19 @@ impl SessionStorage for InMemorySessionStorage {
         Ok(rpi_tools::Durability::Ephemeral)
     }
 
+    async fn move_lane_at_revision(
+        &self,
+        lane: &str,
+        revision: u64,
+        to: Option<&str>,
+    ) -> SessionResult<super::types::BranchRevision> {
+        self.inner.with_state(|state| {
+            let (mutation, receipt) = state.prepare_lane_move(lane, revision, to)?;
+            state.apply_mutation(mutation)?;
+            Ok(receipt)
+        })
+    }
+
     fn metadata(&self) -> SessionMetadata {
         self.metadata.clone()
     }

@@ -281,6 +281,74 @@ async fn failed_or_cancelled_committed_jsonl_append_requires_recovery_before_mor
     }
 }
 
+#[tokio::test]
+async fn uncertain_navigation_requires_recovery_and_never_acknowledges_a_partial_write() {
+    for fault in [
+        FaultTarget::SyncFile,
+        FaultTarget::PartialAppend,
+        FaultTarget::PauseAfterAppend,
+    ] {
+        let base: Arc<dyn FileSystem> = Arc::new(rpi_tools::InMemoryExecutionEnv::new());
+        let path = "/navigation.jsonl";
+        let initial =
+            JsonlSessionStorage::create(base.clone(), path, header("navigation"), clock(), ids())
+                .await
+                .unwrap();
+        initial
+            .append_entry(note_provisioned("base"), "main")
+            .await
+            .unwrap();
+        initial
+            .append_entry(note_provisioned("tip"), "main")
+            .await
+            .unwrap();
+        let before = base.read_text_file(path, None).await.unwrap();
+        let storage = Arc::new(
+            JsonlSessionStorage::load(FaultyFs::new(base.clone(), fault), path, clock(), ids())
+                .await
+                .unwrap(),
+        );
+        let work = tokio::spawn({
+            let storage = storage.clone();
+            async move { storage.move_lane_at_revision("main", 0, Some("base")).await }
+        });
+        if matches!(fault, FaultTarget::PauseAfterAppend) {
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while base.read_text_file(path, None).await.unwrap() == before {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            work.abort();
+            assert!(work.await.unwrap_err().is_cancelled());
+        } else {
+            assert!(work.await.unwrap().is_err());
+        }
+        let uncertain = base.read_text_file(path, None).await.unwrap();
+        assert!(storage.snapshot().await.is_err());
+        assert!(storage
+            .move_lane_at_revision("main", 0, None)
+            .await
+            .is_err());
+        assert_eq!(base.read_text_file(path, None).await.unwrap(), uncertain);
+        drop(storage);
+        let recovered = JsonlSessionStorage::load(base, path, clock(), ids())
+            .await
+            .unwrap();
+        let snapshot = recovered.snapshot().await.unwrap();
+        assert_eq!(
+            snapshot.branches[0].leaf_id.as_deref(),
+            Some(if matches!(fault, FaultTarget::PartialAppend) {
+                "tip"
+            } else {
+                "base"
+            })
+        );
+        assert_eq!(snapshot.entries.len(), 2);
+    }
+}
+
 struct FaultyFs {
     inner: Arc<dyn FileSystem>,
     /// Which method to fault on its next invocation.
