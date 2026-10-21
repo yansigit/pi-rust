@@ -7,10 +7,10 @@ streams, delayed readers, and result-only consumption. No network or credentials
 are used. Fixed model, timestamp, text, usage and identifiers make results
 repeatable through the real SDK driver and host provider adapter.
 
-The benchmark-only commit can be applied to baseline `534d316`. Use the same
-harness on subsequent revisions; after the async stream API migration, pass
-`--features provider-performance,bounded-provider-stream`. The conditional push
-adapter accommodates the intentional Rust API break without changing workloads.
+The benchmark-only changes can be applied to baseline `534d316`. Compare revisions
+with the same harness and `provider-performance` feature. This fixture uses the
+current synchronous stream API; queue occupancy is reported as `null` because
+this revision has no bounded host queue.
 
 JSONL includes environment/revision, elapsed time, global allocation count and
 bytes, peak live allocator bytes, and transmitted JSON bytes. Linux additionally
