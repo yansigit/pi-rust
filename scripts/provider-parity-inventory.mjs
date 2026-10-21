@@ -42,7 +42,7 @@ assert.deepEqual(testDeclarations('it("one", () => {}); it.each([1])("case %s", 
 
 const rows = [];
 for (const [name, reference] of Object.entries(references.providers)) {
-  const checkout = join(directory, name);
+  const checkout = join(directory, reference.checkoutDirectory ?? name);
   const paths = [...new Set([...reference.sourceRoots, ...reference.testRoots].flatMap(path => files(join(checkout, path))))].sort();
   for (const path of paths) {
     if (!/\.(?:[cm]?[jt]sx?)$/.test(path) || /\.d\.(?:[cm]?ts)$/.test(path)) continue;

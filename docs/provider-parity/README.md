@@ -36,8 +36,13 @@ values. [Native composition](native-composition.md) adds session-owned wrappers,
 opaque delegated calls and provider-resolved pooled account receipts. The loaded
 SDK fixture verifies a pooled HTTP request, canonical endpoint restoration and
 credential isolation. Stream snapshots retain timestamps, usage and signatures.
-H01–H05 remain pending until dynamic runtime/catalog operations, interactive TUI
-callers, both Pi stream entry adapters and complete differential tests are integrated.
+[Native runtime ports](native-runtime.md) now provide scoped catalog inspection,
+publication, refresh, registration, removal and private resumable authentication.
+Print/JSON session lifecycle dispatch is included. H01–H05 remain pending until
+legacy authentication coverage, interactive TUI callers, both Pi stream entry
+adapters and complete differential tests are integrated. The
+[SDK distribution review](cursor-sdk-distribution.md) keeps the pinned Cursor SDK
+external to release archives.
 
 [baseline-results.json](baseline-results.json) records upstream results, lock
 hashes and evidence hashes. Cross-platform and inference acceptance remain untested.
@@ -161,3 +166,11 @@ Service. Redistribution review is outstanding; do not vendor its dependencies.
 Antigravity's account-suspension warning and Cursor's native tool/cloud execution
 behavior remain operational risks. This work has performed no live inference or
 remote account/agent mutations.
+
+Clean-runner reference baselines are also run by
+[`provider-reference-baseline.yml`](../../.github/workflows/provider-reference-baseline.yml).
+Antigravity's product build must precede its full test suite. Its pinned build
+validator checks absolute paths against forbidden module directory names, so the
+reference checkout is named `agy-reference` rather than `antigravity`. The fixture
+cache is explicit (`COMMON_AUTH_BUN_CACHE`) and Docker is required by its unchanged
+archive-context test. These are environment prerequisites, not source changes.

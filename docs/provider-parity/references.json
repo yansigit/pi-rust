@@ -6,6 +6,7 @@
   "providers": {
     "antigravity": {
       "repository": "cortexkit/antigravity-auth",
+      "checkoutDirectory": "agy-reference",
       "commit": "a97f9055017f3c1546afbfe61a19d50b428be3d8",
       "destination": "rpi-antigravity-auth",
       "bunVersion": "1.4.2",
@@ -13,7 +14,7 @@
       "sourceRoots": ["packages/pi/src", "packages/core/src"],
       "testRoots": ["packages/pi/src", "packages/core/src", "test"],
       "install": [["bun", "install", "--frozen-lockfile"], ["bun", "install", "--frozen-lockfile", "--cwd", "tools/common-auth-build"]],
-      "checks": [["bun", "run", "test"], ["bun", "run", "--cwd", "packages/pi", "build"]]
+      "checks": [["bun", "run", "build"], ["bun", "run", "test"], ["bun", "run", "--cwd", "packages/pi", "build"]]
     },
     "multiprovider": {
       "repository": "monotykamary/pi-multiprovider",
@@ -29,7 +30,7 @@
       "repository": "fitchmultz/pi-cursor-sdk",
       "commit": "f337dc4bb7cea936c52e69a7fe08e7e376c8467b",
       "destination": "rpi-cursor-sdk",
-      "sdk": {"package": "@cursor/sdk", "version": "1.0.37", "redistribution": "unreviewed; do not bundle"},
+      "sdk": {"package": "@cursor/sdk", "version": "1.0.37", "redistribution": "reviewed 2026-10-21; install externally from npm; do not bundle SDK or platform binaries"},
       "locks": ["package-lock.json"],
       "sourceRoots": ["src", "shared", "scripts/lib"],
       "testRoots": ["test"],

@@ -22,7 +22,7 @@ def digest(path):
 
 
 def fetch(directory, name, reference):
-    destination = directory / name
+    destination = directory / reference.get("checkoutDirectory", name)
     marker = directory / f"{name}.reference.json"
     identity = {key: reference[key] for key in ("repository", "commit")}
     if destination.exists():
@@ -44,7 +44,7 @@ def fetch(directory, name, reference):
 
 
 def baseline(directory, name, reference):
-    destination = directory / name
+    destination = directory / reference.get("checkoutDirectory", name)
     before = {lock: digest(destination / lock) for lock in reference["locks"]}
     records = []
     for index, command in enumerate(reference["install"] + reference["checks"]):

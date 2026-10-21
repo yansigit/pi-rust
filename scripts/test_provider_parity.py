@@ -36,6 +36,13 @@ class BaselineEvidenceTests(unittest.TestCase):
         self.assertEqual(record["commands"][0]["exitCode"], 0)
         self.assertEqual(record["commands"][0]["logSha256"], parity.digest(self.root / "fixture-0.log"))
 
+    def test_checkout_name_avoids_upstream_absolute_path_guard(self):
+        self.reference["checkoutDirectory"] = "agy-reference"
+        self.checkout.rename(self.root / "agy-reference")
+        self.command("print('safe checkout path')")
+        self.assertTrue(parity.baseline(self.root, "fixture", self.reference))
+        self.assertEqual(self.evidence()["commit"], self.reference["commit"])
+
     def test_failure_is_not_a_pass_and_stops_later_commands(self):
         self.command("raise SystemExit(7)")
         self.command("from pathlib import Path; Path('must-not-run').touch()")
