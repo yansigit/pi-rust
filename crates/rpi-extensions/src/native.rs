@@ -147,6 +147,7 @@ pub(crate) extern "C" fn request(
                     "providers.initialize",
                     "auth.providerRequest",
                     "auth.providerPolicy",
+                    "auth.configuredValues",
                     "auth.dynamicMethods",
                     "context.inspect",
                     "commands.owned",

@@ -42,5 +42,13 @@
     "provider-defined readiness callbacks",
     "all shell timeout and cancellation branches",
     "complete package differential acceptance"
-  ]
+  ],
+  "requiredCapability": {
+    "name": "auth.configuredValues",
+    "hostBuild": {
+      "log": "/tmp/rpi-native-config-host-build.log",
+      "sha256": "a94bbe1210952638c05f002bc0d0aa59cfacf3fafc445c1a25af14c7568b4b73",
+      "result": "Rust 1.78.0 warning-denied CLI build passed"
+    }
+  }
 }
