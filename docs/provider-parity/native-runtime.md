@@ -15,6 +15,13 @@ plugin/invocation bridge. JSON cannot choose another owner. A request retains th
 runtime it invokes; invalidated generations fail explicitly. Credentials and login
 continuations never enter ordinary plugin events.
 
+`{version:1,port:"capabilities",action:"inspect"}` returns the supported native
+data-contract capabilities. `provider::native::Client::require_capabilities`
+rejects an unsupported probe or missing names explicitly. New compatibility
+providers must require `assistant.durationMs` and `json.exactNumbers` before
+registration; an older host must not silently drop timing or round usage values.
+This probe uses the existing private port and leaves all C ABI layouts unchanged.
+
 ## Catalog operations
 
 The `providers` port supports `inspect`, `publish`, `register`, `unregister`, and

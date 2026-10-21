@@ -135,7 +135,9 @@ pub(crate) extern "C" fn request(
             let tool_scope = bridge.tool_scope.clone();
             bridge.runtime.spawn(async move {
                 let work = async move {
-                    if args["port"] == "services" {
+                    if args["port"] == "capabilities" && args["action"] == "inspect" {
+                        Ok(json!(["assistant.durationMs", "json.exactNumbers"]))
+                    } else if args["port"] == "services" {
                         services.request(owner, args, work_signal).await
                     } else if args["port"] == "dialogs" {
                         dialogs.request(owner, args, work_signal).await

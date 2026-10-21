@@ -30,6 +30,30 @@
       "status": "passed",
       "log": "/tmp/rpi-host-stream-sdk-provider.log",
       "sha256": "183b63d379b48a93ed0ea0036bd95c7b7902e4ec47a0849e59b8fb176111d021"
+    },
+    {
+      "command": "cargo build -p plugin-stub --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-capabilities-fixture-build.log",
+      "sha256": "aa2d6c9f8848061c5d24cc4d9d8e032916f7436cf69149d63835eb480a9bc254"
+    },
+    {
+      "command": "cargo test -p rpi-cli native_session_commits_cross_loaded_library_and_survive_reopen --locked -- --ignored",
+      "status": "passed",
+      "log": "/tmp/rpi-capabilities-native.log",
+      "sha256": "86ab679072d6d66946bbe570ed09c3623a7706ff1321b7e83208cee8ad9bf99e"
+    },
+    {
+      "command": "cargo +1.78.0 check --workspace --all-targets --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-capabilities-msrv.log",
+      "sha256": "47ab03e6d49a31d6a69f63e9c9a947dfbf1760acf513589cd8c3c2edc7a4c9e7"
+    },
+    {
+      "command": "cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features --features provider --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-capabilities-sdk.log",
+      "sha256": "f09ef9f4290eccec6c80e36c37831a149382ee7b462b97ef6c11036ea0db94c2"
     }
   ],
   "reportedTestSummary": {
@@ -48,5 +72,14 @@
     "new provider native loading",
     "macOS and Windows",
     "live inference"
-  ]
+  ],
+  "capabilityDiscovery": {
+    "port": "capabilities",
+    "action": "inspect",
+    "required": [
+      "assistant.durationMs",
+      "json.exactNumbers"
+    ],
+    "nativeLibrary": "verified successful discovery and explicit unknown-capability refusal via plugin-stub"
+  }
 }

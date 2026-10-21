@@ -9,6 +9,36 @@ pub struct Client {
     context: Option<std::sync::Arc<ContextLease>>,
 }
 impl Client {
+    /// Fail explicitly when an older host would silently discard required metadata.
+    pub async fn require_capabilities(
+        &self,
+        required: &[&str],
+        signal: CancellationToken,
+    ) -> Result<(), String> {
+        let response = self
+            .request(
+                serde_json::json!({"port":"capabilities","action":"inspect"}),
+                signal,
+            )
+            .await
+            .map_err(|error| format!("native capability discovery failed; upgrade rpi: {error}"))?;
+        let available = response
+            .as_array()
+            .ok_or("invalid native capability response")?;
+        let missing: Vec<_> = required
+            .iter()
+            .filter(|name| !available.iter().any(|value| value.as_str() == Some(**name)))
+            .copied()
+            .collect();
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "host is missing required native capabilities: {}",
+                missing.join(", ")
+            ))
+        }
+    }
     pub fn new(api: &PluginApi) -> Result<Self, String> {
         if api.native_request.is_none() {
             return Err("native runtime ports require a newer rpi host".into());

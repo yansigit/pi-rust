@@ -109,6 +109,23 @@ pub extern "C" fn plugin_stub_native_session(api: rpi_plugin_sdk::PluginApi) -> 
             .build()
             .unwrap();
         runtime.block_on(async {
+            client
+                .require_capabilities(
+                    &["assistant.durationMs", "json.exactNumbers"],
+                    rpi_ai::SimpleStreamOptions::default().signal,
+                )
+                .await
+                .unwrap();
+            assert_eq!(
+                client
+                    .require_capabilities(
+                        &["fixture:missing"],
+                        rpi_ai::SimpleStreamOptions::default().signal
+                    )
+                    .await
+                    .unwrap_err(),
+                "host is missing required native capabilities: fixture:missing"
+            );
             let request = |mut args: serde_json::Value| {
                 args["port"] = "sessions".into();
                 client.request(args, rpi_ai::SimpleStreamOptions::default().signal)
