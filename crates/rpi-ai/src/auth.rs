@@ -127,6 +127,11 @@ pub struct AuthOptions {
 /// The implementation owns callback contexts and any native-library keepalive.
 #[async_trait::async_trait]
 pub trait ProviderAuth: Send + Sync {
+    /// Capture host-private request scope before credential work moves to a task.
+    fn capture_invocation(&self) -> Result<Option<Arc<dyn ProviderAuth>>, AuthError> {
+        Ok(None)
+    }
+
     fn supports_api_key(&self) -> bool;
     fn supports_oauth(&self) -> bool;
 
@@ -277,6 +282,7 @@ impl AuthRuntime {
         signal: CancellationToken,
         clock: Arc<dyn Clock>,
     ) -> Result<Option<RequestAuth>, AuthError> {
+        let provider = provider.capture_invocation()?.unwrap_or(provider);
         self.run_owned(signal, move |work_signal| async move {
             resolve_inner(
                 provider_id,

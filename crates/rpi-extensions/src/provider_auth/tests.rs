@@ -155,6 +155,7 @@ async fn login_forwards_private_continuation_and_waits_for_store_acknowledgement
 fn setup(fixture: &Fixture) -> (ExtensionRegistry, Arc<NativeProviderAuth>) {
     let mut registry = ExtensionRegistry::new();
     let record = RegisteredAuthProvider {
+        action_bridge: None,
         plugin: "fixture".into(),
         manifest: AuthManifest::parse(MANIFEST).unwrap(),
         request_fn: request,

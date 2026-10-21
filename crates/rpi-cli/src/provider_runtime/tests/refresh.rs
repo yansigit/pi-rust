@@ -79,6 +79,7 @@ fn setup() -> (
     let (runtime, owner, host) = fixture_with(|registry| {
         registry.register_provider_runtime(
             rpi_extensions::provider_runtime::RegisteredProviderRuntime {
+                action_bridge: None,
                 plugin: "test-plugin".into(),
                 manifest: rpi_extensions::provider_runtime::RuntimeManifest {
                     version: 1,

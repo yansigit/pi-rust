@@ -26,6 +26,24 @@ impl Callback {
     }
 }
 
+pub(crate) fn capture_invocation(
+    bridge: Option<&std::sync::Weak<crate::ActionBridge>>,
+    signal: &CancellationToken,
+) -> Result<Option<Arc<crate::ActionBridge>>, AuthError> {
+    bridge
+        .map(|bridge| {
+            let bridge = bridge.upgrade().ok_or(AuthError::Cancelled)?;
+            if !bridge.is_active() {
+                return Err(AuthError::Cancelled);
+            }
+            Ok(bridge.for_invocation(
+                rpi_agent::tool_execution_scope::is_child_execution(),
+                signal.clone(),
+            ))
+        })
+        .transpose()
+}
+
 pub(crate) async fn invoke(
     callback: Callback,
     keepalive: Arc<crate::PluginKeepalive>,
@@ -44,9 +62,14 @@ pub(crate) async fn invoke_scoped(
     drain: bool,
     bridge: Option<Arc<crate::ActionBridge>>,
 ) -> Result<serde_json::Value, AuthError> {
-    let background = rpi_agent::tool_execution_scope::track_background_tool();
+    let background = bridge
+        .as_ref()
+        .and_then(|bridge| bridge.tool_scope.as_ref())
+        .map(|scope| scope.track_background())
+        .or_else(rpi_agent::tool_execution_scope::track_background_tool);
     let signal = signal.child_token();
     let _cancel_callback = signal.clone().drop_guard();
+    let bridge = bridge.map(|bridge| bridge.with_callback_signal(signal.clone()));
     let callback_signal = signal.clone();
     let mut pending = tokio::task::spawn_blocking(move || {
         let _keepalive = keepalive;

@@ -12,6 +12,9 @@ struct Host {
 }
 #[async_trait::async_trait]
 impl RuntimeActionHost for Host {
+    async fn get_execution_context(&self, _: Value) -> Result<Value, String> {
+        Ok(json!({"scope":"parent"}))
+    }
     fn native_bootstrap(&self) -> Result<Value, String> {
         Ok(json!({"cwd":"/native/project","agentDir":"/native/agent"}))
     }
@@ -226,6 +229,7 @@ mod cancel_wait;
 mod cleanup;
 mod driver;
 mod pacing;
+mod provider_callbacks;
 mod streaming;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -115,3 +115,22 @@ registration can inspect capabilities before a harness exists. Secret input uses
 the terminal's non-echoing reader when attached to a terminal; piped input is read
 without echoing it. Login and logout still await the shared credential store.
 The loaded-library checks are recorded in [CLI evidence](host-auth-cli-results.json).
+
+`providers.scopedCallbacks` binds native auth and provider-runtime callbacks to
+captured plugin/generation, operation identity and child execution context. Native
+calls made inside those callbacks use that context, including after dispatch to a
+blocking thread. Dropping the waiting future cancels both the callback control and
+its native actions; callback data, output deallocator and library remain retained
+until foreign code returns. Expired registration bridges refuse new callbacks.
+Admitted credential-store commits retain their independent completion path.
+Source initializers for `RegisteredAuthProvider` and `RegisteredProviderRuntime`
+now include an optional weak `action_bridge`; manual registrations may use `None`.
+This source change requires maintainer release coordination. C layouts, existing
+OAuth registrations, refresh timing, and workspace versions are unchanged.
+
+`ProviderAuth::capture_invocation` is an optional Rust hook used before the auth
+resolver starts its owned task. Native auth captures operation/child state there;
+configuration and policy decorators preserve the captured resolver. The child
+scope stays pending through token persistence and through any still-running
+foreign callback. Cancellation does not shorten an admitted refresh's independent
+deadline. Legacy implementations use the default hook without behavioral changes.

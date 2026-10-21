@@ -77,6 +77,7 @@ impl AuthManifest {
 /// The plugin owns its context until shutdown has drained outstanding calls.
 #[derive(Clone)]
 pub struct RegisteredAuthProvider {
+    pub action_bridge: Option<std::sync::Weak<crate::ActionBridge>>,
     pub plugin: String,
     pub manifest: AuthManifest,
     pub request_fn: rpi_plugin_sdk::AuthRequestFn,
@@ -120,6 +121,8 @@ pub struct AuthResponse {
 }
 
 pub struct NativeProviderAuth {
+    invocation: Option<Arc<crate::ActionBridge>>,
+    _background: Option<rpi_agent::tool_execution_scope::BackgroundToolGuard>,
     record: RegisteredAuthProvider,
     snapshot: Arc<RegistrySnapshot>,
     keepalive: Arc<PluginKeepalive>,
@@ -134,6 +137,8 @@ impl NativeProviderAuth {
             .find(|p| p.manifest.id == id)?
             .clone();
         Some(Arc::new(Self {
+            invocation: None,
+            _background: None,
             record,
             snapshot,
             keepalive: session.keepalive(),
@@ -237,7 +242,14 @@ impl NativeProviderAuth {
         let request =
             json!({"version":1,"providerId":self.record.manifest.id,"action":action,"input":input})
                 .to_string();
-        let value = crate::private_callback::invoke(
+        let bridge = match &self.invocation {
+            Some(bridge) => Some(bridge.clone()),
+            None => crate::private_callback::capture_invocation(
+                self.record.action_bridge.as_ref(),
+                &signal,
+            )?,
+        };
+        let value = crate::private_callback::invoke_scoped(
             crate::private_callback::Callback {
                 request: self.record.request_fn,
                 free: self.record.plugin_free_string,
@@ -247,6 +259,7 @@ impl NativeProviderAuth {
             request,
             signal,
             false,
+            bridge,
         )
         .await?;
         let response: AuthResponse =
@@ -270,6 +283,23 @@ impl NativeProviderAuth {
 
 #[async_trait::async_trait]
 impl ProviderAuth for NativeProviderAuth {
+    fn capture_invocation(&self) -> Result<Option<Arc<dyn ProviderAuth>>, AuthError> {
+        let invocation = crate::private_callback::capture_invocation(
+            self.record.action_bridge.as_ref(),
+            &CancellationToken::new(),
+        )?;
+        let background = invocation
+            .as_ref()
+            .and_then(|bridge| bridge.tool_scope.as_ref())
+            .map(|scope| scope.track_background());
+        Ok(Some(Arc::new(Self {
+            invocation,
+            _background: background,
+            record: self.record.clone(),
+            snapshot: self.snapshot.clone(),
+            keepalive: self.keepalive.clone(),
+        })))
+    }
     fn supports_api_key(&self) -> bool {
         self.record.manifest.api_key
     }

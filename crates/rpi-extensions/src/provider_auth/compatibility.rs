@@ -93,6 +93,9 @@ impl ProviderAuthentication {
 
 #[async_trait::async_trait]
 impl ProviderAuth for ProviderAuthentication {
+    fn capture_invocation(&self) -> Result<Option<Arc<dyn ProviderAuth>>, AuthError> {
+        self.resolver().capture_invocation()
+    }
     fn supports_api_key(&self) -> bool {
         self.resolver().supports_api_key()
     }

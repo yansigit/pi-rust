@@ -363,6 +363,7 @@ async fn late_refresh_cannot_overwrite_a_newer_publication() {
     let (runtime, owner, _) = fixture_with(|registry| {
         registry.register_provider_runtime(
             rpi_extensions::provider_runtime::RegisteredProviderRuntime {
+                action_bridge: None,
                 plugin: "test-plugin".into(),
                 manifest: rpi_extensions::provider_runtime::RuntimeManifest {
                     version: 1,
@@ -479,6 +480,7 @@ fn native_credential_transition_is_owner_bound_and_retains_lock_through_cancelle
         let (runtime, owner, _) = fixture_with(|registry| {
             registry.register_provider_runtime(
                 rpi_extensions::provider_runtime::RegisteredProviderRuntime {
+                    action_bridge: None,
                     plugin: "test-plugin".into(),
                     manifest: rpi_extensions::provider_runtime::RuntimeManifest {
                         version: 1,
@@ -594,6 +596,7 @@ fn owned_auth_resolution_keeps_configuration_private_and_environment_request_loc
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let (runtime, owner, _) = fixture_with(|registry| {
             registry.register_provider_auth(rpi_extensions::provider_auth::RegisteredAuthProvider {
+                action_bridge: None,
                 plugin: "test-plugin".into(),
                 manifest: serde_json::from_value(json!({"version":1,"id":"test","displayName":"Test","apiKey":true,"oauth":false,"methods":[]})).unwrap(),
                 request_fn: auth,
@@ -677,6 +680,7 @@ async fn awaited_publication_commits_once_and_rejects_stale_or_expired_refresh_t
     let (runtime, owner, host) = fixture_with(|registry| {
         registry.register_provider_runtime(
             rpi_extensions::provider_runtime::RegisteredProviderRuntime {
+                action_bridge: None,
                 plugin: "test-plugin".into(),
                 manifest: rpi_extensions::provider_runtime::RuntimeManifest {
                     version: 1,

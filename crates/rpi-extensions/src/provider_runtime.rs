@@ -38,6 +38,7 @@ impl RuntimeManifest {
 }
 #[derive(Clone)]
 pub struct RegisteredProviderRuntime {
+    pub action_bridge: Option<std::sync::Weak<crate::ActionBridge>>,
     pub plugin: String,
     pub manifest: RuntimeManifest,
     pub request_fn: rpi_plugin_sdk::AuthRequestFn,
@@ -113,7 +114,14 @@ impl NativeProviderOperations {
         if !self.supports(action) {
             return Err("provider runtime action is not registered".into());
         }
-        let response = crate::private_callback::invoke(
+        // Credential transactions finish independently of a requesting child's lifetime.
+        let bridge = if committing {
+            None
+        } else {
+            crate::private_callback::capture_invocation(self.record.action_bridge.as_ref(), &signal)
+                .map_err(|_| "provider runtime owner expired")?
+        };
+        let response = crate::private_callback::invoke_scoped(
             crate::private_callback::Callback {
                 request: self.record.request_fn,
                 free: self.record.free,
@@ -124,6 +132,7 @@ impl NativeProviderOperations {
                 .to_string(),
             signal,
             committing,
+            bridge,
         )
         .await
         .map_err(|error| match error {

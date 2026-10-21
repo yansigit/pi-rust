@@ -571,6 +571,7 @@ async fn account_auth_is_provider_owned_and_only_an_opaque_receipt_crosses_the_w
     let mut registry = ExtensionRegistry::new();
     register(&mut registry, &wrapper);
     registry.register_provider_auth(crate::provider_auth::RegisteredAuthProvider {
+        action_bridge: None,
         plugin:"provider".into(),manifest:crate::provider_auth::AuthManifest::parse(r#"{"version":1,"id":"probe","displayName":"Probe","apiKey":true,"oauth":false,"methods":[]}"#).unwrap(),
         request_fn:auth,plugin_free_string:rpi_plugin_sdk::callbacks::free_string,user_data:std::ptr::null_mut(),
     });

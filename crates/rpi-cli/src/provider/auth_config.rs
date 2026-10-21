@@ -44,6 +44,16 @@ impl Configured {
 }
 #[async_trait::async_trait]
 impl ProviderAuth for Configured {
+    fn capture_invocation(&self) -> Result<Option<Arc<dyn ProviderAuth>>, AuthError> {
+        Ok(self.inner.capture_invocation()?.map(|inner| {
+            Arc::new(Self {
+                inner,
+                id: self.id.clone(),
+                config: self.config.clone(),
+                environment: self.environment.clone(),
+            }) as Arc<dyn ProviderAuth>
+        }))
+    }
     fn supports_api_key(&self) -> bool {
         self.inner.supports_api_key()
     }
@@ -112,9 +122,12 @@ mod tests {
     use super::*;
     use serde_json::{json, Value};
     use std::sync::Mutex;
-    struct Fixture(Mutex<Vec<Value>>);
+    struct Fixture(Arc<Mutex<Vec<Value>>>);
     #[async_trait::async_trait]
     impl ProviderAuth for Fixture {
+        fn capture_invocation(&self) -> Result<Option<Arc<dyn ProviderAuth>>, AuthError> {
+            Ok(Some(Arc::new(Self(self.0.clone()))))
+        }
         fn supports_api_key(&self) -> bool {
             true
         }
@@ -181,11 +194,12 @@ mod tests {
         .unwrap();
         for (index, case) in cases["cases"].as_array().unwrap().iter().enumerate() {
             let spec = &case["spec"];
-            let fixture = Arc::new(Fixture(Mutex::new(vec![])));
+            let fixture = Arc::new(Fixture(Arc::new(Mutex::new(vec![]))));
             let mut environment: BTreeMap<String, String> =
                 serde_json::from_value(spec["environment"].clone()).unwrap();
             environment.insert("RPI_FIXTURE_AMBIENT".into(), "ambient-key".into());
             let provider=Configured {id:"fixture".into(),inner:fixture.clone(),config:serde_json::from_value(json!({"apiKey":spec["configuredKey"],"headers":spec["configuredHeaders"],"authHeader":spec["authHeader"]})).unwrap(),environment:environment.clone()};
+            let provider = provider.capture_invocation().unwrap().unwrap();
             let credential: Option<Credential> = spec
                 .get("credential")
                 .map(|value| serde_json::from_value(value.clone()).unwrap());

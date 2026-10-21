@@ -1009,6 +1009,8 @@ extern "C" fn trampoline_register_provider_runtime(
         return -2;
     };
     let record = provider_runtime::RegisteredProviderRuntime {
+        action_bridge: with_current_api(|api| api.action_bridge.as_ref().map(Arc::downgrade))
+            .flatten(),
         plugin,
         manifest,
         request_fn,
@@ -1037,6 +1039,8 @@ extern "C" fn trampoline_register_provider_auth(
         return -2;
     };
     let record = provider_auth::RegisteredAuthProvider {
+        action_bridge: with_current_api(|api| api.action_bridge.as_ref().map(Arc::downgrade))
+            .flatten(),
         plugin,
         manifest,
         request_fn,

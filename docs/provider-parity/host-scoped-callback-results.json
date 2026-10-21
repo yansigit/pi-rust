@@ -1,0 +1,51 @@
+{
+  "status": "Native provider callbacks retain invocation context through background authentication",
+  "platform": "Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "callbacks": {
+      "log": "/tmp/rpi-scoped-provider-callbacks-tests-final.log",
+      "sha256": "9d5c5a39b1edf74dd31e7b376d666098dd0f70bffff6add15f454e1bc52dba23",
+      "passed": 5
+    },
+    "extensions": {
+      "log": "/tmp/rpi-scoped-provider-callbacks-full-final.log",
+      "sha256": "3ef0a5b09bb34bbb025ad46ca706066418f583a67be82215c37dbf6062db4e61",
+      "passed": 206
+    },
+    "auth": {
+      "log": "/tmp/rpi-scoped-provider-callbacks-auth-final.log",
+      "sha256": "3b55542c79580964ff8d18379717d7374f2d8d1253797300bbec17c9220af296",
+      "passed": 16
+    },
+    "providers": {
+      "log": "/tmp/rpi-scoped-provider-callbacks-runtime-final.log",
+      "sha256": "1368c6e7983b0273e90452150e529d25296ec0cbc5538a19f436d90828d9ed79",
+      "passed": 121
+    },
+    "workspace": {
+      "log": "/tmp/rpi-scoped-provider-callbacks-workspace-final.log",
+      "sha256": "d2aef0d4389d45d16ed80ea59cfdd7e9728d0ade066b9429ed74bd32be949992"
+    },
+    "installedLibrary": {
+      "log": "/tmp/rpi-scoped-provider-callbacks-dll-final.log",
+      "sha256": "b42efe3030b9c5328a4deb198a716e9479935b5042763dbeeda190953cc7adbe",
+      "passed": 4
+    }
+  },
+  "assertions": [
+    "Concurrent parent and child auth/runtime callbacks retain distinct execution context and identity",
+    "Both ambient and replacement auth capture scope before task migration",
+    "Caller drop cancels callback control and native actions without releasing foreign code or its library",
+    "A canceled child refresh retains its scope and persists its rotated credential",
+    "Expired registration bridges reject new callbacks while admitted credential commits finish",
+    "Configuration and auth-policy decorators preserve captured resolvers",
+    "Installed Cursor loading, commands, child ownership, reload and failed/successful shutdown pass"
+  ],
+  "review": "Manual exact-diff review of all auth decorators, task migration, registration retention, cancellation and independent refresh persistence. No C ABI or workspace version change; Rust source fields/default trait hook require release coordination.",
+  "notTested": [
+    "Child catalog isolation (separate implementation)",
+    "macOS and Windows native loading",
+    "Live Cursor inference"
+  ]
+}

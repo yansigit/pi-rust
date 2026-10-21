@@ -6,7 +6,7 @@ use rpi_ai::auth::{
 use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Policy {
     pub api_key: bool,
@@ -19,6 +19,14 @@ pub(super) struct Restricted {
 }
 #[async_trait::async_trait]
 impl ProviderAuth for Restricted {
+    fn capture_invocation(&self) -> Result<Option<Arc<dyn ProviderAuth>>, AuthError> {
+        Ok(self.inner.capture_invocation()?.map(|inner| {
+            Arc::new(Self {
+                inner,
+                policy: self.policy.clone(),
+            }) as Arc<dyn ProviderAuth>
+        }))
+    }
     fn supports_api_key(&self) -> bool {
         self.policy.api_key && self.inner.supports_api_key()
     }
@@ -99,6 +107,9 @@ mod tests {
     struct Provider;
     #[async_trait::async_trait]
     impl ProviderAuth for Provider {
+        fn capture_invocation(&self) -> Result<Option<Arc<dyn ProviderAuth>>, AuthError> {
+            Ok(Some(Arc::new(Self)))
+        }
         fn supports_api_key(&self) -> bool {
             true
         }

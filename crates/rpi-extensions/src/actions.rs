@@ -798,6 +798,22 @@ impl ActionBridge {
         inner.execution_context = None;
         scope
     }
+    pub(crate) fn with_callback_signal(
+        &self,
+        signal: tokio_util::sync::CancellationToken,
+    ) -> Arc<Self> {
+        let mut scope = self.for_invocation(false, signal.clone());
+        let inner = Arc::get_mut(&mut scope).unwrap();
+        inner.invocation = self
+            .invocation
+            .as_ref()
+            .map(|(child, key, _)| (*child, key.clone(), signal.clone()));
+        inner.callback_signal = Some(signal);
+        inner.operation = self.operation.clone();
+        inner.tool_scope = self.tool_scope.clone();
+        inner.execution_context = self.execution_context.clone();
+        scope
+    }
     pub(crate) fn invocation_key(&self) -> Option<&str> {
         self.invocation.as_ref().map(|(_, key, _)| key.as_str())
     }

@@ -36,19 +36,28 @@ impl AuthBinding {
             );
             let input = serde_json::json!({"modelId":model.id,"api":model.api,"apiKey":options.api_key,"env":env});
             let operations = operations.clone();
+            let scope = rpi_agent::tool_execution_scope::current_scope();
+            let background = rpi_agent::tool_execution_scope::track_background_tool();
+            let identity = rpi_ai::identity::current();
             let result = self
                 .runtime
                 .run_owned(options.signal.clone(), move |signal| async move {
-                    operations
-                        .request("requestAuth", input, signal.clone())
-                        .await
-                        .map_err(|error| {
+                    let _background = background;
+                    rpi_agent::tool_execution_scope::inherit(scope, async move {
+                        let request = operations.request("requestAuth", input, signal.clone());
+                        let result = match identity {
+                            Some(identity) => rpi_ai::identity::scope(identity, request).await,
+                            None => request.await,
+                        };
+                        result.map_err(|error| {
                             if signal.is_cancelled() {
                                 AuthError::Cancelled
                             } else {
                                 AuthError::Provider(error)
                             }
                         })
+                    })
+                    .await
                 })
                 .await?;
             if result.is_null() {

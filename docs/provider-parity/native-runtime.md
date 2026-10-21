@@ -281,3 +281,9 @@ This metadata stays out of model-facing schemas.
 `HarnessTool.source_info` and `ExtensionTool.plugin` are Rust source additions
 for the maintainer's coordinated release; existing constructors remain valid.
 No C ABI field, signature or workspace version changed.
+
+`providers.scopedCallbacks` also covers runtime callbacks. Catalog refresh,
+method discovery and per-attempt authentication inherit the requesting execution
+scope. Credential-store commits complete independently of a canceled child; they
+retain the transaction's existing private callback path. See
+[callback regression evidence](host-scoped-callback-results.json).

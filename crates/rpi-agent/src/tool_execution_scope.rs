@@ -41,6 +41,11 @@ impl Drop for ToolExecutionScope {
     }
 }
 impl ToolExecutionScope {
+    /// Keep a captured foreign invocation alive through task migration or cancellation.
+    pub fn track_background(self: &Arc<Self>) -> BackgroundToolGuard {
+        self.pending.fetch_add(1, Ordering::AcqRel);
+        BackgroundToolGuard(self.clone())
+    }
     pub fn runtime_id(&self) -> &str {
         self.runtime_id.get_or_init(|| {
             static NEXT: AtomicUsize = AtomicUsize::new(1);
@@ -130,12 +135,7 @@ impl Drop for BackgroundToolGuard {
     }
 }
 pub fn track_background_tool() -> Option<BackgroundToolGuard> {
-    CURRENT
-        .try_with(|scope| {
-            scope.pending.fetch_add(1, Ordering::AcqRel);
-            BackgroundToolGuard(scope.clone())
-        })
-        .ok()
+    CURRENT.try_with(ToolExecutionScope::track_background).ok()
 }
 
 #[cfg(test)]
