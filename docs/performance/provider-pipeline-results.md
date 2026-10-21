@@ -131,12 +131,30 @@ or tool fixtures. The reuse claims rely on creation counts and connection tests.
 ## Verification and limits
 
 Passed the requested format check, warnings-as-errors workspace/all-target check,
-warnings-as-errors workspace tests (1,952 passed, six intentionally ignored),
+warnings-as-errors workspace tests (Cargo reported 1,952 passed and six ignored),
 provider-feature SDK tests, and the no-default-features SDK check. Targeted bridge
 checks additionally exercise the SDK-to-host compaction fixture and bounded FFI
 queue. The final transport-error fix has its own SDK feature-suite verification.
 Windows ABI/DLL-lifecycle jobs were added; native Windows and live-provider runs
 were not available in this Linux session.
+
+The workspace run includes 38 offline harness end-to-end tests and four
+remote-client smoke tests against a local fake server. Some optional tests return
+early when their prerequisites are absent, so Cargo's passing total does not mean
+every external integration ran. The real-server round trip was not configured,
+and all three voice-plugin smoke tests skipped because `rpi_voice` was absent.
+The two plugin-stub smoke tests were explicitly rerun after building its shared
+library and passed through the production loader, tool and provider bridges:
+
+```bash
+RUSTFLAGS="-D warnings" cargo build -p plugin-stub --locked
+RUSTFLAGS="-D warnings" cargo test -p rpi-extensions --features provider-performance --test plugin_stub_smoke --test voice_ptt_smoke --locked -- --nocapture
+```
+
+An initial isolated smoke build without `provider-performance` failed under
+`-D warnings` because the unchanged `rpi-ai/src/strict_schema.rs` has unused helpers
+when HTTP providers are disabled. The provider-enabled smoke build and the
+requested workspace checks pass; the minimal-feature warning remains unresolved.
 
 Successful lifecycle finalization joins workers before library unload. A failed
 shutdown, uncooperative foreign call, or failure to create a cleanup thread must
