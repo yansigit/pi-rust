@@ -1373,7 +1373,7 @@ where
     // use. A temporary empty session would let a concurrent call bypass its gate.
     // In-flight approvals retain their old session until their callback exits;
     // its staleness flag prevents them from authorizing after this swap.
-    {
+    let old_session = {
         let mut session_guard = ctx.extension_session.lock().unwrap();
         let old_session = std::mem::replace(&mut *session_guard, extension_session.clone());
         if let Some(old_snap) = old_session.snapshot_arc() {
@@ -1382,9 +1382,10 @@ where
             // `RegistrySnapshot` exposes `active_flag()` for this.
             old_snap.active_flag().store(false, Ordering::SeqCst);
         }
-        // `old_session` drops here; in-flight adapters/callbacks keep their
-        // own library references until they return.
-    }
+        old_session
+    };
+    // Plugin callbacks may call host actions; release session locks first.
+    old_session.begin_shutdown();
     if let Some(old_b) = old_bridge {
         old_b.invalidate();
     }
