@@ -31,7 +31,7 @@ async fn partials_arrive_while_the_foreign_poll_is_still_running() {
     let adapter = PluginToolAdapter::new(
         schema(),
         PluginToolHandle {
-            execute_fn: consume_execute,
+            execute_fn: crate::tool::ToolExecutor::Legacy(consume_execute),
             set_waker_fn: None,
             poll_fn: streaming_poll,
             cancel_fn: noop,

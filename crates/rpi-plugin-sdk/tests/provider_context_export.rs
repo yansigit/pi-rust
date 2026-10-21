@@ -96,6 +96,7 @@ fn api() -> sdk::PluginApi {
         register_service: None,
         native_context: None,
         register_native_command: None,
+        register_owned_tool_with_wake: None,
     }
 }
 

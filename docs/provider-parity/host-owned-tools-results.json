@@ -1,0 +1,43 @@
+{
+  "status": "owned wake tool host contract; Cursor tool wiring pending",
+  "platform": "Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "extensions": {
+      "log": "/tmp/rpi-owned-tools-extensions.log",
+      "sha256": "b7a36ff8effd2543d0160f2f84b64cf33ff022f2eeaffc60bc4827f4836dd60e",
+      "passed": 195,
+      "ignored": 2
+    },
+    "sdk": {
+      "log": "/tmp/rpi-owned-tools-sdk.log",
+      "sha256": "2d20dd624af22e1aeab2915f8aedf01d94dc657605e4ecf697e9c95c38dbb85b",
+      "passed": 73,
+      "ignored": 3
+    },
+    "minimal": {
+      "log": "/tmp/rpi-owned-tools-minimal.log",
+      "sha256": "b66d83e10275e8035ee43a0b2e11ad33c74fc8ebc357bb55e8b90b6f9bc89fac",
+      "passed": true,
+      "ignored": 0
+    },
+    "workspace": {
+      "log": "/tmp/rpi-owned-tools-workspace.log",
+      "sha256": "6ec2e4419d13d66d4ffb19de5c9e766ffc885a2f71f15ab19b59791b580dc9f1",
+      "passed": true,
+      "ignored": 0
+    }
+  },
+  "contracts": [
+    "Trailing optional owned wake registration retains every earlier C field offset",
+    "Both owned and legacy registrations use the existing wake driver",
+    "Concurrent same-ID calls bind different registration contexts",
+    "Cancellation isolates owners and destroys each handle exactly once",
+    "Every earlier short-vtable boundary normalizes the new slot to None"
+  ],
+  "limits": [
+    "PluginApi Rust literal callers require the additional optional field in coordinated release",
+    "Workspace versions unchanged",
+    "Actual Cursor tools and macOS/Windows execution not tested in this chunk"
+  ]
+}

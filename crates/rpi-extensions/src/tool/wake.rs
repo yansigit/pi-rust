@@ -237,7 +237,7 @@ impl PluginToolAdapter {
         }));
         tokio::spawn(async move {
             let (mut driver, ()) = call(driver, move |driver| {
-                driver.handle = (driver.functions.execute_fn)(
+                driver.handle = driver.functions.execute_fn.execute(
                     StbStringRef::from_str(&id),
                     StbString::from_string(params),
                     Some(host_free_string),
@@ -431,7 +431,7 @@ mod tests {
                     constrained_sampling: None,
                 },
                 PluginToolHandle {
-                    execute_fn: execute,
+                    execute_fn: crate::tool::ToolExecutor::Legacy(execute),
                     poll_fn: poll,
                     cancel_fn: cancel,
                     destroy_fn: destroy,
@@ -462,6 +462,85 @@ mod tests {
                 .execute(&id, Value::Null, signal, Arc::new(|_| {}))
                 .await
         })
+    }
+
+    extern "C" fn owned_execute(
+        _: StbStringRef,
+        params: StbString,
+        free: Option<FreeStringFn>,
+        context: *mut c_void,
+    ) -> StepHandle {
+        drop(unsafe { OwnedString::from_raw(params, free) });
+        // The test retains each registration's boxed context until both drivers finish.
+        let state = unsafe { &*context.cast::<Arc<State>>() }.clone();
+        HANDLES.insert(state)
+    }
+
+    fn owned_adapter(context: &Arc<State>) -> Arc<PluginToolAdapter> {
+        let api = crate::HostApi::new(
+            "owned",
+            crate::ExtensionRegistry::new(),
+            Arc::new(crate::NullDiagnostics),
+        );
+        let table = api.build_vtable();
+        let schema = rpi_plugin_sdk::StableToolSchema {
+            name: StbString::from_string("owned".into()),
+            description: StbString::from_string("owned fixture".into()),
+            parameters: StbString::from_string("{}".into()),
+        };
+        let guard = crate::enter_current_api(&api);
+        assert_eq!(
+            (table.register_owned_tool_with_wake.unwrap())(
+                &schema,
+                owned_execute,
+                poll,
+                cancel,
+                destroy,
+                host_free_string,
+                set_waker,
+                (context as *const Arc<State>).cast_mut().cast()
+            ),
+            0
+        );
+        drop(guard);
+        let snapshot = api.take_registry().unwrap().snapshot();
+        let tool = &snapshot.tools()[0];
+        Arc::new(PluginToolAdapter::new(
+            tool.tool.clone(),
+            tool.handle(),
+            PluginKeepalive::empty(),
+        ))
+    }
+
+    #[tokio::test]
+    async fn owned_wake_registrations_keep_concurrent_contexts_and_cancellation_separate() {
+        let left = Box::new(Arc::new(State::default()));
+        let right = Box::new(Arc::new(State::default()));
+        let run = |adapter: Arc<PluginToolAdapter>, signal| {
+            tokio::spawn(async move {
+                adapter
+                    .execute("same-call-id", Value::Null, signal, Arc::new(|_| {}))
+                    .await
+            })
+        };
+        let left_signal = CancellationToken::new();
+        let left_task = run(owned_adapter(&left), left_signal.clone());
+        let right_task = run(owned_adapter(&right), CancellationToken::new());
+        until(|| left.polls.load(Ordering::SeqCst) == 1 && right.polls.load(Ordering::SeqCst) == 1)
+            .await;
+        left_signal.cancel();
+        assert!(left_task.await.unwrap().is_err());
+        assert_eq!(left.destroys.load(Ordering::SeqCst), 1);
+        assert_eq!(left.cancels.load(Ordering::SeqCst), 1);
+        assert_eq!(right.destroys.load(Ordering::SeqCst), 0);
+        assert_eq!(right.cancels.load(Ordering::SeqCst), 0);
+        right.ready.store(true, Ordering::SeqCst);
+        let (wake, data) = right.callback.lock().unwrap().unwrap();
+        wake(data as *mut c_void);
+        right_task.await.unwrap().unwrap();
+        assert_eq!(right.destroys.load(Ordering::SeqCst), 1);
+        assert!(left.callback.lock().unwrap().is_none());
+        assert!(right.callback.lock().unwrap().is_none());
     }
     #[tokio::test]
     async fn synchronous_wakes_are_retained_and_calls_are_serialized() {

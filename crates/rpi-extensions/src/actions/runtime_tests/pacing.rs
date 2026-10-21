@@ -28,7 +28,7 @@ async fn a_nonblocking_pending_plugin_does_not_busy_spin_a_cpu_core() {
     let adapter = PluginToolAdapter::new(
         schema(),
         PluginToolHandle {
-            execute_fn: consume_execute,
+            execute_fn: crate::tool::ToolExecutor::Legacy(consume_execute),
             set_waker_fn: None,
             poll_fn: pending_poll,
             cancel_fn: noop,

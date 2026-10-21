@@ -109,3 +109,22 @@ counts, sequential/parallel recording history, malformed recordings, wire/frame
 round trips and interrupted recovery. See `host-tools-results.json` for executed
 checks and their limits. Adapter-specific tool metadata and complete retained
 Cursor acceptance remain part of the Cursor implementation ledger.
+
+## Owned wake callbacks
+
+The optional trailing `register_owned_tool_with_wake` slot adds a registration
+context to tool `execute`. Its other callbacks and handle lifecycle are identical
+to `register_tool_with_wake`. Both use the same host wake driver, captured
+invocation scope, cancellation, result ownership and library keepalive. Plugins
+own the registration context and release it from their lifecycle shutdown only
+after their work has drained. They must support concurrent calls from different
+handles. New packages that need owned contexts must reject hosts missing the slot.
+
+All earlier C offsets/signatures and unsized controls remain unchanged. Rust
+source users constructing `PluginApi` literals must supply the additional optional
+field in the maintainer's coordinated SDK release; workspace versions are unchanged.
+The SDK checks every earlier short-table boundary. A registration/driver regression
+uses identical tool-call IDs in two concurrent registrations, cancels one, and
+verifies independent completion and exactly one cleanup per handle. Results are
+recorded in `host-owned-tools-results.json`; complete Cursor tool integration and
+recorded execution counts remain separate acceptance work.

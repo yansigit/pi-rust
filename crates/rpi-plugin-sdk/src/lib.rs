@@ -550,6 +550,15 @@ pub type ToolExecuteFn = extern "C" fn(
     free_params: Option<FreeStringFn>,
 ) -> StepHandle;
 
+/// Owned wake-tool entry. The registration context is retained by the plugin
+/// lifecycle through every drive handle; argument ownership matches `ToolExecuteFn`.
+pub type ToolExecuteOwnedFn = extern "C" fn(
+    tool_call_id: StbStringRef,
+    params: StbString,
+    free_params: Option<FreeStringFn>,
+    context: *mut c_void,
+) -> StepHandle;
+
 /// `poll(handle, partial_cb, user_data) -> StepResult`. **Non-blocking.** Must
 /// observe the cancel flag (set by [`ToolCancelFn`]) and return `Done`/`Err`
 /// within a bounded number of polls. Borrows `handle` (does not free it).
@@ -1649,6 +1658,20 @@ pub struct PluginApi {
     /// The callback receives `{version:1,command,args}` and returns `{version:1,result}`.
     /// Its cancellation control and plugin context remain valid until it returns.
     pub register_native_command: Option<RegisterProviderAuthFn>,
+    /// Wake-driven tools with a per-registration context. Appended to retain all
+    /// older field offsets; no global current-runtime pointer is required.
+    pub register_owned_tool_with_wake: Option<
+        extern "C" fn(
+            schema: *const StableToolSchema,
+            execute_fn: ToolExecuteOwnedFn,
+            poll_fn: ToolPollFn,
+            cancel_fn: ToolCancelFn,
+            destroy_fn: ToolDestroyFn,
+            plugin_free_string: FreeStringFn,
+            set_waker_fn: ToolSetWakerFn,
+            context: *mut c_void,
+        ) -> i32,
+    >,
 }
 unsafe impl Send for PluginApi {}
 unsafe impl Sync for PluginApi {}
@@ -2052,6 +2075,7 @@ mod tests {
             register_service: None,
             native_context: None,
             register_native_command: None,
+            register_owned_tool_with_wake: None,
         };
         // All optional slots are null → plugin must degrade.
         assert!(api.register_tool.is_none());
@@ -2163,6 +2187,10 @@ mod tests {
         );
         assert_eq!(
             size_of::<PluginApi>(),
+            core::mem::offset_of!(PluginApi, register_owned_tool_with_wake) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, register_owned_tool_with_wake),
             core::mem::offset_of!(PluginApi, register_native_command) + size_of::<usize>()
         );
         assert_eq!(
@@ -2282,6 +2310,7 @@ mod tests {
             register_service: None,
             native_context: None,
             register_native_command: None,
+            register_owned_tool_with_wake: None,
         }
     }
 
@@ -2345,6 +2374,7 @@ mod tests {
             core::mem::offset_of!(PluginApi, register_service),
             core::mem::offset_of!(PluginApi, native_context),
             core::mem::offset_of!(PluginApi, register_native_command),
+            core::mem::offset_of!(PluginApi, register_owned_tool_with_wake),
         ] {
             let mut api = entrypoint_test_api();
             api.struct_size = size as u32;
@@ -2380,6 +2410,7 @@ mod tests {
                     assert!(api.register_service.is_none());
                     assert!(api.native_context.is_none());
                     assert!(api.register_native_command.is_none());
+                    assert!(api.register_owned_tool_with_wake.is_none());
                     assert!(
                         api.register_provider.is_some(),
                         "one-shot fallback remains available"

@@ -53,13 +53,32 @@ use crate::loader::PluginKeepalive;
 /// progress). The host calls it for each such string it receives.
 #[derive(Clone, Copy)]
 pub struct PluginToolHandle {
-    pub(crate) execute_fn: ToolExecuteFn,
+    pub(crate) execute_fn: ToolExecutor,
     pub(crate) set_waker_fn: Option<rpi_plugin_sdk::ToolSetWakerFn>,
     pub(crate) poll_fn: ToolPollFn,
     pub(crate) cancel_fn: ToolCancelFn,
     pub(crate) destroy_fn: ToolDestroyFn,
     pub(crate) plugin_free_string: FreeStringFn,
     pub(crate) runtime_handle: Option<usize>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum ToolExecutor {
+    Legacy(ToolExecuteFn),
+    Owned(rpi_plugin_sdk::ToolExecuteOwnedFn, usize),
+}
+impl ToolExecutor {
+    pub(crate) fn execute(
+        self,
+        id: StbStringRef,
+        params: StbString,
+        free: Option<FreeStringFn>,
+    ) -> StepHandle {
+        match self {
+            Self::Legacy(execute) => execute(id, params, free),
+            Self::Owned(execute, context) => execute(id, params, free, context as *mut c_void),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,7 +486,7 @@ impl AgentTool for PluginToolAdapter {
             // unwind across FFI (abort-on-unwind).
             let step_handle: StepHandle = {
                 let outcome = catch_unwind(AssertUnwindSafe(|| {
-                    (execute_fn)(id_ref, params_stb, Some(host_free_string))
+                    execute_fn.execute(id_ref, params_stb, Some(host_free_string))
                 }));
                 match outcome {
                     Ok(h) if !h.is_null() => h,
@@ -775,7 +794,7 @@ mod tests {
 
     fn stub_handle() -> PluginToolHandle {
         PluginToolHandle {
-            execute_fn: stub_execute,
+            execute_fn: crate::tool::ToolExecutor::Legacy(stub_execute),
             set_waker_fn: None,
             poll_fn: stub_poll,
             cancel_fn: stub_cancel,
@@ -893,7 +912,7 @@ mod tests {
             constrained_sampling: None,
         };
         let handle = PluginToolHandle {
-            execute_fn: slow_execute,
+            execute_fn: crate::tool::ToolExecutor::Legacy(slow_execute),
             set_waker_fn: None,
             poll_fn: slow_poll,
             cancel_fn: slow_cancel,

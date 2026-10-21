@@ -52,7 +52,7 @@ async fn child_alias_plugin_cannot_use_its_registration_to_delegate() {
         let adapter = PluginToolAdapter::new(
             schema(),
             PluginToolHandle {
-                execute_fn: consume_execute,
+                execute_fn: crate::tool::ToolExecutor::Legacy(consume_execute),
                 set_waker_fn: if wake { Some(noop_set_waker) } else { None },
                 poll_fn: delegate_poll,
                 cancel_fn: noop,
@@ -143,7 +143,7 @@ async fn dropped_future_retains_owned_id_library_and_cleanup_until_every_foreign
         let adapter = PluginToolAdapter::new(
             schema(),
             PluginToolHandle {
-                execute_fn: slow_execute,
+                execute_fn: crate::tool::ToolExecutor::Legacy(slow_execute),
                 set_waker_fn: if wake { Some(slow_set_waker) } else { None },
                 poll_fn: slow_poll,
                 cancel_fn: noop,

@@ -342,6 +342,7 @@ impl HostApi {
             register_service: Some(trampoline_register_service),
             native_context: Some(native::context),
             register_native_command: Some(trampoline_register_native_command),
+            register_owned_tool_with_wake: Some(trampoline_register_owned_tool_with_wake),
             register_command: Some(trampoline_register_command),
             register_shortcut: Some(trampoline_register_shortcut),
             register_flag: Some(trampoline_register_flag),
@@ -448,7 +449,7 @@ extern "C" fn trampoline_register_tool(
 ) -> i32 {
     register_tool(
         schema,
-        execute_fn,
+        tool::ToolExecutor::Legacy(execute_fn),
         poll_fn,
         cancel_fn,
         destroy_fn,
@@ -468,7 +469,28 @@ extern "C" fn trampoline_register_tool_with_wake(
 ) -> i32 {
     register_tool(
         schema,
-        execute_fn,
+        tool::ToolExecutor::Legacy(execute_fn),
+        poll_fn,
+        cancel_fn,
+        destroy_fn,
+        plugin_free_string,
+        Some(set_waker_fn),
+    )
+}
+
+extern "C" fn trampoline_register_owned_tool_with_wake(
+    schema: *const StableToolSchema,
+    execute_fn: rpi_plugin_sdk::ToolExecuteOwnedFn,
+    poll_fn: ToolPollFn,
+    cancel_fn: ToolCancelFn,
+    destroy_fn: ToolDestroyFn,
+    plugin_free_string: FreeStringFn,
+    set_waker_fn: rpi_plugin_sdk::ToolSetWakerFn,
+    context: *mut c_void,
+) -> i32 {
+    register_tool(
+        schema,
+        tool::ToolExecutor::Owned(execute_fn, context as usize),
         poll_fn,
         cancel_fn,
         destroy_fn,
@@ -479,7 +501,7 @@ extern "C" fn trampoline_register_tool_with_wake(
 
 fn register_tool(
     schema: *const StableToolSchema,
-    execute_fn: ToolExecuteFn,
+    execute_fn: tool::ToolExecutor,
     poll_fn: ToolPollFn,
     cancel_fn: ToolCancelFn,
     destroy_fn: ToolDestroyFn,
