@@ -753,11 +753,15 @@
     ],
     "portFiles": [
       "packages/rpi-antigravity-auth/src/vault/enrollment.rs",
-      "packages/rpi-antigravity-auth/src/vault/ceremony.rs"
+      "packages/rpi-antigravity-auth/src/vault/ceremony.rs",
+      "packages/rpi-antigravity-auth/src/vault/file_store.rs"
     ],
     "acceptanceFiles": [
       "packages/rpi-antigravity-auth/tests/vault_enrollment.rs",
-      "packages/rpi-antigravity-auth/tests/vault_ceremony.rs"
+      "packages/rpi-antigravity-auth/tests/vault_ceremony.rs",
+      "packages/rpi-antigravity-auth/tests/vault_file_store.rs",
+      "packages/rpi-antigravity-auth/tests/vault_private.rs",
+      "packages/rpi-antigravity-auth/tests/vault_fsync.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
@@ -1003,10 +1007,16 @@
       "A07"
     ],
     "portFiles": [
-      "packages/rpi-antigravity-auth/src/storage.rs"
+      "packages/rpi-antigravity-auth/src/storage.rs",
+      "packages/rpi-antigravity-auth/src/vault/private.rs",
+      "packages/rpi-antigravity-auth/src/vault/private/posix.rs",
+      "packages/rpi-antigravity-auth/src/vault/private/windows.rs",
+      "packages/rpi-antigravity-auth/src/vault/private/windows_store.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/storage.rs"
+      "packages/rpi-antigravity-auth/tests/storage.rs",
+      "packages/rpi-antigravity-auth/tests/vault_private.rs",
+      "packages/rpi-antigravity-auth/tests/vault_fsync.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
@@ -1018,10 +1028,12 @@
       "A07"
     ],
     "portFiles": [
-      "packages/rpi-antigravity-auth/src/storage.rs"
+      "packages/rpi-antigravity-auth/src/storage.rs",
+      "packages/rpi-antigravity-auth/src/vault/file_lease.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/storage.rs"
+      "packages/rpi-antigravity-auth/tests/storage.rs",
+      "packages/rpi-antigravity-auth/tests/vault_file_lease.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
@@ -1033,10 +1045,12 @@
       "A07"
     ],
     "portFiles": [
-      "packages/rpi-antigravity-auth/src/storage.rs"
+      "packages/rpi-antigravity-auth/src/storage.rs",
+      "packages/rpi-antigravity-auth/src/vault/file_lease.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/storage.rs"
+      "packages/rpi-antigravity-auth/tests/storage.rs",
+      "packages/rpi-antigravity-auth/tests/vault_file_lease.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
