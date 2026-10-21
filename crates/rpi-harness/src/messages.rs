@@ -455,6 +455,7 @@ mod tests {
                     arguments: serde_json::json!({}),
                     thought_signature: None,
                     namespace: None,
+                    recorded: None,
                 })
             })
             .collect();

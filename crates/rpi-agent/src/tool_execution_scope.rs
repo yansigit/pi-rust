@@ -29,6 +29,7 @@ pub struct ToolExecutionScope {
     idle: Notify,
     stopped: tokio_util::sync::CancellationToken,
     context: Option<serde_json::Value>,
+    host: std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>,
 }
 impl Drop for ToolExecutionScope {
     fn drop(&mut self) {
@@ -36,12 +37,21 @@ impl Drop for ToolExecutionScope {
     }
 }
 impl ToolExecutionScope {
+    /// A host binds its private, weak execution target without a dependency cycle.
+    pub fn bind_host<T: Send + Sync + 'static>(&self, value: T) -> bool {
+        self.host.set(Box::new(value)).is_ok()
+    }
+    pub fn host<T: 'static>(&self) -> Option<&T> {
+        self.host.get()?.downcast_ref()
+    }
+
     pub fn stopped(&self) -> tokio_util::sync::CancellationToken {
         self.stopped.clone()
     }
     pub fn with_context(context: serde_json::Value) -> Self {
         Self {
             context: Some(context),
+            host: std::sync::OnceLock::new(),
             pending: AtomicUsize::new(0),
             idle: Notify::new(),
             stopped: tokio_util::sync::CancellationToken::new(),

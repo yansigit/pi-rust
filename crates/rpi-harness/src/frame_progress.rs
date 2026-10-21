@@ -83,6 +83,7 @@ pub struct UnknownToolOutcome {
     /// The arguments the model asked for, recovered from the frames. This is what
     /// lets a reader judge what the tool *would* have done.
     pub arguments: serde_json::Value,
+    pub recorded: Option<serde_json::Value>,
 }
 
 /// The tool calls of `partial` whose results are not committed on `lane`.
@@ -137,6 +138,7 @@ pub async fn unknown_tool_outcomes(
             tool_call_id: call.id.clone(),
             tool_name: call.name.clone(),
             arguments: call.arguments.clone(),
+            recorded: call.recorded.clone(),
         })
         .collect())
 }

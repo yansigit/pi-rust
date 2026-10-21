@@ -1754,6 +1754,7 @@ fn test_agent_event_mapping_creates_assistant_and_tool() {
                 arguments: serde_json::json!({"command": "echo hi"}),
                 thought_signature: None,
                 namespace: None,
+                recorded: None,
             }),
         ],
         api: rpi_ai::Api::AnthropicMessages,

@@ -198,7 +198,7 @@ pub fn encode_event(
         chunk.get("partial")?.get("content")?.get(index).cloned()
     });
     if let Some(tool) = tool {
-        for field in ["id", "name", "arguments"] {
+        for field in ["id", "name", "arguments", "recorded"] {
             if let Some(value) = tool.get(field) {
                 chunk[field] = value.clone();
             }
@@ -211,6 +211,75 @@ pub fn encode_event(
 mod tests {
     use super::*;
     use crate::StopReason;
+
+    #[test]
+    fn recorded_tool_results_survive_native_streams_frames_and_persisted_history() {
+        for recording in [
+            serde_json::Value::Null,
+            serde_json::json!({"version":1,"isError":true,"result":{"content":[{"type":"text","text":"external failure"}],"terminate":true}}),
+        ] {
+            let mut call = crate::Content::tool_call(
+                "recorded",
+                "bash",
+                serde_json::json!({"command":"must not execute"}),
+            );
+            let crate::Content::ToolCall(tool) = &mut call else {
+                unreachable!()
+            };
+            tool.recorded = Some(recording.clone());
+            let tool = tool.clone();
+            let base = AssistantMessage::empty(crate::Api::Faux, "external", "model", 0);
+            let mut partial = base.clone();
+            partial.content.push(call);
+            let events = [
+                AssistantMessageEvent::Start {
+                    partial: Arc::new(base),
+                },
+                AssistantMessageEvent::ToolCallStart {
+                    content_index: 0,
+                    partial: Arc::new(partial.clone()),
+                },
+                AssistantMessageEvent::ToolCallEnd {
+                    content_index: 0,
+                    tool_call: tool,
+                    partial: Arc::new(partial.clone()),
+                },
+            ];
+            let mut mapper = StreamMapper::new(crate::Api::Faux, "external".into(), "model".into());
+            let mut encoder = crate::frames::AssistantMessageFrameEncoder::new();
+            let mut frames = Vec::new();
+            let mut previous = None;
+            for event in events {
+                let chunk = encode_event(&event, &mut previous);
+                if event.type_tag().starts_with("toolcall_") {
+                    assert_eq!(chunk["recorded"], recording);
+                }
+                mapper.apply(chunk);
+                while let Some(deferred) = mapper.take_deferred() {
+                    mapper.apply(deferred);
+                }
+                frames.push(encoder.encode(&event).unwrap().unwrap());
+            }
+            assert_eq!(mapper.output.content, partial.content);
+            let frames: Vec<crate::frames::AssistantMessageFrame> =
+                serde_json::from_value(serde_json::to_value(frames).unwrap()).unwrap();
+            let reduced = crate::frames::reduce_frames(&frames).unwrap().unwrap();
+            assert_eq!(reduced.content, partial.content);
+            let persisted: AssistantMessage =
+                serde_json::from_value(serde_json::to_value(&partial).unwrap()).unwrap();
+            assert_eq!(persisted.content, partial.content);
+            // Flat SDK producers may omit partial snapshots.
+            let mut flat = StreamMapper::new(crate::Api::Faux, "external".into(), "model".into());
+            let chunk = serde_json::json!({"type":"toolcall_end","contentIndex":0,"id":"recorded","name":"bash","recorded":recording});
+            flat.apply(chunk);
+            let deferred = flat.take_deferred().unwrap();
+            flat.apply(deferred);
+            let crate::Content::ToolCall(call) = &flat.output.content[0] else {
+                unreachable!()
+            };
+            assert_eq!(call.recorded, Some(recording));
+        }
+    }
 
     #[test]
     fn malformed_native_block_frames_do_not_allocate_sparse_indices_or_corrupt_partial_output() {

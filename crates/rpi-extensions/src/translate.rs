@@ -37,9 +37,13 @@ pub fn event_tag_for(event: &AgentEvent) -> Option<EventTag> {
         AgentEvent::MessageStart { .. } => Some(EventTag::MessageStart),
         AgentEvent::MessageUpdate { .. } => Some(EventTag::MessageUpdate),
         AgentEvent::MessageEnd { .. } => Some(EventTag::MessageEnd),
-        AgentEvent::ToolExecutionStart { .. } => Some(EventTag::ToolExecutionStart),
+        AgentEvent::ToolExecutionStart { .. } | AgentEvent::RecordedToolStart { .. } => {
+            Some(EventTag::ToolExecutionStart)
+        }
         AgentEvent::ToolExecutionUpdate { .. } => Some(EventTag::ToolExecutionUpdate),
-        AgentEvent::ToolExecutionEnd { .. } => Some(EventTag::ToolExecutionEnd),
+        AgentEvent::ToolExecutionEnd { .. } | AgentEvent::RecordedToolEnd { .. } => {
+            Some(EventTag::ToolExecutionEnd)
+        }
     }
 }
 
@@ -82,6 +86,11 @@ pub fn translate(event: &AgentEvent) -> Option<StablePluginEvent> {
             tool_name,
             args,
         }
+        | AgentEvent::RecordedToolStart {
+            tool_call_id,
+            tool_name,
+            args,
+        }
         | AgentEvent::ToolExecutionUpdate {
             tool_call_id,
             tool_name,
@@ -95,6 +104,12 @@ pub fn translate(event: &AgentEvent) -> Option<StablePluginEvent> {
         )),
 
         AgentEvent::ToolExecutionEnd {
+            tool_call_id,
+            tool_name,
+            result,
+            is_error,
+        }
+        | AgentEvent::RecordedToolEnd {
             tool_call_id,
             tool_name,
             result,
@@ -949,7 +964,14 @@ fn event_json(event: &AgentEvent) -> serde_json::Value {
             tool_call_id,
             tool_name,
             args,
-        } => json!({"toolCallId":tool_call_id,"toolName":tool_name,"input":args}),
+        }
+        | AgentEvent::RecordedToolStart {
+            tool_call_id,
+            tool_name,
+            args,
+        } => {
+            json!({"toolCallId":tool_call_id,"toolName":tool_name,"input":args,"recorded":matches!(event, AgentEvent::RecordedToolStart { .. })})
+        }
         AgentEvent::ToolExecutionUpdate {
             tool_call_id,
             tool_name,
@@ -963,8 +985,14 @@ fn event_json(event: &AgentEvent) -> serde_json::Value {
             tool_name,
             result,
             is_error,
+        }
+        | AgentEvent::RecordedToolEnd {
+            tool_call_id,
+            tool_name,
+            result,
+            is_error,
         } => {
-            json!({"toolCallId":tool_call_id,"toolName":tool_name,"result":serde_json::from_str::<serde_json::Value>(&agent_tool_result_to_json(result)).unwrap(),"isError":is_error})
+            json!({"toolCallId":tool_call_id,"toolName":tool_name,"result":serde_json::from_str::<serde_json::Value>(&agent_tool_result_to_json(result)).unwrap(),"isError":is_error,"recorded":matches!(event, AgentEvent::RecordedToolEnd { .. })})
         }
         AgentEvent::RetryScheduled { .. } => json!({}),
     }

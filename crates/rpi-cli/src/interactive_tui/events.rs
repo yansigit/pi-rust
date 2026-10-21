@@ -391,6 +391,11 @@ pub(super) async fn handle_agent_event(
             tool_call_id,
             tool_name,
             args,
+        }
+        | AgentEvent::RecordedToolStart {
+            tool_call_id,
+            tool_name,
+            args,
         } => {
             state.transcript_view().apply(
                 &UiEvent::ToolStart {
@@ -424,6 +429,12 @@ pub(super) async fn handle_agent_event(
         }
 
         AgentEvent::ToolExecutionEnd {
+            tool_call_id,
+            tool_name,
+            result,
+            is_error,
+        }
+        | AgentEvent::RecordedToolEnd {
             tool_call_id,
             tool_name,
             result,

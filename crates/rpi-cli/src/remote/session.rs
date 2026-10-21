@@ -347,6 +347,7 @@ impl RemoteSession {
                 tool_call_id,
                 tool_name,
                 args,
+                ..
             } => {
                 self.transcript.items.push(TranscriptItem::Tool(ToolItem {
                     id: tool_call_id.clone(),

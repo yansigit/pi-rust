@@ -101,10 +101,12 @@ impl MutableAgentState {
                 self.streaming_message = None;
                 self.messages.push(message.clone());
             }
-            AgentEvent::ToolExecutionStart { tool_call_id, .. } => {
+            AgentEvent::ToolExecutionStart { tool_call_id, .. }
+            | AgentEvent::RecordedToolStart { tool_call_id, .. } => {
                 self.pending_tool_calls.insert(tool_call_id.clone());
             }
-            AgentEvent::ToolExecutionEnd { tool_call_id, .. } => {
+            AgentEvent::ToolExecutionEnd { tool_call_id, .. }
+            | AgentEvent::RecordedToolEnd { tool_call_id, .. } => {
                 self.pending_tool_calls.remove(tool_call_id);
             }
             AgentEvent::TurnEnd { message, .. } => {

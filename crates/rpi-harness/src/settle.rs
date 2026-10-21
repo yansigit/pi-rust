@@ -348,7 +348,13 @@ impl SettlingEmitter {
     /// committed: a `tool_started` record must reference an existing assistant
     /// entry (the reducer rejects a mismatch), so silently writing one would
     /// corrupt the log.
-    async fn start_tool(&self, tool_call_id: &str, tool_name: &str, args: &serde_json::Value) {
+    async fn start_tool(
+        &self,
+        tool_call_id: &str,
+        tool_name: &str,
+        args: &serde_json::Value,
+        recorded: bool,
+    ) {
         let Some((assistant_entry_id, tool_index)) = self
             .state
             .pending_calls
@@ -369,12 +375,15 @@ impl SettlingEmitter {
             .lock()
             .unwrap()
             .insert(tool_call_id.to_string(), result_entry_id.clone());
-        let replay = self
-            .state
-            .tool_replays
-            .get(tool_name)
-            .copied()
-            .unwrap_or(ToolReplay::Never);
+        let replay = if recorded {
+            ToolReplay::Never
+        } else {
+            self.state
+                .tool_replays
+                .get(tool_name)
+                .copied()
+                .unwrap_or(ToolReplay::Never)
+        };
         let record = ToolStartedRecord {
             base: RecordBase {
                 id: self.harness.next_entry_id(),
@@ -626,6 +635,11 @@ impl SettlingEmitter {
                 tool_call_id,
                 tool_name,
                 args,
+            }
+            | AgentEvent::RecordedToolStart {
+                tool_call_id,
+                tool_name,
+                args,
             } => {
                 let emitter = SettlingEmitter {
                     inner: Arc::clone(&self.inner),
@@ -636,8 +650,11 @@ impl SettlingEmitter {
                 let tool_call_id = tool_call_id.clone();
                 let tool_name = tool_name.clone();
                 let args = args.clone();
+                let recorded = matches!(event, AgentEvent::RecordedToolStart { .. });
                 Some(Box::pin(async move {
-                    emitter.start_tool(&tool_call_id, &tool_name, &args).await;
+                    emitter
+                        .start_tool(&tool_call_id, &tool_name, &args, recorded)
+                        .await;
                 }))
             }
             _ => None,

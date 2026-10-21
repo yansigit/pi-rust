@@ -28,6 +28,7 @@ use tokio_util::sync::CancellationToken;
 struct DelayedTool {
     schema: rpi_ai::types::Tool,
     captured: Arc<std::sync::Mutex<Option<Arc<dyn Fn(ToolResultPartial) + Send + Sync>>>>,
+    hold: bool,
 }
 
 #[async_trait::async_trait]
@@ -53,6 +54,9 @@ impl rpi_agent::AgentTool for DelayedTool {
             details: serde_json::json!({ "status": "running" }),
             ..AgentToolResult::default()
         });
+        if self.hold {
+            std::future::pending::<()>().await;
+        }
         // Delay a beat so the late call is provably *after* settle.
         tokio::task::yield_now().await;
         Ok(AgentToolResult {
@@ -90,6 +94,7 @@ fn single_tool_use_stream_fn(calls: Vec<(&str, &str)>) -> rpi_agent::StreamFn {
                 arguments: serde_json::json!({}),
                 thought_signature: None,
                 namespace: None,
+                recorded: None,
             })
         })
         .collect();
@@ -139,6 +144,7 @@ async fn ignores_tool_updates_after_execute_settles() {
     let captured: Arc<std::sync::Mutex<Option<Arc<dyn Fn(ToolResultPartial) + Send + Sync>>>> =
         Arc::new(std::sync::Mutex::new(None));
     let tool = DelayedTool {
+        hold: false,
         schema: empty_object_schema(
             "delayed_tool",
             "Delayed Tool",
@@ -378,4 +384,35 @@ async fn ignores_settled_parallel_update_while_another_tool_runs() {
         final_updates, updates_before,
         "late update should never appear, even after the run ends"
     );
+}
+
+#[tokio::test]
+async fn dropped_direct_invocation_suppresses_detached_tool_updates() {
+    let captured = Arc::new(std::sync::Mutex::new(None));
+    let context = AgentContext {
+        tools: vec![Arc::new(DelayedTool {
+            schema: empty_object_schema("delayed_tool", "Delayed Tool", "Captures progress"),
+            captured: captured.clone(),
+            hold: true,
+        })],
+        ..AgentContext::default()
+    };
+    let assistant = common::assistant_tool_calls(
+        vec![("direct", "delayed_tool", serde_json::json!({}))],
+        StopReason::ToolUse,
+    );
+    let rpi_ai::Content::ToolCall(call) = &assistant.content[0] else {
+        unreachable!()
+    };
+    let (emitter, events) = rpi_agent::CollectorEmitter::new();
+    let emitter: Arc<dyn rpi_agent::AgentEmitter> = Arc::new(emitter);
+    let options = rpi_agent::ToolCallOptions::default();
+    let mut invocation = Box::pin(rpi_agent::invoke_tool(
+        &context, &assistant, call, &options, &emitter,
+    ));
+    assert!(futures::poll!(&mut invocation).is_pending());
+    assert_eq!(count_tool_updates(&events.lock().unwrap()), 1);
+    drop(invocation);
+    captured.lock().unwrap().as_ref().unwrap()(AgentToolResult::text("late"));
+    assert_eq!(count_tool_updates(&events.lock().unwrap()), 1);
 }

@@ -64,6 +64,8 @@ struct EchoDrive {
     polls: usize,
 }
 
+static ECHO_EXECUTIONS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 static ECHO_DRIVES: ToolHandles<EchoDrive> = ToolHandles::new();
 
 // ---------------------------------------------------------------------------
@@ -76,6 +78,7 @@ rpi_plugin_sdk::execute_handler! {
     /// The SDK adopts host-owned parameters and reclaims them through the host's
     /// `free_params`. Parse `text` (missing ⇒ empty), then allocate drive state.
     fn echo_execute(_tool_call_id, params) {
+        ECHO_EXECUTIONS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let text = params.to_string_lossy();
         let parsed: serde_json::Value =
             serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);

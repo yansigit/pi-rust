@@ -992,13 +992,15 @@ fn native_catalog_refresh_and_login_commit_through_loaded_library() {
                 "catalog-before",
                 mode,
                 "--no-session",
-                "--no-tools",
+                "--tools",
+                "echo",
                 "hello",
             ])
             .output()
             .unwrap();
         for marker in [
             "native services fixture passed",
+            "native tools and inert replay fixture passed",
             "native scoped services fixture passed",
         ] {
             assert!(

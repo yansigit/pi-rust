@@ -1,0 +1,171 @@
+{
+  "status": "host-infrastructure-not-package-parity",
+  "platform": "linux",
+  "checks": [
+    {
+      "command": "cargo test --workspace --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-workspace.log",
+      "sha256": "45a169aa03407d5a3bc8a1191fded0c82d98c08faa92028bee1c93c5955d2e92",
+      "testTotals": {
+        "passed": 2078,
+        "failed": 0,
+        "ignored": 11
+      }
+    },
+    {
+      "command": "cargo test -p rpi-agent --test before_after_hooks --test late_update_suppression --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-hooks-final.log",
+      "sha256": "43063cfaaaa2389d2634820422fcff190487a106e223581125b25a38692c709e",
+      "testTotals": {
+        "passed": 13,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo test -p rpi-harness --lib direct_tool --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-child-final-2.log",
+      "sha256": "583546b76522bcce89611a78904d9a230ba2801b343a5363425f04cbcf6fa8fd",
+      "testTotals": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo test -p rpi-harness --test harness_run_e2e interrupted_recorded --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-recovery-final.log",
+      "sha256": "1d3e4e71ca91b90154cf9478ee096ab4fd264007f43663fb7193a70cb18c3ad0",
+      "testTotals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo test -p rpi-ai --lib recorded_tool_results",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-wire.log",
+      "sha256": "55f13a2f3faa5e2e191796d6a0e1419c0c2022891f9fbec5783273f9e80b1734",
+      "testTotals": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo test -p rpi-cli --test provider_packages native_ -- --ignored",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-native.log",
+      "sha256": "250c6c114b0ec43d8a6054ba9d83e9c990a5d9ff5ed82eabe5bf401893758c34",
+      "testTotals": {
+        "passed": 3,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    {
+      "command": "cargo +1.78.0 check --workspace --all-targets --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-msrv-final.log",
+      "sha256": "f51b73390cf7322c1e883080d7125bf3a189d2ed53a3e52ab87410f28cf06553",
+      "testTotals": null
+    },
+    {
+      "command": "cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-sdk-minimal.log",
+      "sha256": "36c904efef9b2800785483de3ebbd837d8e1ea94c80fed42c6056fd339610616",
+      "testTotals": null
+    },
+    {
+      "command": "cargo test -p rpi-plugin-sdk --features provider --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-sdk-provider.log",
+      "sha256": "a93607d2eaf39c67f85127486cc80d8b1fe4f0382a2d90746c04c2b272d50c40",
+      "testTotals": {
+        "passed": 67,
+        "failed": 0,
+        "ignored": 3
+      }
+    },
+    {
+      "command": "cargo +1.78.0 check -p rpi-ai --no-default-features --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-ai-minimal.log",
+      "sha256": "d10029dfb3327999ddb3ec9b62fc0914cccbd9d7205b23fe13327a5d5ec82715",
+      "testTotals": null
+    },
+    {
+      "command": "cargo test -p rpi-extensions --test plugin_stub_smoke --locked",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "RPI_TEST_STUB_LIBRARY": "/tmp/rpi-provider-baseline-abi/libplugin_stub.so"
+      },
+      "status": "passed",
+      "log": "/tmp/rpi-tools-old-library.log",
+      "sha256": "c8b7ef4c3b949c3c7a48aaaa2cae07307b4d65341af75a3e794be01b6a10db27",
+      "testTotals": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 1
+      }
+    }
+  ],
+  "verificationScope": "The workspace run preceded the final message-conversion clone removal and cancellation-on-close/session-switch regression. Subsequent hook, recovery, child/cancellation tests and the final Rust 1.78 all-target check cover these changes.",
+  "requiredNotTested": [
+    "Retained Cursor adapter and MCP tool bridge differential acceptance",
+    "Cursor execution counts using the real SDK",
+    "macOS/Windows native-library and packaged-worker execution",
+    "All three candidate packages together",
+    "Live inference"
+  ],
+  "earlierFailures": [
+    {
+      "log": "/tmp/rpi-tools-child.log",
+      "reason": "New test attempted to default RequestIdentity; corrected to operation constructor."
+    },
+    {
+      "log": "/tmp/rpi-tools-recorded-check.log",
+      "reason": "Tool-call frame reducer required its newly appended recording field; updated."
+    },
+    {
+      "log": "/tmp/rpi-tools-check-3.log",
+      "reason": "New remote event pattern had an invalid trailing comma after ..; corrected."
+    }
+  ]
+}

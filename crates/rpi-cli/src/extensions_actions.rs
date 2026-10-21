@@ -375,6 +375,31 @@ impl RuntimeActionHost for HarnessActionHost {
         args: serde_json::Value,
         signal: tokio_util::sync::CancellationToken,
     ) -> Result<serde_json::Value, String> {
+        if args["port"] == "tools" {
+            let target = self
+                .harness()?
+                .for_current_execution()
+                .map_err(|error| error.to_string())?;
+            return match args["action"].as_str() {
+                Some("inspect") => target
+                    .inspect_tools()
+                    .map(|tools| serde_json::json!(tools))
+                    .map_err(|error| error.to_string()),
+                Some("invoke" | "present") => {
+                    let call: rpi_ai::ToolCall = serde_json::from_value(args["call"].clone())
+                        .map_err(|_| "invalid native tool call")?;
+                    if args["action"] == "present" && call.recorded.is_none() {
+                        return Err("recorded tool presentation requires a recording".into());
+                    }
+                    let result = target
+                        .invoke_tool(call, signal)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    serde_json::to_value(result).map_err(|_| "invalid native tool result".into())
+                }
+                _ => Err("unsupported native tool action".into()),
+            };
+        }
         let runtime = self
             .provider_runtime
             .read()

@@ -59,6 +59,12 @@ subscriptions, child ownership and leased invocation context across foreign work
 wrappers, old-library compatibility and the declared compiler. The multiprovider
 account/Fabric implementations remain pending.
 
+[Native tools](native-tools.md) add scoped inspection and direct invocation through
+the existing tool pipeline, plus inert recorded activity that survives stream and
+history serialization. Recovery cannot execute a recorded call, including when a
+same-named tool declares safe reexecution. [Tool evidence](host-tools-results.json)
+records host checks; retained Cursor/MCP and live tool acceptance remain pending.
+
 [baseline-results.json](baseline-results.json) records upstream results, lock
 hashes and evidence hashes. All three unchanged suites pass in
 [CI run 39569889592](https://github.com/yansigit/pi-rust/actions/runs/39569889592):

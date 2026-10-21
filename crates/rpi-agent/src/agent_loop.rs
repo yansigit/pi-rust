@@ -654,15 +654,7 @@ async fn fail_tool_calls_from_truncated_message(
 ) -> Result<ExecutedToolBatch, AgentError> {
     let mut messages: Vec<ToolResultMessage> = Vec::new();
     for tool_call in tool_calls {
-        emit_event(
-            emit,
-            AgentEvent::ToolExecutionStart {
-                tool_call_id: tool_call.id.clone(),
-                tool_name: tool_call.name.clone(),
-                args: tool_call.arguments.clone(),
-            },
-        )
-        .await;
+        emit_event(emit, tool_start_event(tool_call)).await;
         let reason = format!(
             "Tool call {:?} was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.",
             tool_call.name
@@ -692,6 +684,100 @@ async fn fail_tool_calls_from_truncated_message(
 // Tool-call execution
 // ----------------------------------------------------------------------------
 
+/// The shared execution policy for an agent-loop call or a direct host call.
+#[derive(Clone, Default)]
+pub struct ToolCallOptions {
+    pub before_tool_call: Option<crate::BeforeToolCall>,
+    pub after_tool_call: Option<crate::AfterToolCall>,
+    pub signal: tokio_util::sync::CancellationToken,
+}
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolInvocationResult {
+    pub result: AgentToolResult,
+    pub is_error: bool,
+}
+
+impl ToolInvocationResult {
+    pub fn from_recording(recording: &serde_json::Value) -> Result<Self, String> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct Recording {
+            version: u32,
+            result: AgentToolResult,
+            is_error: bool,
+        }
+        let recording: Recording = serde_json::from_value(recording.clone()).map_err(|_| {
+            "Recorded tool result is unavailable or invalid; replay cannot execute work"
+        })?;
+        if recording.version != 1 {
+            return Err(
+                "Unsupported recorded tool result version; replay cannot execute work".into(),
+            );
+        }
+        Ok(Self {
+            result: recording.result,
+            is_error: recording.is_error,
+        })
+    }
+    pub fn into_message(
+        self,
+        id: impl Into<String>,
+        name: impl Into<String>,
+        timestamp: i64,
+    ) -> ToolResultMessage {
+        let AgentToolResult {
+            content,
+            structured_content,
+            details,
+            usage,
+            added_tool_names,
+            ..
+        } = self.result;
+        ToolResultMessage {
+            structured_content,
+            role: ToolResultRole,
+            tool_call_id: id.into(),
+            tool_name: name.into(),
+            content: content
+                .into_iter()
+                .map(|block| match block {
+                    crate::TextContentOrImage::Text(text) => Content::Text(text),
+                    crate::TextContentOrImage::Image(image) => Content::Image(image),
+                })
+                .collect(),
+            details: Some(details),
+            usage,
+            added_tool_names,
+            is_error: self.is_error,
+            timestamp,
+        }
+    }
+}
+
+/// Execute once through the normal validation/hooks without starting a turn or
+/// appending synthetic assistant/tool messages to the caller's conversation.
+pub async fn invoke_tool(
+    context: &AgentContext,
+    assistant: &AssistantMessage,
+    call: &ToolCall,
+    options: &ToolCallOptions,
+    emit: &Arc<dyn AgentEmitter>,
+) -> Result<ToolInvocationResult, AgentError> {
+    crate::tool_execution_scope::with_invocation_signal(options.signal.clone(), async {
+        if invalid_tool_call_reason(call).is_none() {
+            emit_event(emit, tool_start_event(call)).await;
+        }
+        let finalized = run_one_tool_call(context, assistant, call, options, emit).await?;
+        emit_tool_execution_end(emit, &finalized).await;
+        Ok(ToolInvocationResult {
+            result: finalized.result,
+            is_error: finalized.is_error,
+        })
+    })
+    .await
+}
+
 /// Execute a batch of tool calls. Sequential if `config.tool_execution ==
 /// Sequential` or any matched tool's `execution_mode()` is `Sequential`;
 /// otherwise parallel. Mirrors TS `executeToolCalls`.
@@ -710,12 +796,29 @@ async fn execute_tool_calls(
             .map(|t| t.execution_mode() == ToolExecutionMode::Sequential)
             .unwrap_or(false)
     });
+    let options = ToolCallOptions {
+        before_tool_call: config.before_tool_call.clone(),
+        after_tool_call: config.after_tool_call.clone(),
+        signal: config.signal.clone(),
+    };
     if config.tool_execution == ToolExecutionMode::Sequential || has_sequential {
-        execute_tool_calls_sequential(current_context, assistant_message, tool_calls, config, emit)
-            .await
+        execute_tool_calls_sequential(
+            current_context,
+            assistant_message,
+            tool_calls,
+            &options,
+            emit,
+        )
+        .await
     } else {
-        execute_tool_calls_parallel(current_context, assistant_message, tool_calls, config, emit)
-            .await
+        execute_tool_calls_parallel(
+            current_context,
+            assistant_message,
+            tool_calls,
+            &options,
+            emit,
+        )
+        .await
     }
 }
 
@@ -723,7 +826,7 @@ async fn execute_tool_calls_sequential(
     current_context: &AgentContext,
     assistant_message: &AssistantMessage,
     tool_calls: &[ToolCall],
-    config: &AgentLoopConfig,
+    config: &ToolCallOptions,
     emit: &Arc<dyn AgentEmitter>,
 ) -> Result<ExecutedToolBatch, AgentError> {
     let mut finalized_calls: Vec<FinalizedToolCall> = Vec::new();
@@ -743,15 +846,7 @@ async fn execute_tool_calls_sequential(
             finalized_calls.push(finalized);
             continue;
         }
-        emit_event(
-            emit,
-            AgentEvent::ToolExecutionStart {
-                tool_call_id: tool_call.id.clone(),
-                tool_name: tool_call.name.clone(),
-                args: tool_call.arguments.clone(),
-            },
-        )
-        .await;
+        emit_event(emit, tool_start_event(tool_call)).await;
 
         let finalized =
             run_one_tool_call(current_context, assistant_message, tool_call, config, emit).await?;
@@ -788,7 +883,7 @@ async fn execute_tool_calls_parallel(
     current_context: &AgentContext,
     assistant_message: &AssistantMessage,
     tool_calls: &[ToolCall],
-    config: &AgentLoopConfig,
+    config: &ToolCallOptions,
     emit: &Arc<dyn AgentEmitter>,
 ) -> Result<ExecutedToolBatch, AgentError> {
     // An entry per tool call: either finalized immediately, or a pending future.
@@ -810,15 +905,7 @@ async fn execute_tool_calls_parallel(
             entries.push(Entry::Done(finalized));
             continue;
         }
-        emit_event(
-            emit,
-            AgentEvent::ToolExecutionStart {
-                tool_call_id: tool_call.id.clone(),
-                tool_name: tool_call.name.clone(),
-                args: tool_call.arguments.clone(),
-            },
-        )
-        .await;
+        emit_event(emit, tool_start_event(tool_call)).await;
 
         match prepare_tool_call(current_context, assistant_message, tool_call, config).await {
             Prepared::Immediate { result, is_error } => {
@@ -830,7 +917,7 @@ async fn execute_tool_calls_parallel(
                 emit_tool_execution_end(emit, &finalized).await;
                 entries.push(Entry::Done(finalized));
             }
-            Prepared::Ready { tool, args } => {
+            Prepared::Ready { action, args } => {
                 // Spawn the execute + finalize so it runs concurrently with peers.
                 // The on_update closure captures an `Arc<AtomicBool>` gate so calls
                 // made after `execute` resolves are no-ops (late-update suppression).
@@ -850,7 +937,7 @@ async fn execute_tool_calls_parallel(
                             invocation_signal,
                             async move {
                                 let executed =
-                                    execute_prepared_tool_call(&tc, &tool, &args, &cfg, &emit2)
+                                    execute_prepared_tool_call(&tc, action, &args, &cfg, &emit2)
                                         .await;
                                 finalize_executed_tool_call(&ctx, &am, &tc, &args, executed, &cfg)
                                     .await
@@ -993,7 +1080,7 @@ async fn run_one_tool_call(
     current_context: &AgentContext,
     assistant_message: &AssistantMessage,
     tool_call: &ToolCall,
-    config: &AgentLoopConfig,
+    config: &ToolCallOptions,
     emit: &Arc<dyn AgentEmitter>,
 ) -> Result<FinalizedToolCall, AgentError> {
     match prepare_tool_call(current_context, assistant_message, tool_call, config).await {
@@ -1002,8 +1089,8 @@ async fn run_one_tool_call(
             result,
             is_error,
         }),
-        Prepared::Ready { tool, args } => {
-            let executed = execute_prepared_tool_call(tool_call, &tool, &args, config, emit).await;
+        Prepared::Ready { action, args } => {
+            let executed = execute_prepared_tool_call(tool_call, action, &args, config, emit).await;
             Ok(finalize_executed_tool_call(
                 current_context,
                 assistant_message,
@@ -1026,7 +1113,7 @@ enum Prepared {
     },
     /// Validated and ready to execute.
     Ready {
-        tool: Arc<dyn AgentTool>,
+        action: ToolAction,
         args: serde_json::Value,
     },
 }
@@ -1037,7 +1124,7 @@ async fn prepare_tool_call(
     current_context: &AgentContext,
     assistant_message: &AssistantMessage,
     tool_call: &ToolCall,
-    config: &AgentLoopConfig,
+    config: &ToolCallOptions,
 ) -> Prepared {
     // A provider may begin a streamed tool block with empty metadata, but only
     // the terminal tool call is executable. Never let an incomplete id/name
@@ -1050,43 +1137,16 @@ async fn prepare_tool_call(
         };
     }
 
-    let tool = current_context
-        .tools
-        .iter()
-        .find(|t| t.schema().name == tool_call.name)
-        .cloned();
-    let tool = match tool {
-        Some(t) => t,
-        None => {
-            return Prepared::Immediate {
-                result: create_error_tool_result(&format!("Tool {} not found", tool_call.name)),
-                is_error: true,
-            };
-        }
-    };
-
-    // prepareArguments + schema validation.
-    let prepared_args = match tool.prepare_arguments(tool_call.arguments.clone()) {
-        Ok(v) => v,
-        Err(e) => {
-            return Prepared::Immediate {
-                result: create_error_tool_result(&e.to_string()),
-                is_error: true,
-            };
-        }
-    };
-    let mut prepared_tool_call = tool_call.clone();
-    prepared_tool_call.arguments = prepared_args;
-
-    let validated_args = match validate_tool_arguments(tool.schema(), &prepared_tool_call) {
-        Ok(v) => v,
-        Err(e) => {
-            return Prepared::Immediate {
-                result: create_error_tool_result(&e.to_string()),
-                is_error: true,
-            };
-        }
-    };
+    let (action, prepared_tool_call, mut validated_args) =
+        match prepare_tool_action(current_context, tool_call) {
+            Ok(prepared) => prepared,
+            Err(reason) => {
+                return Prepared::Immediate {
+                    result: create_error_tool_result(&reason),
+                    is_error: true,
+                }
+            }
+        };
 
     // before_tool_call hook (may block + set terminate, may replace args).
     // TS hands the callback `args` by reference and lets JS mutate it in place;
@@ -1094,7 +1154,6 @@ async fn prepare_tool_call(
     // `BeforeToolCallResult::args`. The replacement is applied WITHOUT
     // re-validation, mirroring TS where the mutation lands after
     // `validateToolArguments` and is trusted.
-    let mut validated_args = validated_args;
     if let Some(before) = &config.before_tool_call {
         let ctx = BeforeToolCallContext {
             assistant_message,
@@ -1137,8 +1196,58 @@ async fn prepare_tool_call(
     }
 
     Prepared::Ready {
-        tool,
+        action,
         args: validated_args,
+    }
+}
+
+enum ToolAction {
+    Execute(Arc<dyn AgentTool>),
+    Recorded(ExecutedToolCallOutcome),
+}
+
+fn prepare_tool_action(
+    context: &AgentContext,
+    call: &ToolCall,
+) -> Result<(ToolAction, ToolCall, serde_json::Value), String> {
+    if let Some(recording) = &call.recorded {
+        let recording = ToolInvocationResult::from_recording(recording)?;
+        return Ok((
+            ToolAction::Recorded(ExecutedToolCallOutcome {
+                result: recording.result,
+                is_error: recording.is_error,
+            }),
+            call.clone(),
+            call.arguments.clone(),
+        ));
+    }
+    let tool = context
+        .tools
+        .iter()
+        .find(|tool| tool.schema().name == call.name)
+        .cloned()
+        .ok_or_else(|| format!("Tool {} not found", call.name))?;
+    let mut prepared = call.clone();
+    prepared.arguments = tool
+        .prepare_arguments(call.arguments.clone())
+        .map_err(|e| e.to_string())?;
+    let args = validate_tool_arguments(tool.schema(), &prepared).map_err(|e| e.to_string())?;
+    Ok((ToolAction::Execute(tool), prepared, args))
+}
+
+fn tool_start_event(call: &ToolCall) -> AgentEvent {
+    if call.recorded.is_some() {
+        AgentEvent::RecordedToolStart {
+            tool_call_id: call.id.clone(),
+            tool_name: call.name.clone(),
+            args: call.arguments.clone(),
+        }
+    } else {
+        AgentEvent::ToolExecutionStart {
+            tool_call_id: call.id.clone(),
+            tool_name: call.name.clone(),
+            args: call.arguments.clone(),
+        }
     }
 }
 
@@ -1169,6 +1278,7 @@ mod invalid_tool_call_tests {
             arguments: serde_json::json!({}),
             thought_signature: None,
             namespace: None,
+            recorded: None,
         }
     }
 
@@ -1180,18 +1290,30 @@ mod invalid_tool_call_tests {
     }
 }
 
+struct UpdateGate(Arc<AtomicBool>);
+impl Drop for UpdateGate {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Run the tool's `execute` with late-update suppression. Mirrors TS
 /// `executePreparedToolCall`.
 async fn execute_prepared_tool_call(
     tool_call: &ToolCall,
-    tool: &Arc<dyn AgentTool>,
+    action: ToolAction,
     args: &serde_json::Value,
-    config: &AgentLoopConfig,
+    config: &ToolCallOptions,
     emit: &Arc<dyn AgentEmitter>,
 ) -> ExecutedToolCallOutcome {
+    let tool = match action {
+        ToolAction::Recorded(outcome) => return outcome,
+        ToolAction::Execute(tool) => tool,
+    };
     // Gate for late updates: flipped false once execute resolves. on_update
     // checks it and returns early. This is the late-update-suppression invariant.
     let accepting_updates = Arc::new(AtomicBool::new(true));
+    let _updates = UpdateGate(accepting_updates.clone());
     let tool_call_id = tool_call.id.clone();
     let tool_name = tool_call.name.clone();
     let args_clone = args.clone();
@@ -1224,29 +1346,20 @@ async fn execute_prepared_tool_call(
         .execute(&tool_call.id, args.clone(), child_token, on_update)
         .await
     {
-        Ok(result) => {
-            accepting_updates.store(false, Ordering::SeqCst);
-            ExecutedToolCallOutcome {
-                result,
-                is_error: false,
-            }
-        }
-        Err(e) => {
-            accepting_updates.store(false, Ordering::SeqCst);
-            ExecutedToolCallOutcome {
-                result: create_error_tool_result(&e.to_string()),
-                is_error: true,
-            }
-        }
+        Ok(result) => ExecutedToolCallOutcome {
+            result,
+            is_error: false,
+        },
+        Err(e) => ExecutedToolCallOutcome {
+            result: create_error_tool_result(&e.to_string()),
+            is_error: true,
+        },
     }
 }
 
 /// Result of `execute` before `after_tool_call` overrides. Mirrors TS
 /// `ExecutedToolCallOutcome`.
-struct ExecutedToolCallOutcome {
-    result: AgentToolResult,
-    is_error: bool,
-}
+type ExecutedToolCallOutcome = ToolInvocationResult;
 
 /// Apply `after_tool_call` overrides. Mirrors TS `finalizeExecutedToolCall`.
 async fn finalize_executed_tool_call(
@@ -1255,7 +1368,7 @@ async fn finalize_executed_tool_call(
     tool_call: &ToolCall,
     args: &serde_json::Value,
     executed: ExecutedToolCallOutcome,
-    config: &AgentLoopConfig,
+    config: &ToolCallOptions,
 ) -> FinalizedToolCall {
     let mut result = executed.result;
     let mut is_error = executed.is_error;
@@ -1326,32 +1439,32 @@ fn create_tool_result_message(
     result: &AgentToolResult,
     is_error: bool,
 ) -> ToolResultMessage {
-    ToolResultMessage {
-        structured_content: result.structured_content.clone(),
-        role: ToolResultRole,
-        tool_call_id: tool_call.id.clone(),
-        tool_name: tool_call.name.clone(),
-        content: result.clone().into_content(),
-        details: Some(result.details.clone()),
-        usage: result.usage.clone(),
-        added_tool_names: result.added_tool_names.clone(),
+    ToolInvocationResult {
+        result: result.clone(),
         is_error,
-        timestamp: crate::clock::now_ms(),
     }
+    .into_message(&tool_call.id, &tool_call.name, crate::clock::now_ms())
 }
 
 /// Emit `tool_execution_end` for a finalized call.
 async fn emit_tool_execution_end(emit: &Arc<dyn AgentEmitter>, finalized: &FinalizedToolCall) {
-    emit_event(
-        emit,
-        AgentEvent::ToolExecutionEnd {
-            tool_call_id: finalized.tool_call.id.clone(),
-            tool_name: finalized.tool_call.name.clone(),
+    let call = &finalized.tool_call;
+    let event = if call.recorded.is_some() {
+        AgentEvent::RecordedToolEnd {
+            tool_call_id: call.id.clone(),
+            tool_name: call.name.clone(),
             result: finalized.result.clone(),
             is_error: finalized.is_error,
-        },
-    )
-    .await;
+        }
+    } else {
+        AgentEvent::ToolExecutionEnd {
+            tool_call_id: call.id.clone(),
+            tool_name: call.name.clone(),
+            result: finalized.result.clone(),
+            is_error: finalized.is_error,
+        }
+    };
+    emit_event(emit, event).await;
 }
 
 /// Emit `message_start` + `message_end` for a tool-result message. Tool-result
@@ -1468,5 +1581,6 @@ fn panicked_tool_call() -> ToolCall {
         arguments: serde_json::Value::Null,
         thought_signature: None,
         namespace: None,
+        recorded: None,
     }
 }

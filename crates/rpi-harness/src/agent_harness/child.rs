@@ -52,6 +52,17 @@ impl rpi_agent::AgentTool for ChildTool {
 }
 
 impl AgentHarness {
+    /// Native ports must select the actual child, never the parent's tool/session set.
+    pub fn for_current_execution(&self) -> HarnessResult<Self> {
+        match rpi_agent::tool_execution_scope::current_scope() {
+            None => Ok(self.clone()),
+            Some(scope) => scope
+                .host::<WeakAgentHarness>()
+                .and_then(WeakAgentHarness::upgrade)
+                .ok_or_else(|| HarnessError::io("child execution target is unavailable")),
+        }
+    }
+
     /// Public metadata deliberately excludes endpoints, headers and provider bindings.
     pub fn execution_context(&self) -> HarnessResult<serde_json::Value> {
         let snap = self.snapshot_config()?;
@@ -162,6 +173,7 @@ impl AgentHarness {
         .await?;
         child.is_child = true;
         child.max_turns = Some(max_turns);
+        assert!(execution_scope.bind_host(child.downgrade()));
         child.inner.lock().unwrap().execution_scope = Some(execution_scope.clone());
         Ok(ChildHarness {
             harness: child,
@@ -230,6 +242,7 @@ impl AgentHarness {
         }).await?;
         child.is_child = true;
         child.max_turns = Some(1);
+        assert!(execution_scope.bind_host(child.downgrade()));
         child.inner.lock().unwrap().execution_scope = Some(execution_scope.clone());
         Ok((
             ChildHarness {

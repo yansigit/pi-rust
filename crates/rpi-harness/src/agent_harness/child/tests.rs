@@ -295,3 +295,128 @@ fn side_reference_is_utf8_bounded_and_excludes_non_text_blocks() {
     assert!(!reference.contains("old-secret-marker"));
     assert!(reference.contains("[user]"));
 }
+
+#[tokio::test]
+async fn direct_tool_ports_respect_child_tools_lifetime_and_session_without_new_turns() {
+    let (parent, provider, env) = parent(FauxScript::new().with_text("must not consume")).await;
+    let child = parent
+        .create_child(session("child"), emitter(), 1, Some(vec!["read".into()]))
+        .await
+        .unwrap();
+    use rpi_tools::FileSystem;
+    env.write_file(
+        "test.txt",
+        rpi_tools::FileContent::Text("fixture".into()),
+        None,
+    )
+    .await
+    .unwrap();
+    let call = |name: &str, args| {
+        serde_json::from_value(
+            serde_json::json!({"type":"toolCall","id":"direct", "name":name,"arguments":args}),
+        )
+        .unwrap()
+    };
+    let scope = child.execution_scope.clone();
+    scope
+        .run(async {
+            let target = parent.for_current_execution().unwrap();
+            assert_eq!(target.session().storage().metadata().id, "child");
+            let tools = target.inspect_tools().unwrap();
+            assert_eq!(tools.len(), 1);
+            assert_eq!(tools[0]["name"], "read");
+            assert_eq!(tools[0]["active"], true);
+            let result = target
+                .invoke_tool(
+                    call("read", serde_json::json!({"path":"test.txt"})),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+            assert!(!result.is_error);
+            let result = target
+                .invoke_tool(
+                    call(
+                        "write",
+                        serde_json::json!({"path":"forbidden", "content":"bad"}),
+                    ),
+                    CancellationToken::new(),
+                )
+                .await
+                .unwrap();
+            assert!(result.is_error);
+            let identity =
+                rpi_ai::identity::RequestIdentity::operation(Some("parent".into()), "native-tool");
+            assert!(rpi_ai::identity::scope(
+                identity,
+                target.invoke_tool(
+                    call("read", serde_json::json!({"path":"test.txt"})),
+                    CancellationToken::new()
+                )
+            )
+            .await
+            .is_err());
+        })
+        .await;
+    assert!(env.read_text_file("forbidden", None).await.is_err());
+    assert!(parent.get_tip_id().await.unwrap().is_none());
+    assert!(child.harness.get_tip_id().await.unwrap().is_none());
+    assert_eq!(provider.script().pending_count(), 1);
+    let (side, _) = parent
+        .create_side_question(session("side"), emitter())
+        .await
+        .unwrap();
+    side.execution_scope
+        .run(async {
+            assert!(parent
+                .for_current_execution()
+                .unwrap()
+                .inspect_tools()
+                .unwrap()
+                .is_empty());
+        })
+        .await;
+    drop(child);
+    assert!(scope
+        .run(async { parent.for_current_execution() })
+        .await
+        .is_err());
+    assert_eq!(parent.inspect_tools().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn cancelling_a_direct_tool_request_drops_a_noncooperative_hook() {
+    for cancel in ["request", "session", "close"] {
+        let (parent, _, _) = parent(FauxScript::new()).await;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let notify = entered.clone();
+        parent.inner.lock().unwrap().before_tool_call = Some(Arc::new(move |_, _| {
+            notify.notify_one();
+            Box::pin(std::future::pending())
+        }));
+        let call = serde_json::from_value(
+            serde_json::json!({"id":"cancel-me","name":"read","arguments":{"path":"never-read"}}),
+        )
+        .unwrap();
+        let signal = CancellationToken::new();
+        let task = tokio::spawn({
+            let parent = parent.clone();
+            let signal = signal.clone();
+            async move { parent.invoke_tool(call, signal).await }
+        });
+        entered.notified().await;
+        match cancel {
+            "session" => parent.set_session(session("switched")).await.unwrap(),
+            "close" => parent.close().await.unwrap(),
+            _ => signal.cancel(),
+        }
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), task)
+                .await
+                .unwrap()
+                .unwrap()
+                .is_err()
+        );
+        assert!(parent.get_tip_id().await.unwrap().is_none());
+    }
+}

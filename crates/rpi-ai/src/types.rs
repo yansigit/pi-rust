@@ -176,6 +176,14 @@ pub struct ToolCall {
     /// OpenAI Responses namespace for dynamic/namespaced tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
+    /// Completed external activity. Presence always forbids executable-tool dispatch,
+    /// including malformed or unavailable recordings.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present_json"
+    )]
+    pub recorded: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -253,6 +261,7 @@ impl Content {
             arguments,
             thought_signature: None,
             namespace: None,
+            recorded: None,
         })
     }
 

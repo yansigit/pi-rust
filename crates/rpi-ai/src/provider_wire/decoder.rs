@@ -266,6 +266,11 @@ impl StreamMapper {
                 if !self.apply_partial(partial) {
                     self.open_block(index, Content::tool_call(id, name, arguments));
                 }
+                if let (Some(recorded), Some(Content::ToolCall(call))) =
+                    (chunk.get("recorded"), self.output.content.get_mut(index))
+                {
+                    call.recorded = Some(recorded.clone());
+                }
                 Some(AssistantMessageEvent::ToolCallStart {
                     content_index: index,
                     partial: self.partial(),
@@ -324,6 +329,9 @@ impl StreamMapper {
                             call.name = name.clone();
                         }
                         call.arguments = arguments.clone();
+                        if let Some(recorded) = chunk.get("recorded") {
+                            call.recorded = Some(recorded.clone());
+                        }
                         call.clone()
                     }
                     _ => ToolCall {
@@ -333,6 +341,7 @@ impl StreamMapper {
                         arguments: arguments.clone(),
                         thought_signature: None,
                         namespace: None,
+                        recorded: None,
                     },
                 };
                 self.tool_json.remove(&index);

@@ -85,6 +85,18 @@ pub enum AgentEvent {
         result: AgentToolResult,
         is_error: bool,
     },
+    /// Presentation of work already performed by an external runtime.
+    RecordedToolStart {
+        tool_call_id: String,
+        tool_name: String,
+        args: serde_json::Value,
+    },
+    RecordedToolEnd {
+        tool_call_id: String,
+        tool_name: String,
+        result: AgentToolResult,
+        is_error: bool,
+    },
 }
 
 impl AgentEvent {
@@ -101,6 +113,8 @@ impl AgentEvent {
             AgentEvent::ToolExecutionStart { .. } => "tool_execution_start",
             AgentEvent::ToolExecutionUpdate { .. } => "tool_execution_update",
             AgentEvent::ToolExecutionEnd { .. } => "tool_execution_end",
+            AgentEvent::RecordedToolStart { .. } => "recorded_tool_start",
+            AgentEvent::RecordedToolEnd { .. } => "recorded_tool_end",
         }
     }
 

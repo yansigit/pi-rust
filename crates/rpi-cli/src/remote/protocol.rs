@@ -90,6 +90,8 @@ pub enum RemoteEvent {
         delta: Option<String>,
     },
     ToolExecutionStart {
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        recorded: bool,
         #[serde(rename = "toolCallId")]
         tool_call_id: String,
         #[serde(rename = "toolName")]
@@ -108,6 +110,8 @@ pub enum RemoteEvent {
         partial_result: Value,
     },
     ToolExecutionEnd {
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        recorded: bool,
         #[serde(rename = "toolCallId")]
         tool_call_id: String,
         #[serde(rename = "toolName")]
@@ -215,7 +219,16 @@ impl RemoteEvent {
                 tool_call_id,
                 tool_name,
                 args,
+            }
+            | AgentEvent::RecordedToolStart {
+                tool_call_id,
+                tool_name,
+                args,
             } => RemoteEvent::ToolExecutionStart {
+                recorded: matches!(
+                    event,
+                    AgentEvent::RecordedToolStart { .. } | AgentEvent::RecordedToolEnd { .. }
+                ),
                 tool_call_id: tool_call_id.clone(),
                 tool_name: tool_name.clone(),
                 args: args.clone(),
@@ -236,7 +249,17 @@ impl RemoteEvent {
                 tool_name,
                 result,
                 is_error,
+            }
+            | AgentEvent::RecordedToolEnd {
+                tool_call_id,
+                tool_name,
+                result,
+                is_error,
             } => RemoteEvent::ToolExecutionEnd {
+                recorded: matches!(
+                    event,
+                    AgentEvent::RecordedToolStart { .. } | AgentEvent::RecordedToolEnd { .. }
+                ),
                 tool_call_id: tool_call_id.clone(),
                 tool_name: tool_name.clone(),
                 is_error: *is_error,
@@ -482,6 +505,7 @@ mod tests {
                 delta: Some("hi".into()),
             },
             RemoteEvent::ToolExecutionEnd {
+                recorded: false,
                 tool_call_id: "c1".into(),
                 tool_name: "read".into(),
                 is_error: true,

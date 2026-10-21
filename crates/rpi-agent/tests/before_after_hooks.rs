@@ -553,3 +553,262 @@ async fn parallel_tool_result_hooks_keep_the_owning_child_execution_scope() {
     scope.wait_idle().await;
     assert!(!rpi_agent::tool_execution_scope::is_child_execution());
 }
+
+#[tokio::test]
+async fn direct_host_invocation_matches_loop_hooks_without_starting_a_turn() {
+    let (tool, executed) = EchoTool::new_recording();
+    let context = context_with_tools(vec![Arc::new(tool)]);
+    let assistant = assistant_tool_calls(
+        vec![(
+            "native-call",
+            "echo",
+            serde_json::json!({"value":"original"}),
+        )],
+        StopReason::ToolUse,
+    );
+    let rpi_ai::Content::ToolCall(call) = &assistant.content[0] else {
+        unreachable!()
+    };
+    let options = rpi_agent::ToolCallOptions {
+        before_tool_call: Some(Arc::new(|ctx, _| {
+            assert_eq!(ctx.args["value"], "original");
+            Box::pin(async {
+                Some(BeforeToolCallResult {
+                    args: Some(serde_json::json!({"value":42})),
+                    ..Default::default()
+                })
+            })
+        })),
+        after_tool_call: Some(Arc::new(|ctx, _| {
+            assert_eq!(ctx.result.details["value"], 42);
+            Box::pin(async {
+                Some(AfterToolCallResult {
+                    structured_content: Some(Some(serde_json::json!({"checked":true}))),
+                    is_error: Some(true),
+                    ..Default::default()
+                })
+            })
+        })),
+        ..Default::default()
+    };
+    let (emitter, events) = rpi_agent::CollectorEmitter::new();
+    let emitter: Arc<dyn rpi_agent::AgentEmitter> = Arc::new(emitter);
+    let direct = rpi_agent::invoke_tool(&context, &assistant, call, &options, &emitter)
+        .await
+        .unwrap();
+    assert!(direct.is_error);
+    assert_eq!(
+        direct.result.structured_content,
+        Some(serde_json::json!({"checked":true}))
+    );
+    assert_eq!(*executed.lock().unwrap(), vec![serde_json::json!(42)]);
+    assert_eq!(
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .map(AgentEvent::type_tag)
+            .collect::<Vec<_>>(),
+        ["tool_execution_start", "tool_execution_end"]
+    );
+    let mut config = base_config();
+    config.before_tool_call = options.before_tool_call;
+    config.after_tool_call = options.after_tool_call;
+    let (events, _) = run_and_collect(
+        vec![user_message("echo")],
+        context,
+        config,
+        common::mock_stream_fn(vec![assistant, assistant_text("done", StopReason::Stop)]),
+    )
+    .await;
+    let result = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolExecutionEnd {
+                result, is_error, ..
+            } => Some((result, *is_error)),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(result.0).unwrap(),
+        serde_json::to_value(direct.result).unwrap()
+    );
+    assert_eq!(result.1, direct.is_error);
+    assert_eq!(executed.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn direct_host_invocation_rejects_invalid_disabled_and_cancelled_calls() {
+    let (tool, executed) = EchoTool::new_recording();
+    let context = context_with_tools(vec![Arc::new(tool)]);
+    let assistant = assistant_tool_calls(
+        vec![(
+            "native-call",
+            "echo",
+            serde_json::json!({"value":"original"}),
+        )],
+        StopReason::ToolUse,
+    );
+    let rpi_ai::Content::ToolCall(call) = &assistant.content[0] else {
+        unreachable!()
+    };
+    let emitter: Arc<dyn rpi_agent::AgentEmitter> =
+        Arc::new(rpi_agent::CollectorEmitter::default());
+    let options = rpi_agent::ToolCallOptions::default();
+    let mut bad = call.clone();
+    bad.arguments = serde_json::json!({"value": {"wrong":"type"}});
+    assert!(
+        rpi_agent::invoke_tool(&context, &assistant, &bad, &options, &emitter)
+            .await
+            .unwrap()
+            .is_error
+    );
+    assert!(
+        rpi_agent::invoke_tool(
+            &context_with_tools(vec![]),
+            &assistant,
+            call,
+            &options,
+            &emitter
+        )
+        .await
+        .unwrap()
+        .is_error
+    );
+    options.signal.cancel();
+    assert!(
+        rpi_agent::invoke_tool(&context, &assistant, call, &options, &emitter)
+            .await
+            .unwrap()
+            .is_error
+    );
+    assert!(executed.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn recorded_activity_preserves_hooks_history_and_termination_but_never_executes() {
+    for mode in [ToolExecutionMode::Sequential, ToolExecutionMode::Parallel] {
+        let (tool, executed) = EchoTool::new_recording();
+        let mut assistant = assistant_tool_calls(
+            vec![("recorded", "echo", serde_json::json!({"not":"host schema"}))],
+            StopReason::ToolUse,
+        );
+        let rpi_ai::Content::ToolCall(call) = &mut assistant.content[0] else {
+            unreachable!()
+        };
+        call.recorded = Some(
+            serde_json::json!({"version":1,"isError":false,"result":{"content":[{"type":"text","text":"externally completed"}], "terminate":true,"details":{"source":"external"},"structuredContent":null}}),
+        );
+        let before_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let after_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut config = base_config();
+        config.tool_execution = mode;
+        let count = before_count.clone();
+        config.before_tool_call = Some(Arc::new(move |ctx, _| {
+            assert!(ctx.tool_call.recorded.is_some());
+            assert_eq!(ctx.args["not"], "host schema");
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async { None })
+        }));
+        let count = after_count.clone();
+        config.after_tool_call = Some(Arc::new(move |ctx, _| {
+            assert_eq!(ctx.result.details["source"], "external");
+            assert_eq!(ctx.result.structured_content, Some(serde_json::Value::Null));
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async {
+                Some(AfterToolCallResult {
+                    structured_content: Some(Some(serde_json::json!({"hook":true}))),
+                    ..Default::default()
+                })
+            })
+        }));
+        let (events, messages) = run_and_collect(
+            vec![user_message("request")],
+            context_with_tools(vec![Arc::new(tool)]),
+            config,
+            common::mock_stream_fn(vec![assistant]),
+        )
+        .await;
+        assert!(executed.lock().unwrap().is_empty());
+        assert_eq!(before_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(after_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, AgentEvent::RecordedToolStart { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, AgentEvent::RecordedToolEnd { .. }))
+                .count(),
+            1
+        );
+        assert!(!events.iter().any(|event| matches!(
+            event,
+            AgentEvent::ToolExecutionStart { .. } | AgentEvent::ToolExecutionEnd { .. }
+        )));
+        assert_eq!(turn_start_count(&events), 1);
+        let result = messages
+            .iter()
+            .find_map(|message| match message {
+                rpi_agent::AgentMessage::ToolResult(result) => Some(result),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(result.tool_call_id, "recorded");
+        assert_eq!(
+            result.content,
+            vec![rpi_ai::Content::text("externally completed")]
+        );
+        assert_eq!(
+            result.structured_content,
+            Some(serde_json::json!({"hook":true}))
+        );
+    }
+}
+
+#[tokio::test]
+async fn malformed_and_unavailable_recordings_never_fall_through_to_an_executable_tool() {
+    let (tool, executed) = EchoTool::new_recording();
+    let context = context_with_tools(vec![Arc::new(tool)]);
+    let emitter: Arc<dyn rpi_agent::AgentEmitter> =
+        Arc::new(rpi_agent::CollectorEmitter::default());
+    for recording in [
+        serde_json::Value::Null,
+        serde_json::json!({"version":2,"isError":false,"result":{}}),
+        serde_json::json!({"version":1,"isError":false}),
+        serde_json::json!({"version":1,"isError":false,"result":{"content":[{"type":"toolCall","id":"escape","name":"echo","arguments":{}}]}}),
+    ] {
+        let mut assistant = assistant_tool_calls(
+            vec![(
+                "recorded",
+                "echo",
+                serde_json::json!({"value":"must not execute"}),
+            )],
+            StopReason::ToolUse,
+        );
+        let rpi_ai::Content::ToolCall(call) = &mut assistant.content[0] else {
+            unreachable!()
+        };
+        call.recorded = Some(recording);
+        let call = call.clone();
+        // Persistence must retain even explicit null as a non-executable marker.
+        let call = serde_json::from_value(serde_json::to_value(call).unwrap()).unwrap();
+        let result = rpi_agent::invoke_tool(
+            &context,
+            &assistant,
+            &call,
+            &rpi_agent::ToolCallOptions::default(),
+            &emitter,
+        )
+        .await
+        .unwrap();
+        assert!(result.is_error);
+        assert!(result.result.content.iter().any(|entry| matches!(entry, rpi_agent::TextContentOrImage::Text(text) if text.text.contains("replay cannot execute work"))));
+    }
+    assert!(executed.lock().unwrap().is_empty());
+}

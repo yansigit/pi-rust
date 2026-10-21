@@ -2343,6 +2343,7 @@ fn assistant_with_one_tool_call(call_id: &str, name: &str) -> rpi_ai::types::Ass
             arguments: serde_json::json!({}),
             thought_signature: None,
             namespace: None,
+            recorded: None,
         }));
     message
 }
@@ -3944,6 +3945,7 @@ async fn a_deferred_response_suspends_and_then_resumes_through_its_tools() {
         arguments: serde_json::json!({ "path": "b.txt" }),
         thought_signature: None,
         namespace: None,
+        recorded: None,
     })];
     provider.push_deferred_poll(DeferredPoll::Message(polled));
 
@@ -4305,4 +4307,101 @@ async fn message_end_modifications_precede_settlement_and_reach_the_run_result()
         panic!("expected assistant");
     };
     assert_eq!(message.content, final_message.content);
+}
+
+#[tokio::test]
+async fn interrupted_recorded_activity_recovers_without_executing_even_a_safe_named_tool() {
+    use rpi_harness::session::types::{
+        OperationIntent, OperationStartedRecord, RecordBase, ToolStartedRecord,
+    };
+    for started in [false, true] {
+        for recording in [
+            serde_json::Value::Null,
+            serde_json::json!({"version":1,"isError":false,"result":{"content":[{"type":"text","text":"already performed externally"}],"details":{"external":true},"structuredContent":{"answer":42}}}),
+        ] {
+            let session = replay_session();
+            let mut assistant = assistant_with_one_tool_call("recorded", "flaky_read");
+            if let rpi_ai::Content::ToolCall(call) = &mut assistant.content[0] {
+                call.recorded = Some(recording.clone());
+            }
+            let assistant_id = session
+                .view("main")
+                .append_message(AgentMessage::Assistant(Box::new(assistant)))
+                .await
+                .unwrap();
+            let base = |id: &str| RecordBase {
+                id: id.into(),
+                seq: 0,
+                lane: "main".into(),
+                timestamp: 0,
+            };
+            session
+                .append_record(LaneRecord::OperationStarted(OperationStartedRecord {
+                    base: base("run-recorded"),
+                    source_leaf_id: None,
+                    intent: OperationIntent::Run {
+                        original_prompt: vec![],
+                        initial_messages: vec![],
+                        system_prompt_override: None,
+                        resume_data: None,
+                    },
+                }))
+                .await
+                .unwrap();
+            if started {
+                session
+                    .append_record(LaneRecord::ToolStarted(ToolStartedRecord {
+                        base: base("recorded-start"),
+                        run_id: "run-recorded".into(),
+                        assistant_entry_id: assistant_id.clone(),
+                        tool_index: 0,
+                        tool_call_id: "recorded".into(),
+                        tool_name: "flaky_read".into(),
+                        effective_args: serde_json::json!({}),
+                        result_entry_id: "recorded-result".into(),
+                        replay: rpi_harness::session::types::ToolReplay::Safe,
+                    }))
+                    .await
+                    .unwrap();
+            }
+            let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let recovered = replayable_harness_hanging_at(
+                session,
+                ToolReplay::Safe,
+                calls.clone(),
+                true,
+                FauxProvider::new(FauxScript::new()),
+                usize::MAX,
+            )
+            .await;
+            assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+            let entries = recovered
+                .session()
+                .find_entries_on_branch(&EntryQuery::default(), &BranchBounds::default())
+                .await
+                .unwrap();
+            let results: Vec<_> = entries
+                .iter()
+                .filter_map(|entry| match entry {
+                    rpi_harness::session::types::Entry::Message(entry) => match &entry.message {
+                        AgentMessage::ToolResult(result) => Some(result),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].is_error, recording.is_null());
+            if !recording.is_null() {
+                assert_eq!(
+                    results[0].content,
+                    vec![rpi_ai::Content::text("already performed externally")]
+                );
+                assert_eq!(
+                    results[0].structured_content,
+                    Some(serde_json::json!({"answer":42}))
+                );
+            }
+        }
+    }
 }

@@ -136,6 +136,11 @@ pub fn map_agent_event(event: &AgentEvent) -> Option<UiEvent> {
             tool_call_id,
             tool_name,
             args,
+        }
+        | AgentEvent::RecordedToolStart {
+            tool_call_id,
+            tool_name,
+            args,
         } => Some(UiEvent::ToolStart {
             id: tool_call_id.clone(),
             name: tool_name.clone(),
@@ -153,6 +158,12 @@ pub fn map_agent_event(event: &AgentEvent) -> Option<UiEvent> {
             result: crate::remote::protocol::tool_result_json(partial_result),
         }),
         AgentEvent::ToolExecutionEnd {
+            tool_call_id,
+            tool_name,
+            result,
+            is_error,
+        }
+        | AgentEvent::RecordedToolEnd {
             tool_call_id,
             tool_name,
             result,
@@ -400,6 +411,7 @@ pub fn map_remote_event(event: &RemoteEvent) -> Option<UiEvent> {
             tool_call_id,
             tool_name,
             args,
+            ..
         } => Some(UiEvent::ToolStart {
             id: tool_call_id.clone(),
             name: tool_name.clone(),
@@ -421,6 +433,7 @@ pub fn map_remote_event(event: &RemoteEvent) -> Option<UiEvent> {
             tool_name,
             result,
             is_error,
+            ..
         } => Some(UiEvent::ToolEnd {
             id: tool_call_id.clone(),
             name: tool_name.clone(),

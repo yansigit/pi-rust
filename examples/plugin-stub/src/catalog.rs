@@ -65,6 +65,21 @@ extern "C" fn startup(_: StablePluginEvent, context: *mut c_void) -> i32 {
             assert_eq!(event["sequence"], 1);
             call(json!({"port":"services","action":"unsubscribe","subscription":subscription["subscription"]})).await.unwrap();
             eprintln!("native services fixture passed");
+            let tools = call(json!({"port":"tools","action":"inspect"})).await.unwrap();
+            assert!(tools.as_array().unwrap().iter().any(|tool| tool["name"] == "echo" && tool["active"] == true));
+            let before_count = crate::ECHO_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst);
+            let result = call(json!({"port":"tools","action":"invoke","call":{"type":"toolCall","id":"host-tool", "name":"echo","arguments":{"text":"native"}}})).await.unwrap();
+            assert_eq!(result["result"]["content"][0]["text"], "echo: native");
+            assert_eq!(crate::ECHO_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst), before_count + 1);
+            for recording in [json!({"version":1,"isError":false,"result":{"content":[{"type":"text","text":"external result"}]}}), Value::Null] {
+                let expected_error = recording.is_null();
+                let result = call(json!({"port":"tools","action":"present","call":{"type":"toolCall","id":"recorded-tool", "name":"echo","arguments":{"text":"must not execute"},"recorded":recording}})).await.unwrap();
+                assert_eq!(result["isError"], expected_error);
+                if !expected_error { assert_eq!(result["result"]["content"][0]["text"], "external result"); }
+            }
+            assert_eq!(crate::ECHO_EXECUTIONS.load(std::sync::atomic::Ordering::SeqCst), before_count + 1);
+            assert!(call(json!({"port":"tools","action":"present","call":{"type":"toolCall","id":"missing", "name":"echo","arguments":{"text":"never"}}})).await.is_err());
+            eprintln!("native tools and inert replay fixture passed");
             let before = call(json!({"port":"providers","action":"inspect"})).await.unwrap();
             let revision = before["revision"].as_u64().unwrap();
             let refreshed = call(json!({"port":"providers","action":"refresh","providerId":"stub-provider","allowNetwork":false})).await.unwrap();

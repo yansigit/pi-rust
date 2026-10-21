@@ -669,6 +669,7 @@ pub struct AgentHarness {
 
 mod child;
 mod extension_events;
+mod native_tools;
 pub use child::ChildHarness;
 mod weak;
 pub use weak::WeakAgentHarness;
@@ -2771,6 +2772,19 @@ impl AgentHarness {
         outcome: &crate::frame_progress::UnknownToolOutcome,
         timestamp: i64,
     ) -> AgentMessage {
+        if let Some(recording) = &outcome.recorded {
+            let result = rpi_agent::ToolInvocationResult::from_recording(recording).unwrap_or_else(
+                |error| rpi_agent::ToolInvocationResult {
+                    result: rpi_agent::AgentToolResult::error_text(error),
+                    is_error: true,
+                },
+            );
+            return AgentMessage::ToolResult(Box::new(result.into_message(
+                &outcome.tool_call_id,
+                &outcome.tool_name,
+                timestamp,
+            )));
+        }
         let frame = recorded.get(&outcome.tool_call_id);
         let tool = tools
             .iter()

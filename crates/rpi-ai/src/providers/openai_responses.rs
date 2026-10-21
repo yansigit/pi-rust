@@ -899,6 +899,7 @@ impl ResponsesStreamState {
                     },
                     thought_signature: None,
                     namespace: None,
+                    recorded: None,
                 };
                 if let Some(content) = out.content.get_mut(slot.content_index) {
                     *content = Content::ToolCall(call.clone());
