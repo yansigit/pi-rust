@@ -1,0 +1,43 @@
+{
+  "status": "Runtime startup/reload/quit details and fresh Cursor binding verified",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "platform": "Linux",
+  "reference": "Installed integrated Pi 1.3.0 extensions/types and AgentSession.reload; Cursor pinned session-agent lifecycle",
+  "checks": {
+    "events": {
+      "log": "/tmp/rpi-lifecycle-details-extensions.log",
+      "sha256": "53eee0877ff93710260644f670875e82af92d2c332186df3d39081d1d1110bfa",
+      "passed": 10
+    },
+    "nativeLibrary": {
+      "log": "/tmp/rpi-lifecycle-details-native.log",
+      "sha256": "d45a6e15c4b82a5430e9e01084d83a3e6ee1de9cb72ca223962112289335be98",
+      "passed": 2
+    },
+    "reloadRegressions": {
+      "log": "/tmp/rpi-lifecycle-details-reload.log",
+      "sha256": "8ff044a6e81c883cb8098a95dd5f43adee59e18d80e989fffd8cc9e1b2908d69",
+      "passed": 7,
+      "ignored": 1
+    },
+    "workspace": {
+      "log": "/tmp/rpi-lifecycle-details-workspace.log",
+      "sha256": "08672b7accc7cf4fece4a45e6e3943bdd21de70f246b9c83999a298b665461b7"
+    }
+  },
+  "assertions": [
+    "Versioned result callbacks receive explicit reason and operation identity; empty C observer layout unchanged",
+    "Reload awaits new session_start after installing catalog, hooks and tools",
+    "Real Cursor DLL old worker reaped, new worker active; empty replacement credentials reject ambient key without network inference",
+    "Existing reload settings and legacy veto/drain regressions pass"
+  ],
+  "fixtureCorrections": [
+    "Preserve explicit offline provider key in reload args",
+    "Configure native run mode as application startup does before dispatching lifecycle events"
+  ],
+  "notTested": [
+    "Session new/resume/fork lifecycle details",
+    "Cursor live inference or remote mutations",
+    "macOS and Windows native execution"
+  ]
+}

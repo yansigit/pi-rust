@@ -1830,6 +1830,14 @@ pub async fn interactive(
         .await
     } else {
         // Fall back to simple REPL
+        if let Some(reason) = crate::session::dispatch_session_event_async(
+            reload_context,
+            rpi_plugin_sdk::EventTag::SessionStart,
+        )
+        .await
+        {
+            tracing::warn!("[rpi] extension vetoed SessionStart (REPL, advisory): {reason}");
+        }
         interactive_repl(harness, args, initial, extra_messages, initial_images).await
     };
 

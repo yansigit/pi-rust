@@ -285,3 +285,133 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
     extensions.begin_shutdown();
     harness.close().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires staged Cursor DLL/runtime and isolated configuration; run installed_cursor tests with --test-threads=1"]
+async fn installed_cursor_reload_starts_the_new_binding_and_reaps_the_old_worker() {
+    let directory = PathBuf::from(std::env::var_os("RPI_TEST_CURSOR_EXTENSION_DIR").unwrap());
+    let agent_dir = PathBuf::from(std::env::var_os("RPI_CODING_AGENT_DIR").unwrap());
+    assert!(agent_dir.join("native-fixture-marker").is_file());
+    let cwd = tempfile::tempdir().unwrap();
+    let args = crate::args::Args {
+        trust_override: Some(false),
+        api_key: Some("offline-test-key".into()),
+        extensions_dir: vec![directory],
+        session_dir: Some(cwd.path().join("sessions")),
+        no_skills: true,
+        no_prompt_templates: true,
+        no_context_files: true,
+        ..Default::default()
+    };
+    let resolved = crate::provider::resolve(
+        Some("anthropic"),
+        Some(crate::provider::DEFAULT_MODEL_ID),
+        None,
+        Some("offline-test-key"),
+        None,
+    )
+    .unwrap();
+    let (harness, _events, context) = crate::session::build(&resolved, &args, cwd.path(), false)
+        .await
+        .unwrap();
+    context
+        .action_bridge
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .clone_host()
+        .set_native_mode("print");
+    assert_eq!(
+        context
+            .extension_session
+            .lock()
+            .unwrap()
+            .loaded_paths()
+            .len(),
+        1
+    );
+    assert_eq!(
+        crate::session::dispatch_session_event_async(
+            &context,
+            rpi_plugin_sdk::EventTag::SessionStart
+        )
+        .await,
+        None
+    );
+    #[cfg(target_os = "linux")]
+    let original = node_children();
+    #[cfg(target_os = "linux")]
+    assert!(
+        !original.is_empty(),
+        "the initial Cursor worker must be running"
+    );
+    let outcome = crate::session::reload_extension_resources(&harness, &context).await;
+    assert!(
+        !outcome.had_errors,
+        "{} {:?}",
+        outcome.summary, outcome.details
+    );
+    assert_eq!(
+        context
+            .extension_session
+            .lock()
+            .unwrap()
+            .loaded_paths()
+            .len(),
+        1
+    );
+    #[cfg(target_os = "linux")]
+    {
+        let current = node_children();
+        assert_eq!(
+            current.difference(&original).count(),
+            1,
+            "reload must create a fresh worker"
+        );
+        assert_eq!(
+            original.difference(&current).count(),
+            1,
+            "reload must reap the old worker"
+        );
+    }
+    let providers = rpi_extensions::PluggableProvider::from_session(
+        &context.extension_session.lock().unwrap(),
+        Handle::current(),
+    );
+    let provider = providers
+        .iter()
+        .find(|provider| provider.id() == "cursor")
+        .unwrap();
+    let model = provider.models()[0].clone();
+    let options = SimpleStreamOptions {
+        authentication: rpi_ai::auth::ReplacementAuth::from_private_request(
+            "cursor".into(),
+            Default::default(),
+        ),
+        ..Default::default()
+    };
+    let mut stream = provider
+        .stream_simple(&model, &Context::new(vec![]), &options)
+        .await;
+    while stream.next().await.is_some() {}
+    let message = stream.result().await.unwrap();
+    assert!(
+        message
+            .error_message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("API key"),
+        "the new binding must be active: {message:?}"
+    );
+    assert_eq!(
+        crate::session::dispatch_session_event_async(
+            &context,
+            rpi_plugin_sdk::EventTag::SessionShutdown
+        )
+        .await,
+        None
+    );
+    context.extension_session.lock().unwrap().begin_shutdown();
+    harness.close().await.unwrap();
+}

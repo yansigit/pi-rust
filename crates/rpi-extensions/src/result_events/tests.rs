@@ -51,6 +51,39 @@ fn keepalive() -> Arc<PluginKeepalive> {
     Arc::new(PluginKeepalive::new(Vec::new(), None))
 }
 #[tokio::test]
+async fn lifecycle_details_preserve_the_authoritative_reason_and_operation_identity() {
+    let probe = Probe {
+        seen: Mutex::new(Vec::new()),
+        response: json!({"version":1}),
+    };
+    let mut registry = ExtensionRegistry::new();
+    register(&mut registry, EventTag::SessionStart, &probe);
+    register(&mut registry, EventTag::SessionShutdown, &probe);
+    let identity = rpi_ai::identity::RequestIdentity::operation(Some("session".into()), "reload");
+    for (tag, reason) in [
+        (EventTag::SessionStart, "startup"),
+        (EventTag::SessionShutdown, "reload"),
+        (EventTag::SessionStart, "reload"),
+        (EventTag::SessionShutdown, "quit"),
+    ] {
+        let result = rpi_ai::identity::scope(
+            identity.clone(),
+            crate::dispatch_lifecycle_event_with_data(
+                &registry.snapshot(),
+                tag,
+                keepalive(),
+                json!({"reason":reason}),
+            ),
+        )
+        .await;
+        assert_eq!(result, None);
+        let seen = probe.seen.lock().unwrap();
+        let request = seen.last().unwrap();
+        assert_eq!(request["event"], json!({"reason":reason}));
+        assert_eq!(request["identity"]["operationId"], identity.operation_id);
+    }
+}
+#[tokio::test]
 async fn awaited_results_and_observers_share_registration_order_across_registry_merges() {
     let first = Probe {
         seen: Mutex::new(Vec::new()),

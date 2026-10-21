@@ -731,6 +731,17 @@ pub async fn dispatch_lifecycle_event(
     tag: EventTag,
     keepalive: Arc<crate::PluginKeepalive>,
 ) -> Option<String> {
+    dispatch_lifecycle_event_with_data(snapshot, tag, keepalive, serde_json::json!({})).await
+}
+
+/// Supply authoritative lifecycle details to result callbacks. Legacy observers
+/// still receive their original empty event, without extending its C layout.
+pub async fn dispatch_lifecycle_event_with_data(
+    snapshot: &RegistrySnapshot,
+    tag: EventTag,
+    keepalive: Arc<crate::PluginKeepalive>,
+    event: serde_json::Value,
+) -> Option<String> {
     // Staleness guard: a stale registry (swapped-out session) does nothing.
     if !crate::registry::assert_active(snapshot.active_flag()) {
         return None;
@@ -740,7 +751,7 @@ pub async fn dispatch_lifecycle_event(
             snapshot,
             keepalive,
             tag,
-            serde_json::json!({}),
+            event,
             rpi_ai::identity::current(),
             tokio_util::sync::CancellationToken::new(),
         )

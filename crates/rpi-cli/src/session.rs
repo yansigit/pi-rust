@@ -1176,6 +1176,19 @@ pub async fn dispatch_session_event_async(
     reload_context: &ReloadContext,
     tag: rpi_plugin_sdk::EventTag,
 ) -> Option<String> {
+    let event = match tag {
+        rpi_plugin_sdk::EventTag::SessionStart => serde_json::json!({"reason":"startup"}),
+        rpi_plugin_sdk::EventTag::SessionShutdown => serde_json::json!({"reason":"quit"}),
+        _ => serde_json::json!({}),
+    };
+    dispatch_session_event_with_data(reload_context, tag, event).await
+}
+
+async fn dispatch_session_event_with_data(
+    reload_context: &ReloadContext,
+    tag: rpi_plugin_sdk::EventTag,
+    event: serde_json::Value,
+) -> Option<String> {
     // Take the snapshot Arc + keepalive, drop the session lock, then dispatch —
     // we must not hold the session cell's mutex across the await (a handler
     // could re-enter a reload path that locks it). Holding the keepalive across
@@ -1200,9 +1213,11 @@ pub async fn dispatch_session_event_async(
                 reload_context.tool_context.session_id(),
                 format!("{tag:?}"),
             );
-            rpi_ai::identity::scope(
+            rpi_ai::identity::scope_if_absent(
                 identity,
-                rpi_extensions::dispatch_lifecycle_event(&snapshot, tag, keepalive),
+                rpi_extensions::dispatch_lifecycle_event_with_data(
+                    &snapshot, tag, keepalive, event,
+                ),
             )
             .await
         }
@@ -1226,10 +1241,11 @@ async fn shutdown_extensions_for_reload(
     auth_runtime.shutdown().await;
     if let Some(snapshot) = snapshot {
         if snapshot.has_result_handlers(rpi_plugin_sdk::EventTag::SessionShutdown) {
-            if let Some(error) = rpi_extensions::dispatch_lifecycle_event(
+            if let Some(error) = rpi_extensions::dispatch_lifecycle_event_with_data(
                 &snapshot,
                 rpi_plugin_sdk::EventTag::SessionShutdown,
                 keepalive,
+                serde_json::json!({"reason":"reload"}),
             )
             .await
             {
@@ -1308,7 +1324,11 @@ pub async fn reload_extension_resources(
     harness: &AgentHarness,
     ctx: &ReloadContext,
 ) -> ReloadOutcome {
-    reload_extension_resources_inner(harness, ctx, || {}).await
+    rpi_ai::identity::scope(
+        rpi_ai::identity::RequestIdentity::operation(ctx.tool_context.session_id(), "reload"),
+        reload_extension_resources_inner(harness, ctx, || {}),
+    )
+    .await
 }
 
 async fn reload_extension_resources_inner<F>(
@@ -1827,6 +1847,17 @@ where
     let mut active = active_tool_names(&tools, &effective_args);
     active = filter_active_tool_names(active, &effective_args);
     let _ = harness.set_tools(tools, Some(active)).await;
+
+    if let Some(reason) = dispatch_session_event_with_data(
+        ctx,
+        rpi_plugin_sdk::EventTag::SessionStart,
+        serde_json::json!({"reason":"reload"}),
+    )
+    .await
+    {
+        warnings = true;
+        details.push(format!("Extension session startup after reload: {reason}"));
+    }
 
     let summary = format!(
         "Reloaded {} plugin(s), {} skill(s), {} prompt(s).",

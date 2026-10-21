@@ -31,13 +31,17 @@ be patched through a delegated continuation. Parallel tools inherit their
 operation scope. Summary requests retain a distinct compaction purpose and
 identity; before/complete/failure lifecycle callbacks share it. Success events
 carry the committed entry, and failure callbacks still run when the request was
-cancelled. Session startup and shutdown await result listeners. Reload rebuilds
-tool subscriptions and waits for native shutdown callbacks.
+cancelled. Session startup and shutdown await result listeners. The
+`events.lifecycleReasons` capability supplies `startup`/`quit` at application
+boundaries and `reload` to both old shutdown and new startup listeners. Reload
+rebuilds providers, hooks and tools before awaiting the new startup listeners;
+the two events share its explicit operation identity. REPL fallback also starts
+the session before accepting input. Legacy C observers retain empty lifecycle
+payloads and their original layout.
 
 The legacy redacted before-provider observations remain separate from private
 provider request ownership. Cursor's stable header-object receipt and abort-signal
-mapping must be supplied by its owning worker port; those worker boundaries are
-not implemented yet. Tree, session-info and model-selection result dispatch still
+mapping is supplied by its owning worker port. Tree, session-info and model-selection result dispatch still
 need to be connected to their authoritative session/UI operations. Synchronous
 progress callbacks retain the observer path. Complete differential event traces,
 platform loading and package acceptance remain pending.
