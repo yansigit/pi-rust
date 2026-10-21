@@ -177,3 +177,36 @@ fn competing_processes_do_not_lose_credential_updates() {
     }
     assert_eq!(read(&path).unwrap().len(), 80);
 }
+
+#[tokio::test]
+async fn native_file_lease_shares_login_lock_and_does_not_parse_or_rewrite_private_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("auth.json");
+    let bytes = b"{deliberately malformed credential fixture";
+    std::fs::write(&path, bytes).unwrap();
+    let store = CompatibilityCredentialStore::new(path.clone()).unwrap();
+    let lease = store
+        .lock_file(CancellationToken::new(), std::time::Duration::ZERO)
+        .await
+        .unwrap();
+    assert_eq!(lease.path(), path);
+    assert!(
+        matches!(store.lock_file(CancellationToken::new(),std::time::Duration::ZERO).await,Err(AuthError::Provider(message)) if message == "credential store lock timed out")
+    );
+    let signal = CancellationToken::new();
+    signal.cancel();
+    assert!(matches!(
+        store
+            .lock_file(signal, std::time::Duration::from_secs(1))
+            .await,
+        Err(AuthError::Cancelled)
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    drop(lease);
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path.with_extension("json.lock"))
+        .unwrap();
+    lock.try_lock_exclusive().unwrap();
+}

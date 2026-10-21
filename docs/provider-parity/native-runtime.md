@@ -48,7 +48,7 @@ republishing. Existing source-level `ProviderManifest` initializers must include
 ## Provider callbacks
 
 A runtime manifest declares `{version:1,id,actions}` with any of `preflight`,
-`refreshCatalog`, and `authMethods`. Each callback receives
+`refreshCatalog`, `authMethods`, and `credentialStore`. Each callback receives
 `{version:1,providerId,action,input}` and returns `{version:1,result}` or a public
 `{version:1,error}`. The callback and context remain pinned until foreign code
 returns, including after cancellation.
@@ -85,3 +85,30 @@ interaction parity remains a separate pending ledger requirement.
 Print and JSON modes now deliver session start/shutdown once, as interactive/RPC
 modes already did, including the shutdown authentication drain. Full event identity
 and result-bearing lifecycle work remains pending.
+
+## Private credential-file transactions
+
+Hosts advertising `auth.credentialStoreLock` accept
+`{port:"auth",action:"credentialStore",providerId,input,lockTimeoutMs?}`.
+The registered provider must own the calling session and plugin; child callers,
+foreign providers, explicit paths, and pooled-store redirection are refused.
+The optional timeout is 0–30000 milliseconds (default 30000); zero still attempts
+an uncontended acquisition once.
+
+The host acquires the same file lock used by native login, logout and refresh,
+then invokes the provider's `credentialStore` runtime callback with
+`{authPath,expiryUnit:"seconds",input}`. The host selects this private absolute
+path. The callback owns raw-format validation, byte-preserving slot updates,
+backup/recovery ordering, and awaited file/directory durability. It must leave
+other providers unchanged and must not recursively request a host credential
+operation while holding this lock. A malformed file is passed to the callback
+without parsing or rewriting, so the provider can preserve its redacted errors.
+No credential or path is broadcast through observer events or model metadata.
+
+Admission and lock waits are cancellable. Once the callback begins, cancellation
+can stop waiting but the host retains the lock, callback and library through
+completion. Authentication shutdown drains this work before plugin teardown.
+The provider must not acknowledge queued writes as committed. A failed callback
+may have already published a file; its durable recovery records remain authoritative.
+This extends the private JSON contract without changing C vtable offsets,
+control structures, or workspace versions. Packages must negotiate the capability.

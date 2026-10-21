@@ -48,7 +48,7 @@ back on return. Existing request-resolution paths do not opt into it automatical
 Legacy callbacks have no cancellation control; their library stays pinned until
 they return even when the compatibility resolver stops waiting at its deadline.
 
-`AuthRuntime` owns background refresh work. A host must await its `shutdown`
+`AuthRuntime` owns background refresh work and admitted native credential-file transactions. A host must await its `shutdown`
 before stopping the async runtime. Refresh starts under the store lock, rechecks
 the authoritative credential, has an independent 15-second deadline, and persists
 rotation even if the request stops waiting. File-store mutation synchronizes the

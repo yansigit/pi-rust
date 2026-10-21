@@ -113,6 +113,11 @@ impl ProviderRuntime {
         let id = args["providerId"]
             .as_str()
             .ok_or("missing provider identity")?;
+        if action == "credentialStore" {
+            return self
+                .credential_store_request(owner, id, &args, signal)
+                .await;
+        }
         if action == "methods" {
             return self.auth_methods(id, signal).await;
         }
@@ -213,6 +218,59 @@ impl ProviderRuntime {
             }
             _ => Err("unsupported authentication action".into()),
         }
+    }
+
+    async fn credential_store_request(
+        &self,
+        owner: NativeOwner,
+        id: &str,
+        args: &Value,
+        signal: CancellationToken,
+    ) -> Result<Value, String> {
+        if owner.child || self.state.lock().await.catalog.owner(id).as_ref() != Some(&owner) {
+            return Err("credential store callback belongs to another session or plugin".into());
+        }
+        if args.get("storeId").is_some() || args.get("path").is_some() {
+            return Err("native credential storage is selected by the host".into());
+        }
+        let operations = rpi_extensions::provider_runtime::NativeProviderOperations::from_session(
+            &self.session,
+            id,
+        )
+        .filter(|operations| operations.supports("credentialStore"))
+        .ok_or("provider has no credential store callback")?;
+        let timeout = args.get("lockTimeoutMs").map_or(Ok(30_000), |value| {
+            value
+                .as_u64()
+                .filter(|ms| *ms <= 30_000)
+                .ok_or("invalid credential lock timeout")
+        })?;
+        let path = crate::config::auth_path().map_err(|_| "credential storage unavailable")?;
+        let store = crate::config::auth_store::CompatibilityCredentialStore::new(path)
+            .map_err(|e| e.to_string())?;
+        let input = args["input"].clone();
+        let snapshot = self
+            .session
+            .snapshot_arc()
+            .ok_or("provider session is unavailable")?;
+        self.session
+            .auth_runtime()
+            .run_owned(signal, move |admission| async move {
+                let lease = store
+                    .lock_file(admission.clone(), std::time::Duration::from_millis(timeout))
+                    .await?;
+                if admission.is_cancelled() || !snapshot.is_active() {
+                    return Err(rpi_ai::auth::AuthError::Cancelled);
+                }
+                operations
+                    .credential_store(
+                        json!({"authPath":lease.path(),"expiryUnit":"seconds","input":input}),
+                    )
+                    .await
+                    .map_err(rpi_ai::auth::AuthError::Provider)
+            })
+            .await
+            .map_err(|e| e.to_string())
     }
     async fn login_step(
         &self,

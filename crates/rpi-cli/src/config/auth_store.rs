@@ -52,6 +52,16 @@ impl Drop for LockedStore {
 
 impl LockedStore {
     fn acquire(path: PathBuf, signal: &CancellationToken) -> Result<Self, ConfigError> {
+        let mut store = Self::acquire_file(path, signal, None)?;
+        store.values = read(&store.path)?;
+        Ok(store)
+    }
+
+    fn acquire_file(
+        path: PathBuf,
+        signal: &CancellationToken,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Self, ConfigError> {
         let failure = |source| ConfigError::Write {
             path: path.clone(),
             source,
@@ -85,18 +95,22 @@ impl LockedStore {
                 Err(error)
                     if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
                 {
+                    if deadline.is_some_and(|deadline| std::time::Instant::now() >= deadline) {
+                        return Err(failure(std::io::Error::new(
+                            std::io::ErrorKind::TimedOut,
+                            "credential store lock timed out",
+                        )));
+                    }
                     std::thread::sleep(std::time::Duration::from_millis(10));
                 }
                 Err(error) => return Err(failure(error)),
             }
         }
-        let mut store = Self {
+        Ok(Self {
             path,
             lock,
             values: Map::new(),
-        };
-        store.values = read(&store.path)?;
-        Ok(store)
+        })
     }
 
     fn commit(&self) -> Result<(), ConfigError> {
@@ -114,6 +128,34 @@ impl LockedStore {
                 source,
             })?;
         Ok(())
+    }
+}
+
+/// An owning native provider may preserve raw credential bytes while holding
+/// the same lock as login, logout and refresh. The host supplies the path.
+pub(crate) struct CredentialFileLease(LockedStore);
+impl CredentialFileLease {
+    pub(crate) fn path(&self) -> &Path {
+        &self.0.path
+    }
+}
+impl CompatibilityCredentialStore {
+    pub(crate) async fn lock_file(
+        &self,
+        signal: CancellationToken,
+        timeout: std::time::Duration,
+    ) -> Result<CredentialFileLease, AuthError> {
+        let signal = signal.child_token();
+        let _cancel_wait = signal.clone().drop_guard();
+        let path = self.path.clone();
+        let deadline = std::time::Instant::now() + timeout;
+        tokio::task::spawn_blocking(move || {
+            LockedStore::acquire_file(path, &signal, Some(deadline)).map(CredentialFileLease).map_err(|error| {
+                if signal.is_cancelled() { AuthError::Cancelled }
+                else if matches!(error,ConfigError::Write{source,..} if source.kind()==std::io::ErrorKind::TimedOut) { AuthError::Provider("credential store lock timed out".into()) }
+                else { AuthError::Store }
+            })
+        }).await.map_err(|_| AuthError::Task)?
     }
 }
 

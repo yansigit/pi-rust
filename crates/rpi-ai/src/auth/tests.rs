@@ -585,3 +585,59 @@ async fn unavailable_replacement_account_never_tries_ambient_provider_auth() {
     assert!(matches!(result, Err(AuthError::Resolve)));
     assert_eq!(auth.resolutions.load(Ordering::SeqCst), 0);
 }
+
+#[tokio::test]
+async fn owned_credential_transition_finishes_after_waiter_cancels_and_shutdown_drains_it() {
+    let runtime = Arc::new(AuthRuntime::default());
+    let signal = CancellationToken::new();
+    let (started, prepared) = tokio::sync::oneshot::channel();
+    let (finish, durable) = tokio::sync::oneshot::channel();
+    let committed = Arc::new(AtomicUsize::new(0));
+    let keepalive = Arc::new(());
+    let pending = tokio::spawn({
+        let runtime = runtime.clone();
+        let signal = signal.clone();
+        let committed = committed.clone();
+        let keepalive = keepalive.clone();
+        async move {
+            runtime
+                .run_owned(signal, move |admission| async move {
+                    let _keepalive = keepalive;
+                    if admission.is_cancelled() {
+                        return Err(AuthError::Cancelled);
+                    }
+                    started.send(()).unwrap();
+                    // After preparation begins, abandoning the waiter cannot drop the write.
+                    durable.await.unwrap();
+                    committed.store(1, Ordering::SeqCst);
+                    Ok(())
+                })
+                .await
+        }
+    });
+    prepared.await.unwrap();
+    signal.cancel();
+    assert_eq!(pending.await.unwrap(), Err(AuthError::Cancelled));
+    assert_eq!(committed.load(Ordering::SeqCst), 0);
+    assert_eq!(Arc::strong_count(&keepalive), 2);
+    let shutdown = tokio::spawn({
+        let runtime = runtime.clone();
+        async move { runtime.shutdown().await }
+    });
+    tokio::task::yield_now().await;
+    assert!(!shutdown.is_finished());
+    finish.send(()).unwrap();
+    shutdown.await.unwrap();
+    assert_eq!(committed.load(Ordering::SeqCst), 1);
+    assert_eq!(Arc::strong_count(&keepalive), 1);
+    assert_eq!(
+        runtime
+            .run_owned(CancellationToken::new(), |_| async {
+                panic!("shutdown cannot admit another credential mutation");
+                #[allow(unreachable_code)]
+                Ok::<(), AuthError>(())
+            })
+            .await,
+        Err(AuthError::Cancelled)
+    );
+}

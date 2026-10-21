@@ -1,4 +1,4 @@
-//! Provider-owned metadata and admission callbacks, separate from secret-bearing auth.
+//! Private provider-owned metadata, admission and credential-storage callbacks.
 use crate::{ExtensionSession, PluginKeepalive, RegistrySnapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -22,7 +22,7 @@ impl RuntimeManifest {
             || value.actions.iter().any(|action| {
                 !matches!(
                     action.as_str(),
-                    "preflight" | "refreshCatalog" | "authMethods"
+                    "preflight" | "refreshCatalog" | "authMethods" | "credentialStore"
                 ) || !seen.insert(action)
             })
         {
@@ -85,7 +85,24 @@ impl NativeProviderOperations {
         input: Value,
         signal: CancellationToken,
     ) -> Result<Value, String> {
-        if !self.snapshot.is_active() || signal.is_cancelled() {
+        self.request_inner(action, input, signal, false).await
+    }
+
+    /// The host has admitted a credential mutation and holds its storage lock.
+    /// Retain this callback and library through completion, including reload.
+    pub async fn credential_store(&self, input: Value) -> Result<Value, String> {
+        self.request_inner("credentialStore", input, CancellationToken::new(), true)
+            .await
+    }
+
+    async fn request_inner(
+        &self,
+        action: &str,
+        input: Value,
+        signal: CancellationToken,
+        committing: bool,
+    ) -> Result<Value, String> {
+        if (!committing && !self.snapshot.is_active()) || signal.is_cancelled() {
             return Err("provider runtime cancelled".into());
         }
         if !self.supports(action) {
@@ -101,7 +118,7 @@ impl NativeProviderOperations {
             json!({"version":1,"providerId":self.record.manifest.id,"action":action,"input":input})
                 .to_string(),
             signal,
-            false,
+            committing,
         )
         .await
         .map_err(|error| match error {

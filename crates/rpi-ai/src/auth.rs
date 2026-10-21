@@ -277,6 +277,34 @@ impl AuthRuntime {
         signal: CancellationToken,
         clock: Arc<dyn Clock>,
     ) -> Result<Option<RequestAuth>, AuthError> {
+        self.run_owned(signal, move |work_signal| async move {
+            resolve_inner(
+                provider_id,
+                provider,
+                store,
+                context,
+                options,
+                work_signal,
+                clock,
+            )
+            .await
+        })
+        .await
+    }
+
+    /// Own a credential transaction through its durable completion. The signal
+    /// cancels admission and lock waits; after beginning a mutation, the work
+    /// must finish persistence independently of the requesting caller.
+    pub async fn run_owned<T, F, Fut>(
+        &self,
+        signal: CancellationToken,
+        work: F,
+    ) -> Result<T, AuthError>
+    where
+        T: Send + 'static,
+        F: FnOnce(CancellationToken) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<T, AuthError>> + Send + 'static,
+    {
         let operation = {
             let mut state = self.shared.state.lock().unwrap();
             if state.stopping || signal.is_cancelled() {
@@ -289,16 +317,7 @@ impl AuthRuntime {
         let _cancel_on_drop = work_signal.clone().drop_guard();
         let task = tokio::spawn(async move {
             let _operation = operation;
-            resolve_inner(
-                provider_id,
-                provider,
-                store,
-                context,
-                options,
-                work_signal,
-                clock,
-            )
-            .await
+            work(work_signal).await
         });
         tokio::select! {
             biased;

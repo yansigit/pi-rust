@@ -403,3 +403,147 @@ async fn late_refresh_cannot_overwrite_a_newer_publication() {
     assert_eq!(inspected["providers"][0]["models"][0]["id"], "committed");
     assert_eq!(inspected["revision"], 2);
 }
+
+#[test]
+fn native_credential_transition_is_owner_bound_and_retains_lock_through_cancelled_commit() {
+    use fs2::FileExt;
+    struct Environment(Option<std::ffi::OsString>);
+    impl Drop for Environment {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
+                None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
+            }
+        }
+    }
+    struct Gate {
+        started: tokio::sync::Notify,
+        release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+        input: std::sync::Mutex<Option<Value>>,
+    }
+    extern "C" fn transition(
+        input: rpi_plugin_sdk::StbStringRef,
+        _: *const rpi_plugin_sdk::AuthRequestControl,
+        out: *mut rpi_plugin_sdk::StbString,
+        context: *mut std::ffi::c_void,
+    ) -> i32 {
+        rpi_plugin_sdk::guard_or(1, || {
+            // The fixture remains owned until auth shutdown drains this callback.
+            let gate = unsafe { &*context.cast::<Gate>() };
+            let input: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+            let path = std::path::PathBuf::from(input["input"]["authPath"].as_str().unwrap());
+            assert_eq!(input["action"], "credentialStore");
+            assert_eq!(input["input"]["expiryUnit"], "seconds");
+            let lock = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(path.with_extension("json.lock"))
+                .unwrap();
+            assert!(lock.try_lock_exclusive().is_err());
+            *gate.input.lock().unwrap() = Some(input);
+            gate.started.notify_one();
+            gate.release
+                .lock()
+                .unwrap()
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .unwrap();
+            crate::config::atomic_write(
+                &path,
+                br#"{"test":{"type":"api_key","key":"fixture-marker"}}"#,
+            )
+            .unwrap();
+            unsafe {
+                *out = rpi_plugin_sdk::StbString::from_string(
+                    json!({"version":1,"result":{"committed":true}}).to_string(),
+                );
+            }
+            0
+        })
+    }
+    let _environment_lock = crate::config::test_support::env_lock().lock().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let _environment = Environment(std::env::var_os(crate::config::CONFIG_DIR_ENV));
+    std::env::set_var(crate::config::CONFIG_DIR_ENV, root.path());
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let (release, receiver) = std::sync::mpsc::channel();
+        let gate = Arc::new(Gate {
+            started: tokio::sync::Notify::new(),
+            release: std::sync::Mutex::new(receiver),
+            input: std::sync::Mutex::new(None),
+        });
+        let (runtime, owner, _) = fixture_with(|registry| {
+            registry.register_provider_runtime(
+                rpi_extensions::provider_runtime::RegisteredProviderRuntime {
+                    plugin: "test-plugin".into(),
+                    manifest: rpi_extensions::provider_runtime::RuntimeManifest {
+                        version: 1,
+                        id: "test".into(),
+                        actions: vec!["credentialStore".into()],
+                    },
+                    request_fn: transition,
+                    free: rpi_plugin_sdk::callbacks::free_string,
+                    context: Arc::as_ptr(&gate).cast_mut().cast(),
+                },
+            );
+        });
+        let args =
+            json!({"action":"credentialStore","providerId":"test","input":{"operation":"enter"}});
+        let mut foreign = owner.clone();
+        foreign.plugin = "another-plugin".into();
+        let mut child = owner.clone();
+        child.child = true;
+        for caller in [foreign, child] {
+            assert!(runtime
+                .auth_request(caller, args.clone(), CancellationToken::new())
+                .await
+                .is_err());
+        }
+        let mut redirected = args.clone();
+        redirected["path"] = json!("untrusted-auth.json");
+        assert!(runtime
+            .auth_request(owner.clone(), redirected, CancellationToken::new())
+            .await
+            .is_err());
+        let signal = CancellationToken::new();
+        let pending = tokio::spawn({
+            let runtime = runtime.clone();
+            let signal = signal.clone();
+            async move { runtime.auth_request(owner, args, signal).await }
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), gate.started.notified())
+            .await
+            .unwrap();
+        signal.cancel();
+        assert!(pending.await.unwrap().is_err());
+        let path = root.path().join("auth.json");
+        assert_eq!(
+            gate.input.lock().unwrap().as_ref().unwrap()["input"]["authPath"],
+            json!(path)
+        );
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path.with_extension("json.lock"))
+            .unwrap();
+        assert!(lock.try_lock_exclusive().is_err());
+        runtime
+            .session
+            .snapshot()
+            .unwrap()
+            .active_flag()
+            .store(false, Ordering::SeqCst);
+        let shutdown = tokio::spawn({
+            let runtime = runtime.clone();
+            async move { runtime.session.auth_runtime().shutdown().await }
+        });
+        tokio::task::yield_now().await;
+        assert!(!shutdown.is_finished());
+        release.send(()).unwrap();
+        shutdown.await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            r#"{"test":{"type":"api_key","key":"fixture-marker"}}"#
+        );
+        lock.try_lock_exclusive().unwrap();
+    });
+}
