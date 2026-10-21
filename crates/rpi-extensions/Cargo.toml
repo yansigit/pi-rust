@@ -39,3 +39,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
+provider-performance = ["rpi-plugin-sdk/provider"]
+# Enables the same benchmark fixture after the async-push Rust API migration.
+bounded-provider-stream = []
