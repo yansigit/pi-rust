@@ -6,12 +6,16 @@ use rpi_ai::auth::{
 };
 use rpi_ai::{Model, SimpleStreamOptions};
 
+#[derive(Clone)]
 pub(super) struct AuthBinding {
     pub provider: Arc<dyn ProviderAuth>,
     pub runtime: Arc<AuthRuntime>,
     pub store: Result<Arc<dyn CredentialStore>, AuthError>,
     pub context: AuthContext,
     pub operations: Option<Arc<rpi_extensions::provider_runtime::NativeProviderOperations>>,
+    pub model_headers:
+        std::collections::HashMap<(String, String), std::collections::BTreeMap<String, String>>,
+    pub credential_headers: std::collections::BTreeSet<String>,
 }
 
 impl AuthBinding {
@@ -75,7 +79,7 @@ impl AuthBinding {
             None
         };
         let resolved = override_auth.is_none();
-        let auth = match override_auth {
+        let mut auth = match override_auth {
             Some(auth) => auth,
             None => self
                 .runtime
@@ -98,6 +102,31 @@ impl AuthBinding {
                 .await?
                 .ok_or(AuthError::Resolve)?,
         };
+        if resolved {
+            if let Some(headers) = self
+                .model_headers
+                .get(&(model.api.as_str().to_owned(), model.id.clone()))
+            {
+                let mut explicit = auth.env.clone();
+                explicit.extend(options.env.clone());
+                let env = crate::config::native_values::overlay(&self.context.env, &explicit);
+                for (name, raw) in headers {
+                    let value = crate::config::native_values::resolve(
+                        raw,
+                        &format!(
+                            "model {:?} header {name:?}",
+                            format!("{}/{}", model.provider, model.id)
+                        ),
+                        &env,
+                    )
+                    .await
+                    .map_err(AuthError::Provider)?;
+                    auth.headers
+                        .retain(|known, _| !known.eq_ignore_ascii_case(name));
+                    auth.headers.insert(name.clone(), value);
+                }
+            }
+        }
         if !resolved || options.api_key.is_none() {
             options.api_key = auth.api_key;
         }

@@ -20,6 +20,7 @@ pub(super) struct ExecutionBinding {
     headers:
         Arc<std::collections::HashMap<(rpi_ai::Api, String), Option<BTreeMap<String, String>>>>,
     common_headers: Option<BTreeMap<String, String>>,
+    credential_headers: std::collections::BTreeSet<String>,
 }
 
 impl std::fmt::Debug for ExecutionBinding {
@@ -83,7 +84,15 @@ impl ExecutionBinding {
             endpoint_override,
             headers,
             common_headers,
+            credential_headers: Default::default(),
         }
+    }
+
+    pub fn with_auth_config(mut self, auth: Option<&super::auth::AuthBinding>) -> Self {
+        if let Some(auth) = auth {
+            self.credential_headers = auth.credential_headers.clone();
+        }
+        self
     }
 
     pub fn models(&self) -> &[Model] {
@@ -106,6 +115,7 @@ impl ExecutionBinding {
         binding.endpoint_override = self.endpoint_override.clone();
         binding.headers = self.headers.clone();
         binding.common_headers = self.common_headers.clone();
+        binding.credential_headers = self.credential_headers.clone();
         binding
     }
 
@@ -151,6 +161,7 @@ impl ExecutionBinding {
                 ]
                 .iter()
                 .any(|credential| name.eq_ignore_ascii_case(credential))
+                    && !self.credential_headers.contains(&name.to_ascii_lowercase())
                     && !model.headers.as_ref().is_some_and(|bound| {
                         bound.keys().any(|known| known.eq_ignore_ascii_case(name))
                     })

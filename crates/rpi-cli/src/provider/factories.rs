@@ -59,6 +59,7 @@ impl ProviderFactory for ExtensionFactory {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct RuntimeFactories {
     protocols: BTreeMap<String, Arc<dyn ProviderFactory>>,
     providers: BTreeMap<String, Arc<dyn ProviderFactory>>,
@@ -93,6 +94,63 @@ impl Default for RuntimeFactories {
 }
 
 impl RuntimeFactories {
+    pub fn with_native_auth_config(&self, config: &config::ModelsConfig) -> Self {
+        let mut factories = self.clone();
+        for (id, binding) in &mut factories.auth {
+            let mut configured = binding.as_ref().clone();
+            if let Some(configuration) = config.providers.get(id) {
+                configured.credential_headers.extend(
+                    configuration
+                        .headers
+                        .iter()
+                        .flat_map(|headers| headers.keys())
+                        .map(|name| name.to_ascii_lowercase()),
+                );
+                configured.provider = Arc::new(super::auth_config::Configured {
+                    id: id.clone(),
+                    inner: configured.provider,
+                    config: configuration.clone(),
+                    environment: configured.context.env.clone(),
+                });
+                let api = configuration
+                    .api
+                    .as_deref()
+                    .or_else(|| factories.provider_apis.get(id).map(String::as_str));
+                if let Some(api) = api {
+                    for model in &configuration.models {
+                        if let Some(headers) = &model.headers {
+                            configured
+                                .model_headers
+                                .insert((api.to_owned(), model.id.clone()), headers.clone());
+                        }
+                    }
+                }
+            }
+            for model in factories
+                .manifests
+                .iter()
+                .filter(|manifest| manifest.id == *id)
+                .flat_map(|manifest| &manifest.models)
+            {
+                if let Some(headers) = &model.headers {
+                    configured
+                        .model_headers
+                        .entry((model.api.as_str().to_owned(), model.id.clone()))
+                        .or_default()
+                        .extend(headers.clone());
+                }
+            }
+            configured.credential_headers.extend(
+                configured
+                    .model_headers
+                    .values()
+                    .flat_map(|headers| headers.keys())
+                    .map(|name| name.to_ascii_lowercase()),
+            );
+            *binding = Arc::new(configured);
+        }
+        factories
+    }
     pub fn from_session(session: &ExtensionSession) -> Self {
         let mut factories = Self::default();
         if let Some(snapshot) = session.snapshot() {
@@ -140,6 +198,8 @@ impl RuntimeFactories {
                         runtime: session.auth_runtime(),
                         store: store.clone(),
                         context: context.clone(),
+                        model_headers: Default::default(),
+                        credential_headers: Default::default(),
                     }),
                 );
             }
@@ -165,12 +225,10 @@ impl RuntimeFactories {
                     .map_or(true, |declared| declared == api.as_str())
             })
             .or_else(|| self.protocols.get(api.as_str()))?;
-        let binding = Arc::new(ExecutionBinding::new(
-            provider_id,
-            models,
-            canonical_models.to_vec(),
-            auth,
-        ));
+        let binding = Arc::new(
+            ExecutionBinding::new(provider_id, models, canonical_models.to_vec(), auth)
+                .with_auth_config(self.auth.get(provider_id).map(Arc::as_ref)),
+        );
         let inner = factory.create(provider_id, binding.models().to_vec(), settings);
         let provider = Arc::new(ConfiguredProvider {
             id: provider_id.into(),
@@ -195,12 +253,7 @@ pub(crate) fn native_alias(
         id,
         models.clone(),
     )?;
-    let binding = Arc::new(ExecutionBinding::new(
-        id,
-        models.clone(),
-        models,
-        RequestAuth::None,
-    ));
+    let binding = ExecutionBinding::new(id, models.clone(), models, RequestAuth::None);
     let api = session
         .snapshot()?
         .providers()
@@ -210,12 +263,14 @@ pub(crate) fn native_alias(
         .clone();
     let auth = if id == source {
         RuntimeFactories::from_session(session)
+            .with_native_auth_config(&config::load_models_config().ok()?)
             .auth
             .get(source)
             .cloned()
     } else {
         None
     };
+    let binding = Arc::new(binding.with_auth_config(auth.as_deref()));
     Some(Arc::new(ConfiguredProvider {
         id: id.into(),
         api,

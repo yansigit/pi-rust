@@ -29,6 +29,11 @@ models cannot redirect a bound credential. Native CLI login, method discovery,
 refresh and logout use the same locked store; shutdown drains refresh persistence.
 Reload validates its replacement before shutting down the old session.
 
+[Configured native authentication](configured-auth.md) resolves private provider
+and model headers per physical send, preserves stored/explicit key precedence,
+and excludes ambient configuration from replacement attempts. Catalog inspection
+and configured-key readiness checks do not run credential commands.
+
 Response status and lossless header values have a private, awaited observation port
 through built-in transports and the native SDK. Native receipt queues are drained
 while the provider is opening its stream. Observer events omit keys and header

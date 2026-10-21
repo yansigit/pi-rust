@@ -140,7 +140,32 @@ async fn execute(
                 ),
                 Some(_) => (false, "unsupported", false),
                 None => {
-                    return Ok(super::run_check(&args[1..], session.snapshot_arc().as_ref()).await)
+                    let config = config::load_models_config().map_err(|_| AuthError::Store)?;
+                    match config
+                        .providers
+                        .get(provider)
+                        .and_then(|config| config.api_key.as_deref())
+                    {
+                        Some(key) if auth.manifest().api_key => {
+                            let env = std::env::vars_os()
+                                .filter_map(|(key, value)| {
+                                    Some((key.into_string().ok()?, value.into_string().ok()?))
+                                })
+                                .collect();
+                            (
+                                config::native_values::configured(key, &env),
+                                "configured API key",
+                                false,
+                            )
+                        }
+                        _ => {
+                            return Ok(super::run_check(
+                                &args[1..],
+                                session.snapshot_arc().as_ref(),
+                            )
+                            .await)
+                        }
+                    }
                 }
             };
             if args.iter().any(|arg| arg == "--json") {

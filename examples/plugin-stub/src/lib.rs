@@ -425,6 +425,11 @@ rpi_plugin_sdk::string_handler! {
             let request: serde_json::Value = serde_json::from_str(_req_json).unwrap();
             let expected = if mode == "prepared" { "provider-prepared-key".to_owned() } else { std::env::var("RPI_STUB_EXPECT_API_KEY").unwrap() };
             assert_eq!(request["options"]["apiKey"], expected);
+            if let Ok(expected) = std::env::var("RPI_STUB_EXPECT_HEADERS") {
+                let expected: serde_json::Value = serde_json::from_str(&expected).unwrap();
+                assert_eq!(request["options"]["headers"], expected);
+                assert!(request["model"]["headers"].is_null());
+            }
             if mode == "prepared" {
                 assert_eq!(request["options"]["headers"]["X-Provider-Private"], "private-header");
                 assert_eq!(request["options"]["env"]["RPI_PRIVATE_REQUEST_ENV"], "request-only");

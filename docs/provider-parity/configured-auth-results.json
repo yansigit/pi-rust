@@ -1,0 +1,46 @@
+{
+  "status": "host-capabilities-not-package-parity",
+  "reference": "Pi 1.3.0",
+  "platform": "Linux",
+  "compiler": "Rust 1.78.0",
+  "flags": "-Dwarnings",
+  "configuredAuthCases": 600,
+  "results": [
+    {
+      "log": "/tmp/rpi-native-config-provider-final.log",
+      "sha256": "3befc5cadd02adfc332fee484e893bff46ced538433a34a06a94dcf870f2c044",
+      "results": [
+        "test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 557 filtered out; finished in 0.13s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-config-values-final.log",
+      "sha256": "1e652f7a3d1029aa5018010ed3fd8152fceeb95c7855f9aee6703e16de7ca197",
+      "results": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 630 filtered out; finished in 0.01s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-config-loaded-final.log",
+      "sha256": "8a67a3891f1554c0c0ab614dd17c5f1befa39538c2e95a04e365b0bfc629e0bb",
+      "results": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 17 filtered out; finished in 0.17s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-config-workspace.log",
+      "sha256": "9d3e39a2a48bf05a719a5334c55699ea98f38c678de9b976a9202619f5a1515a",
+      "results": [
+        "Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.17s"
+      ]
+    }
+  ],
+  "qualification": "Native configured API keys, provider/model headers, stored/explicit key precedence, private request environment, OAuth headers, discovery without command execution, and replacement-header stripping. Actual loaded-library fixture covers all four stored/explicit combinations and readiness probes. Legacy authentication resolution remains on its existing path.",
+  "not_tested": [
+    "macOS and Windows execution",
+    "full modelOverrides composition",
+    "provider-defined readiness callbacks",
+    "all shell timeout and cancellation branches",
+    "complete package differential acceptance"
+  ]
+}

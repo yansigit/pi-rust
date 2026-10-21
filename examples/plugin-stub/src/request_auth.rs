@@ -55,13 +55,17 @@ extern "C" fn request(
     })
 }
 pub fn register(api: &PluginApi) -> Result<(), String> {
-    let model = rpi_ai::Model::new(
+    let mut model = rpi_ai::Model::new(
         "stub-model",
         "Stub",
         rpi_ai::Api::Faux,
         "stub-provider",
         "https://stub.example",
     );
+    if let Ok(headers) = std::env::var("RPI_STUB_MODEL_HEADERS") {
+        model.headers =
+            Some(serde_json::from_str(&headers).map_err(|_| "invalid fixture headers")?);
+    }
     if api.declare.ok_or("missing declaration")?(StbStringRef::from_str(
         &json!({"providers":[{"id":"stub-provider","models":[model]}]}).to_string(),
     )) != 0

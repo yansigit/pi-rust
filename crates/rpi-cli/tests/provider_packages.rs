@@ -9,6 +9,128 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[cfg(unix)]
+#[test]
+#[ignore = "requires current plugin-stub with configured-auth assertions"]
+fn native_configured_auth_resolves_per_send_without_catalog_commands() {
+    use serde_json::json;
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    for stored in [false, true] {
+        for explicit in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let agent = temp.path().join("agent");
+            std::fs::create_dir(&agent).unwrap();
+            let credential = if stored {
+                json!({"stub-provider":{"type":"api_key","key":"stored-key","env":{"RPI_FIXTURE_HEADER":"account-value"}}})
+            } else {
+                json!({})
+            };
+            std::fs::write(agent.join("auth.json"), credential.to_string()).unwrap();
+            std::fs::write(
+                agent.join("settings.json"),
+                r#"{"retry":{"enabled":false}}"#,
+            )
+            .unwrap();
+            let counter = temp.path().join("counter");
+            let quoted = format!("'{}'", counter.to_str().unwrap().replace('\'', "'\\''"));
+            let value = |label: &str, value: &str| {
+                format!("!printf '{label}\\n' >> {quoted}; printf '{value}'")
+            };
+            std::fs::write(agent.join("models.json"),json!({"providers":{"stub-provider":{
+                "apiKey":value("key","configured-key"),"authHeader":true,
+                "headers":{"X-Command":value("header","configured-value"),"X-Environment":"$RPI_FIXTURE_HEADER","X-Precedence":"provider-value"},
+                "models":[{"id":"stub-model","headers":{"X-Precedence":"model-value"}}]
+            }}}).to_string()).unwrap();
+            if !stored {
+                let mut probe = command_base(&temp);
+                probe
+                    .env("RPI_STUB_REQUEST_AUTH", "ambient")
+                    .args([
+                        "auth",
+                        "check",
+                        "--provider",
+                        "stub-provider",
+                        "--json",
+                        "--extension",
+                    ])
+                    .arg(&library);
+                let output = bounded_output(&mut probe);
+                assert!(
+                    output.status.success(),
+                    "{}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+                assert_eq!(
+                    serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["ready"],
+                    true
+                );
+                assert!(
+                    !counter.exists(),
+                    "readiness must not execute key or header commands"
+                );
+            }
+            let expected_key = if explicit {
+                "explicit-key"
+            } else if stored {
+                "stored-key"
+            } else {
+                "configured-key"
+            };
+            let expected_env = if stored && !explicit {
+                "account-value"
+            } else {
+                "ambient-value"
+            };
+            let mut command = command(&temp, &library);
+            command.env("RPI_STUB_REQUEST_AUTH","ambient").env("RPI_STUB_EXPECT_API_KEY",expected_key).env("RPI_FIXTURE_HEADER","ambient-value")
+                .env("RPI_STUB_MODEL_HEADERS",json!({"X-Precedence":value("model","extension-value")}).to_string())
+                .env("RPI_STUB_EXPECT_HEADERS",json!({"Authorization":format!("Bearer {expected_key}"),"X-Command":"configured-value","X-Environment":expected_env,"X-Precedence":"extension-value"}).to_string())
+                .args(["--provider","stub-provider","--model","stub-model","--print","--no-session","--no-tools","hello"]);
+            if explicit {
+                command.args(["--api-key", "explicit-key"]);
+            }
+            let output = bounded_output(&mut command);
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                std::fs::read_to_string(counter).unwrap(),
+                if stored || explicit {
+                    "header\nmodel\n"
+                } else {
+                    "key\nheader\nmodel\n"
+                }
+            );
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(
+                    &std::fs::read(agent.join("auth.json")).unwrap()
+                )
+                .unwrap(),
+                credential
+            );
+            let output = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            for secret in [
+                "stored-key",
+                "explicit-key",
+                "configured-key",
+                "account-value",
+                "ambient-value",
+                "configured-value",
+                "extension-value",
+            ] {
+                assert!(!output.contains(secret));
+            }
+        }
+    }
+}
+
 #[test]
 #[ignore = "requires cargo build -p plugin-stub with dynamic auth methods"]
 fn native_dynamic_auth_methods_gate_discovery_and_login() {

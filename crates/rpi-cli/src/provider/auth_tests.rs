@@ -88,6 +88,8 @@ async fn replacement_drops_default_credentials_env_and_endpoint_without_changing
     factories.auth.insert(
         "pool".into(),
         Arc::new(super::super::auth::AuthBinding {
+            model_headers: Default::default(),
+            credential_headers: Default::default(),
             operations:None,
             provider: auth.clone(),
             runtime: runtime.clone(),
@@ -96,6 +98,11 @@ async fn replacement_drops_default_credentials_env_and_endpoint_without_changing
                 env: [("DEFAULT_ACCOUNT".into(), "ambient-secret".into())].into(),
             },
         }),
+    );
+    let factories = factories.with_native_auth_config(
+        &serde_json::from_value(serde_json::json!({
+            "providers": {"pool": {"headers": {"X-Configured": "default-config-secret"}}}
+        })).unwrap(),
     );
     let canonical = Model::new(
         "model",
@@ -139,6 +146,7 @@ async fn replacement_drops_default_credentials_env_and_endpoint_without_changing
             [
                 ("authorization".into(), "old-secret".into()),
                 ("X-Custom-Credential".into(), "old-custom-secret".into()),
+                ("X-CONFIGURED".into(), "old-config-secret".into()),
                 ("x-trace".into(), "trace".into()),
             ]
             .into(),
@@ -207,6 +215,8 @@ async fn provider_owned_auth_is_resolved_per_request_and_unavailable_credentials
     factories.auth.insert(
         "pool".into(),
         Arc::new(super::super::auth::AuthBinding {
+            model_headers: Default::default(),
+            credential_headers: Default::default(),
             operations:None,
             provider: auth.clone(),
             runtime: runtime.clone(),
@@ -345,6 +355,8 @@ async fn provider_admission_refuses_before_credential_reads_or_transport() {
         id:"retired".into(), api:model.api.as_str().into(), inner:Arc::new(Refusal),
         binding:Arc::new(ExecutionBinding::new("retired",vec![model.clone()],vec![model.clone()], RequestAuth::None)),
         auth:Some(Arc::new(super::super::auth::AuthBinding {
+            model_headers: Default::default(),
+            credential_headers: Default::default(),
             operations:None,
             provider:Arc::new(RecordingAuth{calls:Mutex::new(vec![]),base_url:None}), runtime:Arc::new(AuthRuntime::default()), store:Ok(Arc::new(ForbiddenStore)), context:AuthContext::default(),
         })),

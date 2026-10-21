@@ -78,6 +78,7 @@ use rpi_ai::{
 };
 
 mod auth;
+pub(crate) mod auth_config;
 mod auth_policy;
 mod binding;
 mod factories;
@@ -315,6 +316,7 @@ fn resolve_with_factories(
     // gateway available or become that gateway's provider default.
     let mut models_cfg = config::load_models_config()?;
     apply_manifest_defaults(&mut models_cfg, &factories.manifests);
+    let factories = &factories.with_native_auth_config(&models_cfg);
     let canonical_cli_provider = cli_provider
         .map(|requested| canonicalize_cli_provider(requested, &models_cfg))
         .transpose()?;
@@ -364,7 +366,9 @@ fn resolve_with_factories(
 
     // ---- Catalog: built-in + ~/.rpi/models.json (merged, reusing the
     // already-loaded config) ----
-    let mut catalog = build_catalog(&models_cfg, &factories.manifests);
+    let mut catalog = build_catalog(&models_cfg, &factories.manifests, |id| {
+        !factories.auth.contains_key(id)
+    });
     let canonical_catalog = catalog.clone();
 
     // The ambient Anthropic override belongs only to the built-in identity.
@@ -848,10 +852,11 @@ pub fn manifests_from_session(
 pub fn catalog_with_manifests(
     manifests: &[rpi_extensions::ProviderManifest],
 ) -> Result<Vec<Model>, config::ConfigError> {
-    Ok(execution_catalog_with_manifests(manifests)?
-        .iter()
-        .map(binding::descriptor)
-        .collect())
+    let mut cfg = config::load_models_config()?;
+    apply_manifest_defaults(&mut cfg, manifests);
+    let mut catalog = build_catalog(&cfg, manifests, |_| false);
+    sort_catalog(&mut catalog);
+    Ok(catalog.iter().map(binding::descriptor).collect())
 }
 
 /// Internal configuration view used only to evaluate header-based auth policy.
@@ -860,14 +865,17 @@ pub(crate) fn execution_catalog_with_manifests(
 ) -> Result<Vec<Model>, config::ConfigError> {
     let mut cfg = config::load_models_config()?;
     apply_manifest_defaults(&mut cfg, manifests);
-    let mut catalog = build_catalog(&cfg, manifests);
+    let mut catalog = build_catalog(&cfg, manifests, |_| true);
+    sort_catalog(&mut catalog);
+    Ok(catalog)
+}
+fn sort_catalog(catalog: &mut [Model]) {
     catalog.sort_by(|a, b| {
         a.provider
             .to_ascii_lowercase()
             .cmp(&b.provider.to_ascii_lowercase())
             .then_with(|| a.id.to_ascii_lowercase().cmp(&b.id.to_ascii_lowercase()))
     });
-    Ok(catalog)
 }
 
 fn apply_manifest_defaults(
@@ -903,6 +911,7 @@ fn apply_manifest_defaults(
 fn build_catalog(
     cfg: &config::ModelsConfig,
     manifests: &[rpi_extensions::ProviderManifest],
+    resolve_headers: impl Fn(&str) -> bool,
 ) -> Vec<Model> {
     let mut catalog = anthropic_models();
     catalog.extend(openai_responses_models());
@@ -915,13 +924,17 @@ fn build_catalog(
             if let Some(base) = config.and_then(|config| config.base_url.as_ref()) {
                 model.base_url = base.clone();
             }
-            if let Some(headers) = config.and_then(|config| config.headers.as_ref()) {
-                merge_auth_headers(&mut model, &config::resolve_headers(headers, None));
+            if resolve_headers(&manifest.id) {
+                if let Some(headers) = config.and_then(|config| config.headers.as_ref()) {
+                    merge_auth_headers(&mut model, &config::resolve_headers(headers, None));
+                }
+            } else {
+                model.headers = None;
             }
             catalog.push(model);
         }
     }
-    merge_user_catalog(&mut catalog, cfg);
+    merge_user_catalog(&mut catalog, cfg, resolve_headers);
     catalog
 }
 
@@ -929,9 +942,20 @@ fn build_catalog(
 /// the same runtime provider and API replace entries with the same id; models
 /// with the same id under different OpenAI-compatible providers remain
 /// distinct so `provider/id` can select the intended endpoint.
-fn merge_user_catalog(catalog: &mut Vec<Model>, cfg: &config::ModelsConfig) {
+fn merge_user_catalog(
+    catalog: &mut Vec<Model>,
+    cfg: &config::ModelsConfig,
+    resolve_headers: impl Fn(&str) -> bool,
+) {
     for (provider_id, provider_cfg) in &cfg.providers {
-        let Some(models) = config::provider_to_models(provider_id, provider_cfg) else {
+        let mut provider_cfg = provider_cfg.clone();
+        if !resolve_headers(provider_id) {
+            provider_cfg.headers = None;
+            for model in &mut provider_cfg.models {
+                model.headers = None;
+            }
+        }
+        let Some(models) = config::provider_to_models(provider_id, &provider_cfg) else {
             // Unsupported protocol.
             continue;
         };

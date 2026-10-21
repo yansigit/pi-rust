@@ -38,6 +38,7 @@ use std::path::{Path, PathBuf};
 use rpi_ai::{Api, InputModality, Model, ModelCost, StreamingProtocolCompat, ThinkingLevelMap};
 
 pub mod auth_store;
+pub(crate) mod native_values;
 
 /// The config directory name under the home dir.
 pub const CONFIG_DIR_NAME: &str = ".rpi";

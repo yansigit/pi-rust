@@ -198,6 +198,8 @@ mod tests {
     #[tokio::test]
     async fn explicit_empty_key_headers_and_environment_keep_pi_request_precedence() {
         let binding = super::super::auth::AuthBinding {
+            model_headers: Default::default(),
+            credential_headers: Default::default(),
             provider: Arc::new(Provider),
             runtime: Arc::new(AuthRuntime::default()),
             store: Err(AuthError::Store),
