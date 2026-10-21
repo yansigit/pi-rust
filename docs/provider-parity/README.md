@@ -110,12 +110,21 @@ native callback differential suite.
 
 [inventory.jsonl](inventory.jsonl) records source/test file hashes and individual
 statically named test declarations. Parameterized declarations are recorded once;
-the upstream runner owns their expanded case counts. Intended port and acceptance
-paths are **planned**, not existing implementations. Every row starts pending.
-The shared Antigravity core inventory is deliberately conservative: barrel exports,
-embedded common-auth and shared test infrastructure need symbol-level reachability
-review before rows can be excluded. This inventory is not yet a completed parity
-ledger. Runtime-generated test names and imported test declarations need review too.
+the upstream runner owns their expanded case counts. [File mappings](file-mapping.json)
+assign every pinned file and its declarations to behavioral rows, explicit port
+files and acceptance files. These paths are **planned**, not claims of existing
+implementations. The generator rejects missing mappings, changed source hashes and
+stale mappings. Every acceptance row remains pending until qualified by evidence.
+
+[Antigravity reachability](antigravity-reachability.json) records Pi's runtime
+imports, named barrel exports and lazy common-auth loader edges. Reached modules
+are conservative: their unused branches are not automatically declared equivalent.
+Pi uses sections-mode menus and its own converter; the unrelated OpenCode pool,
+migration, quota polling and conversion modules are explicitly outside this scope.
+Reference build/test-process fixtures retain their unchanged baseline, separately
+from candidate acceptance. Mixed tests (such as Claustrum and pool quota counters)
+remain required until their Pi-reachable cases have differential evidence.
+Runtime-generated test names and imported test declarations still require review.
 
 The behavioral ledger below supplements that file inventory. Each row requires
 passing differential evidence before completion. All rows are currently pending.
@@ -178,6 +187,7 @@ Use a separate directory for reference code and logs:
 python3 scripts/provider-parity.py fetch /absolute/path/to/provider-references
 python3 scripts/provider-parity.py baseline /absolute/path/to/provider-references
 node scripts/provider-parity-inventory.mjs /absolute/path/to/provider-references
+node scripts/provider-parity-reachability.mjs /absolute/path/to/provider-references
 ```
 
 Antigravity's pinned build source explicitly requires Bun **1.4.2**; its older

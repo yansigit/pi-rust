@@ -1,13 +1,14 @@
 // Enumerate source modules and test declarations without executing upstream code.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const references = JSON.parse(readFileSync(join(root, 'docs/provider-parity/references.json'), 'utf8'));
+const mappings = JSON.parse(readFileSync(join(root, 'docs/provider-parity/file-mapping.json'), 'utf8'));
 const directory = resolve(process.argv[2] ?? '../provider-references');
 // Reuse Cursor's locked compiler API; TypeScript 7 intentionally has none.
 const ts = createRequire(join(directory, 'cursor/package.json'))('@typescript/typescript6');
@@ -41,8 +42,10 @@ function testDeclarations(text, path) {
 assert.deepEqual(testDeclarations('it("one", () => {}); it.each([1])("case %s", () => {}); test.skip("later", () => {});', 'self-test.ts').map(row => row.title), ['one', 'case %s', 'later']);
 
 const rows = [];
+const mapped = new Set();
 for (const [name, reference] of Object.entries(references.providers)) {
-  const checkout = join(directory, reference.checkoutDirectory ?? name);
+  const preferred = join(directory, reference.checkoutDirectory ?? name);
+  const checkout = existsSync(preferred) ? preferred : join(directory, name);
   const paths = [...new Set([...reference.sourceRoots, ...reference.testRoots].flatMap(path => files(join(checkout, path))))].sort();
   for (const path of paths) {
     if (!/\.(?:[cm]?[jt]sx?)$/.test(path) || /\.d\.(?:[cm]?ts)$/.test(path)) continue;
@@ -50,20 +53,24 @@ for (const [name, reference] of Object.entries(references.providers)) {
     const text = readFileSync(path, 'utf8');
     const isTest = /\.(test|spec)\.[cm]?[jt]sx?$/.test(path);
     const declarations = isTest ? testDeclarations(text, path) : [];
-    const port = name === 'cursor'
-      ? `packages/${reference.destination}/worker/${upstream}`
-      : `packages/${reference.destination}/src/${upstream.replace(/^(?:packages\/)?/, '').replace(/\.[^.]+$/, '.rs').replaceAll('-', '_')}`;
-    const base = { provider: name, upstream, sha256: createHash('sha256').update(text).digest('hex'),
-      kind: isTest ? 'test-file' : 'source-or-fixture', intendedPort: port,
-      acceptance: `packages/${reference.destination}/tests/parity/${upstream}`,
-      status: 'pending', evidence: [],
-      scope: name === 'antigravity' && !upstream.startsWith('packages/pi/') ? 'shared-reachability-review-required' : 'required' };
+    const id = `${name}:${upstream}`;
+    const mapping = mappings[id];
+    assert.ok(mapping, `new source needs an explicit port and acceptance mapping: ${id}`);
+    const sha256 = createHash('sha256').update(text).digest('hex');
+    assert.equal(sha256, mapping.sha256, `source changed; review its mapping: ${id}`);
+    assert.ok(mapping.acceptanceFiles.length && mapping.ledgerRows.length, id);
+    assert.ok(mapping.portFiles.length || ['outside-pi', 'reference-baseline'].includes(mapping.scope), id);
+    mapped.add(id);
+    const base = { provider: name, upstream, sha256,
+      kind: isTest ? 'test-file' : 'source-or-fixture', ...mapping,
+      status: 'pending', evidence: [] };
     rows.push({ id: `${name}:${upstream}`, ...base });
     for (const declaration of declarations) {
       rows.push({ ...base, id: `${name}:${upstream}:${declaration.line}`, kind: 'test-declaration', ...declaration });
     }
   }
 }
+assert.deepEqual([...mapped].sort(), Object.keys(mappings).sort(), 'remove stale mappings deliberately');
 assert.equal(new Set(rows.map(row => row.id)).size, rows.length, 'ledger identities must be unique');
 const output = process.argv[3] ? resolve(process.argv[3]) : join(root, 'docs/provider-parity/inventory.jsonl');
 writeFileSync(output, rows.map(row => JSON.stringify(row)).join('\n') + '\n');

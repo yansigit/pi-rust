@@ -1,0 +1,1242 @@
+{
+  "reference": "a97f9055017f3c1546afbfe61a19d50b428be3d8",
+  "entry": "packages/pi/src/index.ts",
+  "method": "Runtime imports excluding type-only bindings; named core barrel export resolution; explicit lazy common-auth loader edges. Includes unused branches within reached modules. Dynamic external SDK behavior remains separately required.",
+  "modules": {
+    "packages/core/src/abort-forwarding.ts": {
+      "from": [
+        "packages/core/src/fetch-timeout.ts",
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "forwardAbort"
+      ]
+    },
+    "packages/core/src/account-identity.ts": {
+      "from": [
+        "packages/core/src/antigravity-command-menu.ts"
+      ],
+      "names": [
+        "rowRefKey"
+      ]
+    },
+    "packages/core/src/account-repository-codecs.ts": {
+      "from": [
+        "packages/core/src/vault-provider-state.ts"
+      ],
+      "names": [
+        "AccountCodecError",
+        "decodeProviderMetadata",
+        "decodeQuotaState",
+        "encodeProviderMetadata",
+        "encodeQuotaState"
+      ]
+    },
+    "packages/core/src/account-repository-types.ts": {
+      "from": [
+        "packages/core/src/account-repository-codecs.ts"
+      ],
+      "names": [
+        "CREDENTIAL_BOUND_METADATA_FIELDS",
+        "PROVIDER_STATE_SCHEMA_VERSION",
+        "QUOTA_STATE_SCHEMA_VERSION",
+        "ROUTING_SETTINGS_SCHEMA_VERSION"
+      ]
+    },
+    "packages/core/src/agy-request-metadata.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "AgyRequestSessionStore",
+        "buildAgyAgentRequestMetadata",
+        "orderAgyRequestPayloadInPlace"
+      ]
+    },
+    "packages/core/src/agy-transport.ts": {
+      "from": [
+        "packages/core/src/antigravity/oauth.ts",
+        "packages/core/src/index.ts",
+        "packages/core/src/project.ts"
+      ],
+      "names": [
+        "fetchWithAgyCliTransport"
+      ]
+    },
+    "packages/core/src/antigravity-command-menu.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "ANTIGRAVITY_MENU_COMMAND",
+        "createAntigravityCommandMenu"
+      ]
+    },
+    "packages/core/src/antigravity/oauth.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "authorizeAntigravity",
+        "exchangeAntigravity",
+        "refreshAntigravityToken"
+      ]
+    },
+    "packages/core/src/atomic-write.ts": {
+      "from": [
+        "packages/pi/src/vault-setup.ts"
+      ],
+      "names": [
+        "writeJsonAtomic"
+      ]
+    },
+    "packages/core/src/auth.ts": {
+      "from": [
+        "packages/core/src/antigravity/oauth.ts",
+        "packages/core/src/index.ts",
+        "packages/core/src/project.ts"
+      ],
+      "names": [
+        "calculateTokenExpiry",
+        "formatRefreshParts",
+        "parseRefreshParts"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/availability.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/custody.js",
+        "packages/core/src/common-auth-embedded/claustrum/index.js",
+        "packages/core/src/common-auth-embedded/claustrum/insula.js"
+      ],
+      "names": [
+        "ClaustrumUnreachableError",
+        "VAULT_FAILURE_CLASSES",
+        "classifyVaultFailure"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/consumer.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/index.js"
+      ],
+      "names": [
+        "ClaustrumConsumer"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/custody.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/consumer.js",
+        "packages/core/src/common-auth-embedded/claustrum/index.js"
+      ],
+      "names": [
+        "ClaustrumScopedCustody",
+        "KEPT_RECEIPT_MARGIN_MS",
+        "SERVING_MARGIN_MS",
+        "decideScopedRetryAfter401",
+        "isScopedCredentialRotation"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/enrollment.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/consumer.js",
+        "packages/core/src/common-auth-embedded/claustrum/custody.js",
+        "packages/core/src/common-auth-embedded/claustrum/index.js"
+      ],
+      "names": [
+        "ClaustrumEnrollmentManager",
+        "RETRYABLE_ENROLLMENT_CODES",
+        "TERMINAL_ENROLLMENT_CODES",
+        "classifyEnrollmentError",
+        "connectClaustrumEnrollmentClient",
+        "disconnectClaustrumEnrollment",
+        "enrollmentAuthority",
+        "enrollmentName",
+        "getClaustrumEnrollmentPaths",
+        "hostEnrollmentPaths",
+        "readClaustrumEnrollmentStatus",
+        "readClaustrumEnrollmentToken",
+        "resetClaustrumEnrollmentState"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/errors.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/availability.js",
+        "packages/core/src/common-auth-embedded/claustrum/consumer.js",
+        "packages/core/src/common-auth-embedded/claustrum/custody.js",
+        "packages/core/src/common-auth-embedded/claustrum/enrollment.js",
+        "packages/core/src/common-auth-embedded/claustrum/host-slot.js",
+        "packages/core/src/common-auth-embedded/claustrum/index.js",
+        "packages/core/src/common-auth-embedded/claustrum/roster.js"
+      ],
+      "names": [
+        "ClaustrumConsumerError"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/host-slot.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/custody.js",
+        "packages/core/src/common-auth-embedded/claustrum/index.js"
+      ],
+      "names": [
+        "CUSTODY_PLACEHOLDER_PREFIX",
+        "assertHostSlotMatchesMode",
+        "assertNotCustodyPlaceholder",
+        "classifyHostSlot",
+        "custodyPlaceholder",
+        "custodyPlaceholderKey",
+        "isCustodyPlaceholder",
+        "isCustodyPlaceholderValue"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/index.js": {
+      "from": [
+        "packages/core/src/common-auth-runtime.ts"
+      ],
+      "names": [
+        "*"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/insula.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/consumer.js",
+        "packages/core/src/common-auth-embedded/claustrum/index.js"
+      ],
+      "names": [
+        "acquireInsulaQuotaSource",
+        "insulaUsageTransport"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/interlock.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/index.js",
+        "packages/core/src/common-auth-embedded/claustrum/roster.js"
+      ],
+      "names": [
+        "acceptAccount",
+        "declineAccount",
+        "isDeclined"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/roster.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/consumer.js",
+        "packages/core/src/common-auth-embedded/claustrum/index.js"
+      ],
+      "names": [
+        "DEFAULT_ROUTE_PREFIX",
+        "acceptVaultRoute",
+        "declineVaultRoute",
+        "mutateVaultRoster",
+        "projectVaultRoster",
+        "readVaultRoster",
+        "recordVaultAccountQuota",
+        "recordVaultQuota",
+        "refreshVaultRoster",
+        "resolveVaultPrimary",
+        "vaultRoutingRows"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/claustrum/watch.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/consumer.js",
+        "packages/core/src/common-auth-embedded/claustrum/custody.js",
+        "packages/core/src/common-auth-embedded/claustrum/index.js",
+        "packages/core/src/common-auth-embedded/claustrum/insula.js"
+      ],
+      "names": [
+        "ChangeNoticeReader",
+        "CoalescedRead",
+        "RESUBSCRIBE_BACKOFF_MS",
+        "SAFETY_POLL_MS",
+        "ScopedRosterWatch",
+        "WATCH_RETRY_MS"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/commands/builtins.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/commands/index.js",
+        "packages/core/src/common-auth-embedded/commands/menu.js"
+      ],
+      "names": [
+        "MENU_DISABLED_REASON",
+        "builtinSections"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/commands/index.js": {
+      "from": [
+        "packages/core/src/common-auth-runtime.ts"
+      ],
+      "names": [
+        "*"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/commands/menu.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/commands/index.js"
+      ],
+      "names": [
+        "createCommandMenu",
+        "parseApplyRequest"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/commands/model.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/commands/index.js"
+      ],
+      "names": [
+        "SECTION_SLOTS"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/commands/pi.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/commands/index.js"
+      ],
+      "names": [
+        "runPiCommandMenu"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/commands/seam.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/commands/builtins.js",
+        "packages/core/src/common-auth-embedded/commands/index.js",
+        "packages/core/src/common-auth-embedded/commands/menu.js"
+      ],
+      "names": [
+        "ACTION_FAILED",
+        "CommandError",
+        "DEFAULT_IRREVERSIBLE_CONFIRMATION",
+        "applyResult",
+        "confirmationOf",
+        "createTextRedactor",
+        "dialogPayload",
+        "projectFailure"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/fs/atomic-write.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/fs/index.js",
+        "packages/core/src/common-auth-embedded/pi-slot/slot.js",
+        "packages/core/src/common-auth-embedded/store/mutate.js",
+        "packages/core/src/common-auth-embedded/store/settings.js"
+      ],
+      "names": [
+        "AtomicSyncError",
+        "syncJsonFile",
+        "writeJsonAtomic",
+        "writeJsonAtomicTracked"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/fs/index.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/enrollment.js",
+        "packages/core/src/common-auth-embedded/claustrum/roster.js"
+      ],
+      "names": [
+        "acquireRefreshFileLock",
+        "withLock",
+        "writeJsonAtomic"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/fs/lock-constants.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/fs/index.js"
+      ],
+      "names": [
+        "WRITER_LOCK_CONSTANTS"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/fs/private-files.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/enrollment.js",
+        "packages/core/src/common-auth-embedded/claustrum/roster.js",
+        "packages/core/src/common-auth-embedded/fs/atomic-write.js",
+        "packages/core/src/common-auth-embedded/fs/index.js",
+        "packages/core/src/common-auth-embedded/fs/refresh-file-lock.js",
+        "packages/core/src/common-auth-embedded/logger/engine.js",
+        "packages/core/src/common-auth-embedded/pi-slot/slot.js",
+        "packages/core/src/common-auth-embedded/store/mutate.js"
+      ],
+      "names": [
+        "PrivateFileError",
+        "createPrivateBytes",
+        "createPrivateDirectoryExclusive",
+        "ensurePrivateDirectory",
+        "privateOperation",
+        "readPrivateBuffer",
+        "readPrivateText",
+        "replaceWindowsFile",
+        "verifyPrivate",
+        "verifySafeDirectory",
+        "windowsPrivateFiles",
+        "writePrivateAtomic"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/fs/refresh-file-lock.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/fs/index.js",
+        "packages/core/src/common-auth-embedded/fs/with-lock.js",
+        "packages/core/src/common-auth-embedded/store/refresh-lock.js"
+      ],
+      "names": [
+        "acquireRefreshFileLock",
+        "isLostMarkerRaceError"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/fs/with-lock.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/fs/index.js",
+        "packages/core/src/common-auth-embedded/fs/refresh-file-lock.js",
+        "packages/core/src/common-auth-embedded/store/mutate.js",
+        "packages/core/src/common-auth-embedded/store/refresh-lock.js"
+      ],
+      "names": [
+        "LockContentionError",
+        "LockOwnershipError",
+        "lockPathFor",
+        "withLock"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/logger/capture-sink.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/logger/index.js"
+      ],
+      "names": [
+        "createCaptureSink"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/logger/engine.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/logger/index.js"
+      ],
+      "names": [
+        "createLogger",
+        "createLoggerInstance",
+        "flushForTest",
+        "flushLogs",
+        "initLogger",
+        "resetLoggerForTest",
+        "setLogLevel"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/logger/index.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/consumer.js",
+        "packages/core/src/common-auth-embedded/claustrum/custody.js",
+        "packages/core/src/common-auth-embedded/commands/menu.js",
+        "packages/core/src/common-auth-embedded/commands/seam.js"
+      ],
+      "names": [
+        "createLogger",
+        "createRedactor"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/logger/redact.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/logger/engine.js",
+        "packages/core/src/common-auth-embedded/logger/index.js"
+      ],
+      "names": [
+        "createRedactor",
+        "redact",
+        "redactStrings"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/pi-slot/index.js": {
+      "from": [
+        "packages/core/src/common-auth-runtime.ts"
+      ],
+      "names": [
+        "*"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/pi-slot/lock.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/pi-slot/slot.js"
+      ],
+      "names": [
+        "acquirePiLock"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/pi-slot/slot.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/pi-slot/index.js"
+      ],
+      "names": [
+        "PiSlotError",
+        "openPiSlot"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/quota/codec.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/quota/index.js"
+      ],
+      "names": [
+        "quotaCodec"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/quota/format.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/quota/index.js"
+      ],
+      "names": [
+        "NO_LIMITS_REPORTED",
+        "NO_QUOTA_READING",
+        "QUOTA_STALE_AFTER_MS",
+        "formatQuota",
+        "isQuotaStale",
+        "quotaTextParts",
+        "quotaWindowName",
+        "quotaWindowParts"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/quota/index.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/roster.js",
+        "packages/core/src/common-auth-embedded/commands/builtins.js",
+        "packages/core/src/quota-presentation.ts"
+      ],
+      "names": [
+        "decodeQuotaMap",
+        "formatQuota",
+        "isQuotaMap",
+        "mergeQuotaObservation",
+        "projectQuota",
+        "quotaTextParts",
+        "quotaWindowName"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/quota/map.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/quota/codec.js",
+        "packages/core/src/common-auth-embedded/quota/format.js",
+        "packages/core/src/common-auth-embedded/quota/index.js",
+        "packages/core/src/common-auth-embedded/quota/merge.js",
+        "packages/core/src/common-auth-embedded/quota/projection.js",
+        "packages/core/src/common-auth-embedded/routing/admission.js"
+      ],
+      "names": [
+        "ALL_SCOPE",
+        "DEFAULT_REQUIRED_LABELS",
+        "decodeQuotaMap",
+        "emptyQuotaMap",
+        "entryTime",
+        "isQuotaCounters",
+        "isQuotaMap",
+        "limitKey",
+        "readQuotaCounters"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/quota/merge.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/quota/codec.js",
+        "packages/core/src/common-auth-embedded/quota/index.js"
+      ],
+      "names": [
+        "QuotaCodecError",
+        "isQuotaObservation",
+        "mergeQuotaObservation"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/quota/projection.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/quota/index.js",
+        "packages/core/src/common-auth-embedded/routing/admission.js",
+        "packages/core/src/common-auth-embedded/routing/sticky.js"
+      ],
+      "names": [
+        "budgetExhaustedResetAt",
+        "futureResetAt",
+        "projectQuota",
+        "readsExhausted"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/routing/admission.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/routing/index.js",
+        "packages/core/src/common-auth-embedded/routing/ordered.js",
+        "packages/core/src/common-auth-embedded/routing/sticky.js"
+      ],
+      "names": [
+        "admit",
+        "exclusionFor"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/routing/index.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/commands/builtins.js"
+      ],
+      "names": [
+        "DEFAULT_FORMER_MAIN_ID",
+        "orderForPlacement",
+        "resolveRoutingMode"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/routing/ordered.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/routing/index.js"
+      ],
+      "names": [
+        "DEFAULT_FORMER_MAIN_ID",
+        "nextOrderedAttempt",
+        "orderForPlacement",
+        "resolveRoutingMode",
+        "routeOrdered"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/routing/pins.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/routing/index.js",
+        "packages/core/src/common-auth-embedded/routing/sticky.js"
+      ],
+      "names": [
+        "isPinValid",
+        "pendingBytesForPins"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/routing/sticky.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/routing/index.js"
+      ],
+      "names": [
+        "MIN_RESET_HOURS",
+        "MIN_WEIGHT",
+        "QUOTA_STALENESS_MS",
+        "decideStickyBreak",
+        "defaultStickyStatusClass",
+        "routeSticky",
+        "selectStickyCandidate",
+        "snapshotCheckedAt",
+        "sustainableWindowWeight"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/attribution.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/pool.js",
+        "packages/core/src/common-auth-embedded/store/pull.js"
+      ],
+      "names": [
+        "recordQuota"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/errors.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/attribution.js",
+        "packages/core/src/common-auth-embedded/store/hooks.js",
+        "packages/core/src/common-auth-embedded/store/index.js",
+        "packages/core/src/common-auth-embedded/store/mutate.js",
+        "packages/core/src/common-auth-embedded/store/pull.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/reserved.js",
+        "packages/core/src/common-auth-embedded/store/rows.js",
+        "packages/core/src/common-auth-embedded/store/runtime.js",
+        "packages/core/src/common-auth-embedded/store/settings.js"
+      ],
+      "names": [
+        "PoolOperationError",
+        "PoolReentryError"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/hooks.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/mutate.js",
+        "packages/core/src/common-auth-embedded/store/provider-state.js",
+        "packages/core/src/common-auth-embedded/store/publication.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/rows.js",
+        "packages/core/src/common-auth-embedded/store/settings.js"
+      ],
+      "names": [
+        "assertNotInsideHook",
+        "callFailureHook",
+        "runInsideHook"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/identity.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/index.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/rows.js",
+        "packages/core/src/common-auth-embedded/store/torn.js"
+      ],
+      "names": [
+        "DUPLICATE_IDENTITY_REASON",
+        "IDENTITY_CONTRADICTED_REASON_PREFIX",
+        "countUnknownIdentityRows",
+        "disableIdentityDuplicates",
+        "disableIn",
+        "enableIn",
+        "recordIdentityIn"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/index.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/commands/seam.js"
+      ],
+      "names": [
+        "PoolOperationError"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/mutate.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/attribution.js",
+        "packages/core/src/common-auth-embedded/store/pool.js",
+        "packages/core/src/common-auth-embedded/store/provider-state.js",
+        "packages/core/src/common-auth-embedded/store/publication.js",
+        "packages/core/src/common-auth-embedded/store/pull.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/rows.js",
+        "packages/core/src/common-auth-embedded/store/runtime.js",
+        "packages/core/src/common-auth-embedded/store/settings.js"
+      ],
+      "names": [
+        "initializePool",
+        "notReadyError",
+        "readPool",
+        "runOperation",
+        "toFailure",
+        "withTransaction"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/pool.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/index.js"
+      ],
+      "names": [
+        "openPoolStore"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/provider-state.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/index.js",
+        "packages/core/src/common-auth-embedded/store/pool.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/rows.js"
+      ],
+      "names": [
+        "DECLINE_TRANSITION",
+        "acceptProviderState",
+        "mergedProviderState",
+        "planProviderStateIn",
+        "providerStateCoverage",
+        "replacementProviderState",
+        "updateProviderStateRow"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/publication.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/pool.js"
+      ],
+      "names": [
+        "publication",
+        "publishRoster"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/pull.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/pool.js"
+      ],
+      "names": [
+        "PullScheduler"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/refresh-lock.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/attribution.js",
+        "packages/core/src/common-auth-embedded/store/index.js",
+        "packages/core/src/common-auth-embedded/store/mutate.js",
+        "packages/core/src/common-auth-embedded/store/pool.js",
+        "packages/core/src/common-auth-embedded/store/pull.js"
+      ],
+      "names": [
+        "LockStack",
+        "POOL_LOCK_DEFAULTS"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/refresh.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/pool.js"
+      ],
+      "names": [
+        "refreshRow"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/reserved.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/mutate.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/runtime.js"
+      ],
+      "names": [
+        "assertNotReserved"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/rows.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/pool.js",
+        "packages/core/src/common-auth-embedded/store/publication.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js"
+      ],
+      "names": [
+        "addRow",
+        "assertBoundRowAttribution",
+        "disableRow",
+        "enableRow",
+        "protectIn",
+        "recordRowIdentity",
+        "removeRow",
+        "reorderRows",
+        "replaceRow",
+        "rotateIn",
+        "rotateRow",
+        "validateAttribution"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/runtime.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/attribution.js",
+        "packages/core/src/common-auth-embedded/store/provider-state.js",
+        "packages/core/src/common-auth-embedded/store/publication.js",
+        "packages/core/src/common-auth-embedded/store/pull.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/rows.js"
+      ],
+      "names": [
+        "readRow",
+        "refusal",
+        "requireBound",
+        "rowLockSpec",
+        "unknownRow"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/schema.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/attribution.js",
+        "packages/core/src/common-auth-embedded/store/index.js",
+        "packages/core/src/common-auth-embedded/store/mutate.js",
+        "packages/core/src/common-auth-embedded/store/pool.js",
+        "packages/core/src/common-auth-embedded/store/provider-state.js",
+        "packages/core/src/common-auth-embedded/store/publication.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/rows.js",
+        "packages/core/src/common-auth-embedded/store/runtime.js",
+        "packages/core/src/common-auth-embedded/store/settings.js",
+        "packages/core/src/common-auth-embedded/store/torn.js"
+      ],
+      "names": [
+        "CREDENTIAL_STAMP_KEY",
+        "LEGACY_STORE_VERSION",
+        "POOL_KEY",
+        "POOL_ROWS_KEY",
+        "POOL_SCHEMA_VERSION",
+        "PROVIDER_STATE_KEY",
+        "REFRESH_STAMP_TOLERANCE_MS",
+        "boundProviderStateDigest",
+        "buildRawRows",
+        "canonicalDigest",
+        "classifyConfig",
+        "classifyState",
+        "credentialDigest",
+        "credentialProblem",
+        "dispatchDigest",
+        "ensureEntries",
+        "entryIn",
+        "fingerprintOf",
+        "idProblem",
+        "isCredentialEpoch",
+        "isRecord",
+        "nextAddEpochIn",
+        "parseStamp",
+        "providerStateDigest",
+        "retireEpochsIn",
+        "rosterOf",
+        "rosterRowFor",
+        "rosterRowIn",
+        "rotationStamp",
+        "rotationStampUntrusted",
+        "rowLockKey",
+        "setEntryIn",
+        "stampFor",
+        "stateFieldsFor",
+        "storedCredential"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/settings.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/index.js",
+        "packages/core/src/common-auth-embedded/store/pool.js"
+      ],
+      "names": [
+        "POOL_OWNED_KEYS",
+        "readPoolSettings",
+        "updatePoolSettings"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/store/torn.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/store/mutate.js",
+        "packages/core/src/common-auth-embedded/store/refresh.js",
+        "packages/core/src/common-auth-embedded/store/rows.js"
+      ],
+      "names": [
+        "TRANSITION_STAMP_KEY",
+        "applyTransition",
+        "bindReplacement",
+        "completeTornRows",
+        "loadRows"
+      ]
+    },
+    "packages/core/src/common-auth-embedded/util/any-signal.js": {
+      "from": [
+        "packages/core/src/common-auth-embedded/claustrum/consumer.js"
+      ],
+      "names": [
+        "combineAbortSignals"
+      ]
+    },
+    "packages/core/src/common-auth-runtime.ts": {
+      "from": [
+        "packages/core/src/index.ts",
+        "packages/core/src/vault-enrollment-authority.ts"
+      ],
+      "names": [
+        "loadCommonAuthClaustrum",
+        "loadCommonAuthCommands",
+        "loadCommonAuthPiSlot"
+      ]
+    },
+    "packages/core/src/constants.ts": {
+      "from": [
+        "packages/core/src/antigravity/oauth.ts",
+        "packages/core/src/index.ts",
+        "packages/core/src/project.ts"
+      ],
+      "names": [
+        "ANTIGRAVITY_CLIENT_ID",
+        "ANTIGRAVITY_CLIENT_SECRET",
+        "ANTIGRAVITY_DEFAULT_PROJECT_ID",
+        "ANTIGRAVITY_ENDPOINT",
+        "ANTIGRAVITY_ENDPOINT_FALLBACKS",
+        "ANTIGRAVITY_ENDPOINT_PROD",
+        "ANTIGRAVITY_LOAD_ENDPOINTS",
+        "ANTIGRAVITY_PROVIDER_ID",
+        "ANTIGRAVITY_REDIRECT_URI",
+        "ANTIGRAVITY_SCOPES"
+      ]
+    },
+    "packages/core/src/credential-redaction.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "redactCredentialError",
+        "redactCredentialText"
+      ]
+    },
+    "packages/core/src/fetch-timeout.ts": {
+      "from": [
+        "packages/core/src/antigravity/oauth.ts"
+      ],
+      "names": [
+        "fetchWithActiveTimeout"
+      ]
+    },
+    "packages/core/src/fingerprint.ts": {
+      "from": [
+        "packages/core/src/agy-transport.ts",
+        "packages/core/src/antigravity/oauth.ts",
+        "packages/core/src/constants.ts",
+        "packages/core/src/index.ts",
+        "packages/core/src/project.ts"
+      ],
+      "names": [
+        "buildAntigravityHarnessBootstrapHeaders",
+        "buildAntigravityHarnessUserAgent",
+        "buildAntigravityLoadCodeAssistMetadata"
+      ]
+    },
+    "packages/core/src/index.ts": {
+      "from": [
+        "packages/pi/src/commands.ts",
+        "packages/pi/src/convert.ts",
+        "packages/pi/src/index.ts",
+        "packages/pi/src/paths.ts",
+        "packages/pi/src/stream.ts",
+        "packages/pi/src/vault-setup.ts",
+        "packages/pi/src/vault-source.ts"
+      ],
+      "names": [
+        "ANTIGRAVITY_ENDPOINT",
+        "ANTIGRAVITY_MENU_COMMAND",
+        "ANTIGRAVITY_PROVIDER_ID",
+        "AgyRequestSessionStore",
+        "PreResponseDeadline",
+        "RETIRED_AGY_MODEL_MESSAGE",
+        "VAULT_RECLASSIFY_COMMAND",
+        "VAULT_STATUS_COMMAND",
+        "applyAgyNativeGenerationConfig",
+        "authorizeAntigravity",
+        "buildAgyAgentRequestMetadata",
+        "buildAntigravityHarnessUserAgent",
+        "createAntigravityCommandMenu",
+        "createAntigravityVaultAccountSource",
+        "emptyVaultRosterCause",
+        "enrollmentAuthority",
+        "ensureProjectContext",
+        "exchangeAntigravity",
+        "fetchWithAgyCliTransport",
+        "forwardAbort",
+        "getPiAntigravityAuthFile",
+        "getPiAntigravityVaultDir",
+        "getPiAntigravityVaultModeFile",
+        "getPiAntigravityVaultRosterFile",
+        "getPiConfigDir",
+        "getPublicModelDefinitions",
+        "isGeminiArgonModel",
+        "isRetiredAgyModel",
+        "loadCommonAuthClaustrum",
+        "loadCommonAuthCommands",
+        "loadCommonAuthPiSlot",
+        "orderAgyRequestPayloadInPlace",
+        "parseRefreshParts",
+        "redactCredentialError",
+        "redactCredentialText",
+        "refreshAntigravityToken",
+        "resolveAntigravityModel",
+        "sharedVaultTokenFolder",
+        "sharedVaultTokenFolderOutcome",
+        "sharedVaultTokenFolderText",
+        "toGeminiSchema"
+      ]
+    },
+    "packages/core/src/logger.ts": {
+      "from": [
+        "packages/core/src/antigravity/oauth.ts",
+        "packages/core/src/project.ts"
+      ],
+      "names": [
+        "createLogger"
+      ]
+    },
+    "packages/core/src/model-registry.ts": {
+      "from": [
+        "packages/core/src/agy-request-metadata.ts",
+        "packages/core/src/index.ts",
+        "packages/core/src/transform/agy-generation.ts",
+        "packages/core/src/transform/model-resolver.ts"
+      ],
+      "names": [
+        "RETIRED_AGY_MODEL_MESSAGE",
+        "getAgyNativeModel",
+        "getGemini35FlashAntigravityModel",
+        "getGemini36FlashAntigravityModel",
+        "getGemini37FlashAntigravityModel",
+        "getGemini38FlashAntigravityModel",
+        "getGeminiArgonAntigravityModel",
+        "getPublicModelDefinitions",
+        "getResolverAliasMap",
+        "isGeminiArgonModel",
+        "isRetiredAgyModel"
+      ]
+    },
+    "packages/core/src/pi-paths.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "getPiAntigravityAuthFile",
+        "getPiAntigravityVaultDir",
+        "getPiAntigravityVaultModeFile",
+        "getPiAntigravityVaultRosterFile",
+        "getPiConfigDir"
+      ]
+    },
+    "packages/core/src/pre-response-deadline.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "PreResponseDeadline"
+      ]
+    },
+    "packages/core/src/project.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "ensureProjectContext"
+      ]
+    },
+    "packages/core/src/quota-presentation.ts": {
+      "from": [
+        "packages/core/src/antigravity-command-menu.ts"
+      ],
+      "names": [
+        "formatAntigravityQuota"
+      ]
+    },
+    "packages/core/src/transform/agy-generation.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "applyAgyNativeGenerationConfig"
+      ]
+    },
+    "packages/core/src/transform/gemini.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "toGeminiSchema"
+      ]
+    },
+    "packages/core/src/transform/model-resolver.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "resolveAntigravityModel"
+      ]
+    },
+    "packages/core/src/vault-account-source.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "createAntigravityVaultAccountSource"
+      ]
+    },
+    "packages/core/src/vault-enrollment-authority.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "enrollmentAuthority"
+      ]
+    },
+    "packages/core/src/vault-family.ts": {
+      "from": [
+        "packages/core/src/vault-account-source.ts"
+      ],
+      "names": [
+        "ANTIGRAVITY_VAULT_FAMILY",
+        "ANTIGRAVITY_VAULT_REQUIRE_ASSERTION"
+      ]
+    },
+    "packages/core/src/vault-folder-refusal.ts": {
+      "from": [
+        "packages/core/src/index.ts"
+      ],
+      "names": [
+        "sharedVaultTokenFolder",
+        "sharedVaultTokenFolderOutcome",
+        "sharedVaultTokenFolderText"
+      ]
+    },
+    "packages/core/src/vault-grant-reach.ts": {
+      "from": [
+        "packages/core/src/index.ts",
+        "packages/core/src/vault-account-source.ts"
+      ],
+      "names": [
+        "VAULT_RECLASSIFY_COMMAND",
+        "VAULT_STATUS_COMMAND",
+        "emptyVaultRosterCause"
+      ]
+    },
+    "packages/core/src/vault-provider-state.ts": {
+      "from": [
+        "packages/core/src/vault-account-source.ts"
+      ],
+      "names": [
+        "commitVaultProviderState"
+      ]
+    },
+    "packages/pi/src/commands.ts": {
+      "from": [
+        "packages/pi/src/index.ts"
+      ],
+      "names": [
+        "createPiAntigravityAccountSections",
+        "registerPiAntigravityCommand"
+      ]
+    },
+    "packages/pi/src/convert.ts": {
+      "from": [
+        "packages/pi/src/stream.ts"
+      ],
+      "names": [
+        "buildGeminiRequest"
+      ]
+    },
+    "packages/pi/src/credential-cache.ts": {
+      "from": [
+        "packages/pi/src/index.ts",
+        "packages/pi/src/stream.ts"
+      ],
+      "names": [
+        "getPackedRefresh",
+        "rememberPackedRefresh"
+      ]
+    },
+    "packages/pi/src/index.ts": {
+      "from": [
+        "Pi extension entry"
+      ],
+      "names": [
+        "default"
+      ]
+    },
+    "packages/pi/src/paths.ts": {
+      "from": [
+        "packages/pi/src/index.ts",
+        "packages/pi/src/vault-source.ts"
+      ],
+      "names": [
+        "getPiAntigravityVaultDir",
+        "getPiAntigravityVaultModeFile",
+        "getPiAntigravityVaultRosterFile"
+      ]
+    },
+    "packages/pi/src/stream.ts": {
+      "from": [
+        "packages/pi/src/index.ts"
+      ],
+      "names": [
+        "createCortexKitAntigravityVaultStream",
+        "streamCortexKitAntigravity"
+      ]
+    },
+    "packages/pi/src/vault-setup.ts": {
+      "from": [
+        "packages/pi/src/commands.ts",
+        "packages/pi/src/index.ts",
+        "packages/pi/src/vault-source.ts"
+      ],
+      "names": [
+        "PI_ANTIGRAVITY_ENROLLMENT_NAME",
+        "PI_ANTIGRAVITY_VAULT_HOST",
+        "PiVaultSetup",
+        "PiVaultSetupError",
+        "VAULT_ACCOUNT_AVAILABLE",
+        "VAULT_ACCOUNT_IN_USE",
+        "VAULT_ACCOUNT_TURNED_OFF",
+        "createPiVaultSection",
+        "opaqueItemId",
+        "piEmptyVaultRosterRefusal",
+        "piNoVaultAccountsGuidance",
+        "readPiVaultMode",
+        "vaultAccountName"
+      ]
+    },
+    "packages/pi/src/vault-source.ts": {
+      "from": [
+        "packages/pi/src/index.ts"
+      ],
+      "names": [
+        "createPiVaultAccountsPort",
+        "createPiVaultRuntime",
+        "createPiVaultSend"
+      ]
+    }
+  }
+}
