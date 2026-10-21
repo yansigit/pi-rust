@@ -1,0 +1,358 @@
+{
+  "reference": "Pi 1.3.0",
+  "projection": "Compaction lifecycle reason, retry, source and failure fields; before-event branch entries are also checked against the captured source branch",
+  "rows": [
+    {
+      "reason": "manual",
+      "mode": "default",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "manual",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact",
+          "reason": "manual",
+          "willRetry": false,
+          "fromExtension": false
+        }
+      ]
+    },
+    {
+      "reason": "manual",
+      "mode": "extension",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "manual",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact",
+          "reason": "manual",
+          "willRetry": false,
+          "fromExtension": true
+        }
+      ]
+    },
+    {
+      "reason": "manual",
+      "mode": "cancel",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "manual",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "manual",
+          "willRetry": false,
+          "fromExtension": false,
+          "aborted": true
+        }
+      ]
+    },
+    {
+      "reason": "manual",
+      "mode": "signal",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "manual",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "manual",
+          "willRetry": false,
+          "fromExtension": true,
+          "aborted": true
+        }
+      ]
+    },
+    {
+      "reason": "manual",
+      "mode": "defaultError",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "manual",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "manual",
+          "willRetry": false,
+          "fromExtension": false,
+          "aborted": false,
+          "errorMessage": "Compaction failed: fixture failure"
+        }
+      ]
+    },
+    {
+      "reason": "manual",
+      "mode": "extensionError",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "manual",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "manual",
+          "willRetry": false,
+          "fromExtension": true,
+          "aborted": false,
+          "errorMessage": "Compaction failed: fixture failure"
+        }
+      ]
+    },
+    {
+      "reason": "manual",
+      "mode": "empty",
+      "events": [
+        {
+          "type": "session_compact_failed",
+          "reason": "manual",
+          "willRetry": false,
+          "fromExtension": false,
+          "aborted": false,
+          "errorMessage": "Compaction failed: Nothing to compact (session too small)"
+        }
+      ]
+    },
+    {
+      "reason": "manual",
+      "mode": "already",
+      "events": [
+        {
+          "type": "session_compact_failed",
+          "reason": "manual",
+          "willRetry": false,
+          "fromExtension": false,
+          "aborted": false,
+          "errorMessage": "Compaction failed: Already compacted"
+        }
+      ]
+    },
+    {
+      "reason": "threshold",
+      "mode": "default",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact",
+          "reason": "threshold",
+          "willRetry": false,
+          "fromExtension": false
+        }
+      ]
+    },
+    {
+      "reason": "threshold",
+      "mode": "extension",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact",
+          "reason": "threshold",
+          "willRetry": false,
+          "fromExtension": true
+        }
+      ]
+    },
+    {
+      "reason": "threshold",
+      "mode": "cancel",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "threshold",
+          "willRetry": false,
+          "fromExtension": false,
+          "aborted": true
+        }
+      ]
+    },
+    {
+      "reason": "threshold",
+      "mode": "signal",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "threshold",
+          "willRetry": false,
+          "fromExtension": true,
+          "aborted": true
+        }
+      ]
+    },
+    {
+      "reason": "threshold",
+      "mode": "defaultError",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "threshold",
+          "willRetry": false,
+          "fromExtension": false,
+          "aborted": false,
+          "errorMessage": "Auto-compaction failed: fixture failure"
+        }
+      ]
+    },
+    {
+      "reason": "threshold",
+      "mode": "extensionError",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "threshold",
+          "willRetry": false,
+          "fromExtension": true,
+          "aborted": false,
+          "errorMessage": "Auto-compaction failed: fixture failure"
+        }
+      ]
+    },
+    {
+      "reason": "overflow",
+      "mode": "default",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "overflow",
+          "willRetry": true
+        },
+        {
+          "type": "session_compact",
+          "reason": "overflow",
+          "willRetry": true,
+          "fromExtension": false
+        }
+      ]
+    },
+    {
+      "reason": "overflow",
+      "mode": "extension",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "overflow",
+          "willRetry": true
+        },
+        {
+          "type": "session_compact",
+          "reason": "overflow",
+          "willRetry": true,
+          "fromExtension": true
+        }
+      ]
+    },
+    {
+      "reason": "overflow",
+      "mode": "cancel",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "overflow",
+          "willRetry": true
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "overflow",
+          "willRetry": false,
+          "fromExtension": false,
+          "aborted": true
+        }
+      ]
+    },
+    {
+      "reason": "overflow",
+      "mode": "signal",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "overflow",
+          "willRetry": true
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "overflow",
+          "willRetry": false,
+          "fromExtension": true,
+          "aborted": true
+        }
+      ]
+    },
+    {
+      "reason": "overflow",
+      "mode": "defaultError",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "overflow",
+          "willRetry": true
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "overflow",
+          "willRetry": false,
+          "fromExtension": false,
+          "aborted": false,
+          "errorMessage": "Context overflow recovery failed: fixture failure"
+        }
+      ]
+    },
+    {
+      "reason": "overflow",
+      "mode": "extensionError",
+      "events": [
+        {
+          "type": "session_before_compact",
+          "reason": "overflow",
+          "willRetry": true
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "overflow",
+          "willRetry": false,
+          "fromExtension": true,
+          "aborted": false,
+          "errorMessage": "Context overflow recovery failed: fixture failure"
+        }
+      ]
+    }
+  ]
+}

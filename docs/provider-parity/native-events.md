@@ -39,6 +39,23 @@ the two events share its explicit operation identity. REPL fallback also starts
 the session before accepting input. Legacy C observers retain empty lifecycle
 payloads and their original layout.
 
+`events.compactionDetails` supplies the captured persisted `branchEntries`,
+`reason` and `willRetry` before summarization. Completion includes
+`fromExtension`; failure includes `aborted` and the Pi-prefixed `errorMessage`
+only when not aborted. Failed overflow recovery reports `willRetry: false`.
+Extension cancellation emits failure even when the harness returns its existing
+`Declined` outcome. Manual preparation failures also emit failure; cancellation
+after an extension result prevents its commit. These terminal callbacks release
+the worker's operation scope. Existing `automatic` and raw `error` fields remain
+for native callers. This does not change the harness's compaction preparation or
+entry representation into Pi's representation.
+
+`check-compaction-reference.mjs` runs 20 controlled traces through the unchanged
+Pi 1.3.0 `AgentSession` prototype. It substitutes storage, hooks and summarization,
+and checks the lifecycle field projection in `compaction-reference.json`.
+The native regression suite checks committed entry identity, no commit after
+cancellation, preparation failures and the same failure-field projection.
+
 The legacy redacted before-provider observations remain separate from private
 provider request ownership. Cursor's stable header-object receipt and abort-signal
 mapping is supplied by its owning worker port. Tree, session-info and model-selection result dispatch still

@@ -74,6 +74,10 @@ and UI dispatch and the Cursor private request-receipt boundary remain pending.
 The native catalog fixture also verifies empty-catalog auth discovery and edits
 through an actually loaded library. [Event evidence](host-events-results.json) records
 the full workspace and targeted regression runs.
+The [compaction lifecycle checks](host-compaction-results.json) add the pinned
+reason/retry/source/failure fields, captured branch entries, cancellation before
+commit and repeated cancellation through the installed Cursor worker. Full
+compaction preparation and automatic-trigger parity remain separate work.
 
 [Native services](native-services.md) add versioned private calls, bounded ordered
 subscriptions, child ownership and leased invocation context across foreign workers.

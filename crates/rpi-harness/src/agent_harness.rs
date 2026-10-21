@@ -3846,6 +3846,7 @@ impl AgentHarness {
                             .compact_with_extensions(
                                 &run_id,
                                 &prep,
+                                &path,
                                 &llm_opts,
                                 CompactionReason::Threshold,
                             )
@@ -4094,8 +4095,9 @@ impl AgentHarness {
                                 message: message.clone(), terminate: None,
                             })).collect();
                             let prep = match prepare_compaction(&entries, settings) { Ok(Some(p)) => p, _ => return None };
+                            let branch_entries = match harness.branch_path_oldest_first().await { Ok(entries) => entries, Err(_) => return None };
                             let opts = CompactionLlmOptions { provider, model: model.clone(), api_key: None, signal: compaction_signal, thinking_level: None, retry: None, custom_instructions: None };
-                            let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &opts, CompactionReason::Threshold).await { Ok(Some((result, _))) => result, _ => return None };
+                            let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &branch_entries, &opts, CompactionReason::Threshold).await { Ok(Some((result, _))) => result, _ => return None };
                             // Mid-loop compaction fires because the turn pushed the
                             // context over the threshold.
                             cut.store(new_messages_len, Ordering::Release);
@@ -4516,6 +4518,7 @@ impl AgentHarness {
         let snap = self.snapshot_config()?;
         let path = self.branch_path_oldest_first().await?;
 
+        let mut attempted = false;
         let outcome = if path.is_empty() {
             CompactionOutcome::Declined {
                 leaf_id: source_leaf.unwrap_or_default(),
@@ -4543,6 +4546,12 @@ impl AgentHarness {
                                     )
                                     .await;
                                 self.finish_context_writes(&run_id, None).await?;
+                                self.compaction_preparation_failed(
+                                    &run_id,
+                                    &err.message,
+                                    signal.is_cancelled(),
+                                )
+                                .await;
                                 return Ok(CompactionResult {
                                     run_id,
                                     outcome: CompactionOutcome::Failed {
@@ -4566,10 +4575,12 @@ impl AgentHarness {
                         },
                         custom_instructions: custom_instructions.clone(),
                     };
+                    attempted = true;
                     match self
                         .compact_with_extensions(
                             &run_id,
                             &prep,
+                            &path,
                             &llm_opts,
                             CompactionReason::Manual,
                         )
@@ -4631,6 +4642,15 @@ impl AgentHarness {
             }
         };
 
+        if !attempted {
+            let error = match &outcome {
+                CompactionOutcome::Failed { error, .. } => error.message.as_str(),
+                _ if matches!(path.last(), Some(Entry::Compaction(_))) => "Already compacted",
+                _ => "Nothing to compact (session too small)",
+            };
+            self.compaction_preparation_failed(&run_id, error, signal.is_cancelled())
+                .await;
+        }
         if matches!(outcome, CompactionOutcome::Declined { .. }) {
             self.write_operation_finished(&run_id, OperationOutcome::Declined, None)
                 .await?;

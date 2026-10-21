@@ -1,0 +1,42 @@
+{
+  "status": "Compaction lifecycle details verified on Linux; complete compaction parity remains pending",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "piReference": {
+      "log": "/tmp/rpi-compaction-pi-reference.log",
+      "sha256": "b5e80ca62fb78d4cac9ad55ba0190896186afd5e62be24e3de006073e5ee3a16",
+      "passed": 20
+    },
+    "failureProjection": {
+      "log": "/tmp/rpi-compaction-reference.log",
+      "sha256": "76dd2695020c014fba51d26d1bb5b4a36b79b2481b15fb7b61a0ff0c1d7c5a8e",
+      "passed": 14
+    },
+    "harness": {
+      "log": "/tmp/rpi-compaction-harness-e2e.log",
+      "sha256": "1ffffdc0ffd7f300ccb04e0b0c7dbd47fb9b3908fbc97cd335f727b46e7787ec",
+      "passed": 45
+    },
+    "workspace": {
+      "log": "/tmp/rpi-compaction-workspace.log",
+      "sha256": "417a6a88a37c1a5eb0559966cbecc221d460e5ecf0ee89cad057c302d43b5fae"
+    },
+    "installedCursor": {
+      "log": "/tmp/rpi-compaction-dll.log",
+      "sha256": "d39aad21569837b7c1daf864c00249342ce488d1bd8b6bec89197617b8839432",
+      "passed": 4
+    }
+  },
+  "assertions": [
+    "Twenty original Pi 1.3.0 traces cover manual, threshold and overflow lifecycle fields",
+    "Fourteen native failure projections match the original traces, including failed overflow willRetry=false",
+    "Harness integration checks committed entries, extension cancellation, signal cancellation after override, malformed override, hook error, empty session and already-compacted session",
+    "Actual installed Cursor worker survives 70 consecutive cancelled compactions without exhausting its 64 operation slots"
+  ],
+  "review": "Reviewed all three call sites, captured branch entries, terminal identity, cancellation before commit, legacy field preservation and library lifetime. No ABI layout or workspace version changes.",
+  "notTested": [
+    "Complete compaction preparation, summary prompts and entry representation equivalence",
+    "Automatic compaction end-to-end differential traces",
+    "macOS and Windows execution"
+  ]
+}

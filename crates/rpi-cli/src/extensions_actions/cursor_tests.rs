@@ -193,6 +193,49 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
         "beforeafter"
     );
 
+    struct CancelCompaction(rpi_extensions::ExtensionProviderHooks);
+    #[async_trait::async_trait]
+    impl rpi_ai::ProviderHooks for CancelCompaction {
+        async fn lifecycle(
+            &self,
+            event: &str,
+            data: serde_json::Value,
+            identity: rpi_ai::identity::RequestIdentity,
+            signal: tokio_util::sync::CancellationToken,
+        ) -> Result<Option<serde_json::Value>, String> {
+            let result =
+                rpi_ai::ProviderHooks::lifecycle(&self.0, event, data, identity, signal).await?;
+            Ok(if event == "session_before_compact" {
+                Some(json!({"cancel":true}))
+            } else {
+                result
+            })
+        }
+    }
+    harness
+        .set_provider_hooks(Some(Arc::new(CancelCompaction(
+            rpi_extensions::ExtensionProviderHooks::from_session(&extensions).unwrap(),
+        ))))
+        .await
+        .unwrap();
+    harness
+        .append_message(rpi_agent::AgentMessage::User(rpi_ai::UserMessage::new(
+            "compaction fixture",
+            1,
+        )))
+        .await
+        .unwrap();
+    for _ in 0..70 {
+        assert!(
+            matches!(
+                harness.lane("main").compact(None).await.unwrap().outcome,
+                rpi_harness::agent_harness::CompactionOutcome::Declined { .. }
+            ),
+            "cancelled compactions must release the worker's bounded operation inventory"
+        );
+    }
+    harness.set_provider_hooks(None).await.unwrap();
+
     let files = vec![rpi_harness::context_files::ContextFile {
         path: cwd.path().join("project&one/AGENTS.md"),
         content: "captured native instructions".into(),

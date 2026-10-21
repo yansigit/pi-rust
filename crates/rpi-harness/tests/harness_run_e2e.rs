@@ -4134,7 +4134,7 @@ async fn resuming_through_a_provider_without_the_capability_is_an_error() {
 async fn compaction_hooks_acknowledge_commits_and_preserve_failure_identity() {
     use rpi_ai::{identity::RequestIdentity, ProviderHooks};
     struct Hooks {
-        fail: bool,
+        mode: &'static str,
         events: Mutex<Vec<(String, RequestIdentity, serde_json::Value)>>,
     }
     #[async_trait::async_trait]
@@ -4144,15 +4144,24 @@ async fn compaction_hooks_acknowledge_commits_and_preserve_failure_identity() {
             event: &str,
             data: serde_json::Value,
             identity: RequestIdentity,
-            _: tokio_util::sync::CancellationToken,
+            signal: tokio_util::sync::CancellationToken,
         ) -> Result<Option<serde_json::Value>, String> {
             self.events
                 .lock()
                 .unwrap()
                 .push((event.into(), identity, data));
             if event == "session_before_compact" {
-                if self.fail {
+                if self.mode == "error" {
                     return Err("fixture summary failure".into());
+                }
+                if self.mode == "cancel" {
+                    return Ok(Some(serde_json::json!({"cancel":true})));
+                }
+                if self.mode == "invalid" {
+                    return Ok(Some(serde_json::json!({"compaction":{}})));
+                }
+                if self.mode == "signal" {
+                    signal.cancel();
                 }
                 return Ok(Some(
                     serde_json::json!({"compaction":{"summary":"extension summary","tokensBefore":100,
@@ -4162,10 +4171,10 @@ async fn compaction_hooks_acknowledge_commits_and_preserve_failure_identity() {
             Ok(None)
         }
     }
-    for fail in [false, true] {
+    for mode in ["success", "error", "cancel", "signal", "invalid"] {
         let (harness, provider, _) = harness_with(FauxScript::new().with_text("unused")).await;
         let hooks = Arc::new(Hooks {
-            fail,
+            mode,
             events: Mutex::new(Vec::new()),
         });
         harness
@@ -4180,22 +4189,56 @@ async fn compaction_hooks_acknowledge_commits_and_preserve_failure_identity() {
             .await
             .unwrap();
         let result = harness.compact(None).await.unwrap();
-        let events = hooks.events.lock().unwrap();
+        let events = hooks.events.lock().unwrap().clone();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].0, "session_before_compact");
         assert_eq!(events[0].1.operation_id, result.run_id);
         assert_eq!(events[0].1.session_id.as_deref(), Some("e2e"));
         assert_eq!(events[0].1.purpose, "compaction");
         assert_eq!(events[0].1, events[1].1);
-        if fail {
+        assert_eq!(events[0].2["reason"], "manual");
+        assert_eq!(events[0].2["willRetry"], false);
+        assert_eq!(events[1].2["reason"], "manual");
+        assert_eq!(events[1].2["willRetry"], false);
+        let branch = events[0].2["branchEntries"].as_array().unwrap();
+        assert!(branch
+            .iter()
+            .any(|entry| entry["type"] == "message" && entry["message"]["content"] == "history"));
+        if mode != "success" {
             assert_eq!(events[1].0, "session_compact_failed");
-            assert_eq!(events[1].2["error"], "fixture summary failure");
-            assert!(matches!(
-                result.outcome,
-                rpi_harness::agent_harness::CompactionOutcome::Failed { .. }
-            ));
+            let aborted = matches!(mode, "cancel" | "signal");
+            assert_eq!(events[1].2["aborted"], aborted);
+            assert_eq!(
+                events[1].2["fromExtension"],
+                matches!(mode, "signal" | "invalid")
+            );
+            assert_eq!(events[1].2.get("errorMessage").is_none(), aborted);
+            if mode == "error" {
+                assert_eq!(events[1].2["error"], "fixture summary failure");
+                assert_eq!(
+                    events[1].2["errorMessage"],
+                    "Compaction failed: fixture summary failure"
+                );
+            }
+            assert_eq!(
+                matches!(
+                    result.outcome,
+                    rpi_harness::agent_harness::CompactionOutcome::Declined { .. }
+                ),
+                mode == "cancel"
+            );
+            assert!(!harness
+                .session()
+                .storage()
+                .snapshot()
+                .await
+                .unwrap()
+                .entries
+                .iter()
+                .any(|entry| matches!(entry, rpi_harness::session::types::Entry::Compaction(_))));
         } else {
             assert_eq!(events[1].0, "session_compact");
+            assert_eq!(events[1].2["fromExtension"], true);
             let id = events[1].2["compactionEntry"]["id"].as_str().unwrap();
             assert!(harness.get_entry(id).await.unwrap().is_some());
             assert!(matches!(
@@ -4203,8 +4246,40 @@ async fn compaction_hooks_acknowledge_commits_and_preserve_failure_identity() {
                 rpi_harness::agent_harness::CompactionOutcome::Completed { .. }
             ));
         }
+        if mode == "success" {
+            let again = harness.compact(None).await.unwrap();
+            let events = hooks.events.lock().unwrap();
+            assert_eq!(events.len(), 3);
+            assert_eq!(events[2].0, "session_compact_failed");
+            assert_eq!(events[2].1.operation_id, again.run_id);
+            assert_eq!(
+                events[2].2["errorMessage"],
+                "Compaction failed: Already compacted"
+            );
+        }
         assert_eq!(provider.script().pending_count(), 1);
     }
+    let (harness, provider, _) = harness_with(FauxScript::new().with_text("unused")).await;
+    let hooks = Arc::new(Hooks {
+        mode: "success",
+        events: Mutex::new(Vec::new()),
+    });
+    harness
+        .set_provider_hooks(Some(hooks.clone()))
+        .await
+        .unwrap();
+    let outcome = harness.compact(None).await.unwrap();
+    let events = hooks.events.lock().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].0, "session_compact_failed");
+    assert_eq!(events[0].1.operation_id, outcome.run_id);
+    assert_eq!(
+        events[0].2["errorMessage"],
+        "Compaction failed: Nothing to compact (session too small)"
+    );
+    assert_eq!(events[0].2["aborted"], false);
+    assert_eq!(events[0].2["fromExtension"], false);
+    assert_eq!(provider.script().pending_count(), 1);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
