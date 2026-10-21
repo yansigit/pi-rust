@@ -32,8 +32,12 @@ Reload validates its replacement before shutting down the old session.
 Response status and lossless header values have a private, awaited observation port
 through built-in transports and the native SDK. Native receipt queues are drained
 while the provider is opening its stream. Observer events omit keys and header
-values. H01–H03 remain pending until the native runtime/delegation API, interactive
-TUI callers and the complete differential suite are integrated.
+values. [Native composition](native-composition.md) adds session-owned wrappers,
+opaque delegated calls and provider-resolved pooled account receipts. The loaded
+SDK fixture verifies a pooled HTTP request, canonical endpoint restoration and
+credential isolation. Stream snapshots retain timestamps, usage and signatures.
+H01–H05 remain pending until dynamic runtime/catalog operations, interactive TUI
+callers, both Pi stream entry adapters and complete differential tests are integrated.
 
 [baseline-results.json](baseline-results.json) records upstream results, lock
 hashes and evidence hashes. Cross-platform and inference acceptance remain untested.

@@ -8,12 +8,14 @@ use crate::{
     PluginApi, ProviderRequestFn, ProviderStreamControl, ProviderStreamEmitFn,
     ProviderStreamRequestFn, StbString, StbStringRef,
 };
+use rpi_ai::provider_wire::{decode_options as options, encode_event as event_json};
 use rpi_ai::{
     AssistantMessage, AssistantMessageEvent, Context, Model, Provider, SimpleStreamOptions,
     StopReason,
 };
 use std::{ffi::c_void, sync::Arc, time::Duration};
 
+pub mod composition;
 mod context;
 pub use context::{drive_with_context, register_with_context, ContextFactory, ProviderContext};
 
@@ -81,164 +83,6 @@ struct Request {
     model: Model,
     context: Context,
     options: serde_json::Value,
-}
-
-fn options(value: &serde_json::Value, model: &Model) -> Result<SimpleStreamOptions, ()> {
-    let mut options = SimpleStreamOptions::default();
-    options.api_key = value["apiKey"].as_str().map(str::to_string);
-    options.timeout = value["timeoutMs"].as_u64().map(Duration::from_millis);
-    options.max_retry_delay = value["maxRetryDelayMs"].as_u64().map(Duration::from_millis);
-    options.max_retries = value["maxRetries"].as_u64().and_then(|n| n.try_into().ok());
-    options.max_tokens = value["maxTokens"].as_u64();
-    options.temperature = value["temperature"].as_f64();
-    options.session_id = value["sessionId"].as_str().map(str::to_string);
-    options.headers = serde_json::from_value(value["headers"].clone()).ok();
-    options.env = if value["env"].is_null() {
-        Default::default()
-    } else {
-        serde_json::from_value(value["env"].clone()).map_err(|_| ())?
-    };
-    options.metadata = serde_json::from_value(value["metadata"].clone()).ok();
-    options.reasoning = value["reasoning"]
-        .as_str()
-        .and_then(|s| serde_json::from_value(serde_json::json!(s.to_ascii_lowercase())).ok());
-    options.thinking_budgets = serde_json::from_value(value["thinkingBudgets"].clone()).ok();
-    options.cache_retention = match value["cacheRetention"].as_str() {
-        Some("None") => rpi_ai::CacheRetention::None,
-        Some("Long") => rpi_ai::CacheRetention::Long,
-        _ => rpi_ai::CacheRetention::Short,
-    };
-    match value.get("authMode") {
-        None => {}
-        Some(serde_json::Value::String(mode)) if mode == "ambient" => {}
-        Some(serde_json::Value::String(mode)) if mode == "replace" => {
-            options.authentication = rpi_ai::auth::ReplacementAuth::from_private_request(
-                model.provider.clone(),
-                rpi_ai::auth::RequestAuth {
-                    api_key: options.api_key.clone(),
-                    headers: options.headers.clone().unwrap_or_default(),
-                    base_url: Some(model.base_url.clone()),
-                    env: options.env.clone(),
-                    source: None,
-                },
-            );
-        }
-        _ => return Err(()),
-    }
-    Ok(options)
-}
-
-/// Compare every field without constructing a candidate message or JSON tree.
-fn reconstructs_text(
-    previous: &AssistantMessage,
-    next: &AssistantMessage,
-    index: usize,
-    delta: &str,
-) -> bool {
-    let AssistantMessage {
-        role,
-        content,
-        api,
-        provider,
-        model,
-        response_model,
-        response_id,
-        usage,
-        stop_reason,
-        deferred,
-        error_message,
-        raw_stop_reason,
-        end_turn,
-        timestamp,
-    } = previous;
-    if role != &next.role
-        || api != &next.api
-        || provider != &next.provider
-        || model != &next.model
-        || response_model != &next.response_model
-        || response_id != &next.response_id
-        || usage != &next.usage
-        || stop_reason != &next.stop_reason
-        || deferred != &next.deferred
-        || error_message != &next.error_message
-        || raw_stop_reason != &next.raw_stop_reason
-        || end_turn != &next.end_turn
-        || timestamp != &next.timestamp
-        || content.len() != next.content.len()
-    {
-        return false;
-    }
-    let (Some(rpi_ai::Content::Text(before)), Some(rpi_ai::Content::Text(after))) =
-        (content.get(index), next.content.get(index))
-    else {
-        return false;
-    };
-    let rpi_ai::TextContent {
-        kind,
-        text,
-        text_signature,
-    } = before;
-    kind == &after.kind
-        && text_signature == &after.text_signature
-        && after.text.strip_prefix(text) == Some(delta)
-        && content
-            .iter()
-            .zip(&next.content)
-            .enumerate()
-            .all(|(i, (a, b))| i == index || a == b)
-}
-
-fn event_json(
-    event: &AssistantMessageEvent,
-    previous: &mut Option<(usize, Arc<AssistantMessage>)>,
-) -> serde_json::Value {
-    let compact = match (event, previous.as_ref()) {
-        (
-            AssistantMessageEvent::TextDelta {
-                content_index,
-                delta,
-                partial,
-            },
-            Some((index, before)),
-        ) => index == content_index && reconstructs_text(before, partial, *index, delta),
-        _ => false,
-    };
-    *previous = match event {
-        AssistantMessageEvent::TextDelta {
-            content_index,
-            partial,
-            ..
-        } => Some((*content_index, Arc::clone(partial))),
-        _ => None,
-    };
-    if compact {
-        let AssistantMessageEvent::TextDelta {
-            content_index,
-            delta,
-            ..
-        } = event
-        else {
-            unreachable!()
-        };
-        return serde_json::json!({"type":"text_delta","contentIndex":content_index,"delta":delta});
-    }
-    let mut chunk = serde_json::to_value(event).expect("provider event JSON");
-    // The SDK uses flat tool-call identity fields.
-    let tool = chunk.get("toolCall").cloned().or_else(|| {
-        if event.type_tag() != "toolcall_start" {
-            return None;
-        }
-        let index = chunk["contentIndex"].as_u64()? as usize;
-        chunk.get("partial")?.get("content")?.get(index).cloned()
-    });
-    if let Some(tool) = tool {
-        for field in ["id", "name", "arguments"] {
-            if let Some(value) = tool.get(field) {
-                chunk[field] = value.clone();
-            }
-        }
-    }
-    chunk
 }
 
 async fn drive_stream(

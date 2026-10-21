@@ -10,6 +10,87 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
+#[ignore = "requires cargo build -p plugin-stub with native wrapper capability"]
+async fn native_wrapper_delegates_with_pooled_auth_and_canonical_endpoint() {
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    let temp = tempfile::tempdir().unwrap();
+    let agent = temp.path().join("agent");
+    std::fs::create_dir_all(&agent).unwrap();
+    let credentials = r#"{"stub-auth":{"type":"api_key","key":"default-account-secret"}}"#;
+    std::fs::write(agent.join("auth.json"), credentials).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::fs::write(agent.join("models.json"), serde_json::json!({"providers":{"stub-auth":{
+        "api":"openai-completions","baseUrl":base,"headers":{"X-Credential":"default-header-secret"},"models":[{"id":"auth-model"}]
+    }}}).to_string()).unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0; 4096];
+        loop {
+            let n = socket.read(&mut buffer).await.unwrap();
+            assert!(n > 0 && request.len() < 1_048_576);
+            request.extend_from_slice(&buffer[..n]);
+            if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let headers = std::str::from_utf8(&request).unwrap().to_ascii_lowercase();
+        assert!(headers.contains("authorization: bearer stub-pool-key"));
+        assert!(
+            !headers.contains("default-account-secret")
+                && !headers.contains("default-header-secret")
+        );
+        let body = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"pooled delegation works\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nSet-Cookie: private-response-cookie\r\nConnection: close\r\n\r\n{body}", body.len());
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+    let mut cmd = command(&temp, &library);
+    cmd.env("RPI_STUB_WRAP_AUTH", "1").args([
+        "--provider",
+        "stub-auth",
+        "--model",
+        "auth-model",
+        "--base-url",
+        "http://127.0.0.1:1/credential-specific",
+        "--print",
+        "--no-session",
+        "--no-tools",
+        "hello",
+    ]);
+    let output = tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio::task::spawn_blocking(move || cmd.output().unwrap()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("pooled delegation works"));
+    for secret in [
+        "stub-pool-key",
+        "default-account-secret",
+        "default-header-secret",
+        "private-response-cookie",
+    ] {
+        assert!(!String::from_utf8_lossy(&output.stdout).contains(secret));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
+    }
+    tokio::time::timeout(Duration::from_secs(2), server)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(agent.join("auth.json")).unwrap(),
+        credentials
+    );
+}
+
+#[tokio::test]
 #[ignore = "requires cargo build -p plugin-stub with native auth capability"]
 async fn native_auth_login_refresh_send_and_logout_use_the_same_durable_slot() {
     let library = library("plugin_stub").expect("build the current plugin-stub first");

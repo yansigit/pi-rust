@@ -546,7 +546,10 @@ async fn replacement_keeps_only_explicit_attempt_environment_and_provider_resolu
         .resolve_replacement(
             "test".into(),
             auth.clone(),
-            store(None),
+            store(Some(Credential::ApiKey {
+                key: Some("pooled-key".into()),
+                env: BTreeMap::new(),
+            })),
             AuthOptions {
                 env: [("TRANSPORT_MODE".into(), "test-local".into())].into(),
                 ..Default::default()
@@ -564,4 +567,21 @@ async fn replacement_keeps_only_explicit_attempt_environment_and_provider_resolu
         "test-local"
     );
     assert_eq!(auth.observed.lock().await.as_ref().unwrap().0.env.len(), 1);
+}
+
+#[tokio::test]
+async fn unavailable_replacement_account_never_tries_ambient_provider_auth() {
+    let auth = Arc::new(Auth::new(0));
+    let result = AuthRuntime::default()
+        .resolve_replacement(
+            "test".into(),
+            auth.clone(),
+            store(None),
+            AuthOptions::default(),
+            CancellationToken::new(),
+            Arc::new(FixedClock),
+        )
+        .await;
+    assert!(matches!(result, Err(AuthError::Resolve)));
+    assert_eq!(auth.resolutions.load(Ordering::SeqCst), 0);
 }

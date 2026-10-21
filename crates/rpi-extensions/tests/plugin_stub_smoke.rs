@@ -60,6 +60,15 @@ use tokio_util::sync::CancellationToken;
 /// own location (`<target>/<profile>/deps/`). Returns the cdylib path and the
 /// dir it sits in (the dir is what `load_session` scans).
 fn locate_stub() -> Option<(PathBuf, PathBuf)> {
+    if let Some(path) = std::env::var_os("RPI_TEST_STUB_LIBRARY") {
+        let path = PathBuf::from(path);
+        assert!(
+            path.is_file(),
+            "RPI_TEST_STUB_LIBRARY must name an existing native library"
+        );
+        let directory = path.parent().unwrap().to_path_buf();
+        return Some((path, directory));
+    }
     let exe = std::env::current_exe().ok()?;
     // exe ≈ <target>/debug/deps/rpi_extensions-<hash>.exe
     let deps = exe.parent()?; // .../deps

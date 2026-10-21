@@ -221,11 +221,11 @@ impl AuthRuntime {
     ) -> Result<AttemptAuth, AuthError> {
         let mut env = options.env.clone();
         let mut auth = self
-            .resolve(
+            .resolve_scoped(
                 provider_id.clone(),
                 provider,
                 store,
-                AuthContext::default(),
+                None,
                 options,
                 signal,
                 clock,
@@ -248,6 +248,28 @@ impl AuthRuntime {
         provider: Arc<dyn ProviderAuth>,
         store: Arc<dyn CredentialStore>,
         context: AuthContext,
+        options: AuthOptions,
+        signal: CancellationToken,
+        clock: Arc<dyn Clock>,
+    ) -> Result<Option<RequestAuth>, AuthError> {
+        self.resolve_scoped(
+            provider_id,
+            provider,
+            store,
+            Some(context),
+            options,
+            signal,
+            clock,
+        )
+        .await
+    }
+
+    async fn resolve_scoped(
+        &self,
+        provider_id: String,
+        provider: Arc<dyn ProviderAuth>,
+        store: Arc<dyn CredentialStore>,
+        context: Option<AuthContext>,
         options: AuthOptions,
         signal: CancellationToken,
         clock: Arc<dyn Clock>,
@@ -314,11 +336,13 @@ async fn resolve_inner(
     provider_id: String,
     provider: Arc<dyn ProviderAuth>,
     store: Arc<dyn CredentialStore>,
-    mut context: AuthContext,
+    context: Option<AuthContext>,
     options: AuthOptions,
     signal: CancellationToken,
     clock: Arc<dyn Clock>,
 ) -> Result<Option<RequestAuth>, AuthError> {
+    let allow_ambient = context.is_some();
+    let mut context = context.unwrap_or_default();
     if signal.is_cancelled() {
         return Err(AuthError::Cancelled);
     }
@@ -399,7 +423,7 @@ async fn resolve_inner(
                 .await
         }
         Some(_) => Ok(None),
-        None if provider.supports_api_key() => {
+        None if allow_ambient && provider.supports_api_key() => {
             provider.resolve_api_key(context, None, signal).await
         }
         None => Ok(None),

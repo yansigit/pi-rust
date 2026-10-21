@@ -1375,6 +1375,29 @@ pub type OAuthRequestFn =
 /// `scopes`, `supportsPkce`, and optional `capabilities`.
 pub type OAuthRegisterFn = OAuthRequestFn;
 
+/// Register a provider wrapper and its invocation-scoped continuation callback.
+pub type RegisterProviderWrapperFn = extern "C" fn(
+    manifest: StbStringRef,
+    stream: ProviderStreamRequestFn,
+    free_string: FreeStringFn,
+    user_data: *mut c_void,
+) -> i32;
+
+/// Release a previously acquired account-store lock. This is a synchronous
+/// leaf operation: no network, persistence, host calls or waits for other work.
+pub type CredentialStoreReleaseFn = extern "C" fn(lock_id: StbStringRef, user_data: *mut c_void);
+
+/// Register a private, process-serialized credential store. The request uses
+/// AuthRequestControl and versioned read/lock/replace/remove envelopes. A lock
+/// returns an opaque ID and remains owned until the release callback runs.
+pub type RegisterCredentialStoreFn = extern "C" fn(
+    manifest: StbStringRef,
+    request: AuthRequestFn,
+    release: CredentialStoreReleaseFn,
+    free_string: FreeStringFn,
+    user_data: *mut c_void,
+) -> i32;
+
 /// Cancellation for a provider-owned authentication callback. This separate,
 /// sized control does not change the legacy OAuth or stream control layouts.
 /// The pointer and its context are borrowed until `AuthRequestFn` returns.
@@ -1596,6 +1619,15 @@ pub struct PluginApi {
     /// Optional richer auth contract, appended without changing earlier slots.
     /// Packages requiring this contract must report its absence at registration.
     pub register_provider_auth: Option<RegisterProviderAuthFn>,
+    /// Private pooled credential stores; appended without changing older slots.
+    pub register_credential_store: Option<RegisterCredentialStoreFn>,
+    /// Wrappers receive a private, invocation-scoped continuation to the next provider.
+    pub register_provider_wrapper: Option<RegisterProviderWrapperFn>,
+    /// Inverted streaming port: chunks and final output are HOST allocations.
+    /// Reclaim each with PluginApi.free_string, not a plugin deallocator.
+    pub delegate_provider_stream: Option<ProviderStreamRequestFn>,
+    /// Private continuation operations, including account auth resolution.
+    pub provider_continuation: Option<AuthRequestFn>,
 }
 unsafe impl Send for PluginApi {}
 unsafe impl Sync for PluginApi {}
@@ -1988,6 +2020,10 @@ mod tests {
             register_tool_with_wake: None,
             register_plugin_lifecycle: None,
             register_provider_auth: None,
+            register_credential_store: None,
+            register_provider_wrapper: None,
+            delegate_provider_stream: None,
+            provider_continuation: None,
         };
         // All optional slots are null → plugin must degrade.
         assert!(api.register_tool.is_none());
@@ -2090,8 +2126,24 @@ mod tests {
             core::mem::offset_of!(PluginApi, register_plugin_lifecycle) + size_of::<usize>()
         );
         assert_eq!(
-            size_of::<PluginApi>(),
+            core::mem::offset_of!(PluginApi, register_credential_store),
             core::mem::offset_of!(PluginApi, register_provider_auth) + size_of::<usize>()
+        );
+        assert_eq!(
+            size_of::<PluginApi>(),
+            core::mem::offset_of!(PluginApi, provider_continuation) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, register_provider_wrapper),
+            core::mem::offset_of!(PluginApi, register_credential_store) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, delegate_provider_stream),
+            core::mem::offset_of!(PluginApi, register_provider_wrapper) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, provider_continuation),
+            core::mem::offset_of!(PluginApi, delegate_provider_stream) + size_of::<usize>()
         );
         assert_eq!(align_of::<PluginApi>(), align_of::<*const ()>());
     }
@@ -2168,6 +2220,10 @@ mod tests {
             register_tool_with_wake: None,
             register_plugin_lifecycle: None,
             register_provider_auth: None,
+            register_credential_store: None,
+            register_provider_wrapper: None,
+            delegate_provider_stream: None,
+            provider_continuation: None,
         }
     }
 
@@ -2221,6 +2277,10 @@ mod tests {
             core::mem::offset_of!(PluginApi, register_tool_with_wake),
             core::mem::offset_of!(PluginApi, register_plugin_lifecycle),
             core::mem::offset_of!(PluginApi, register_provider_auth),
+            core::mem::offset_of!(PluginApi, register_credential_store),
+            core::mem::offset_of!(PluginApi, register_provider_wrapper),
+            core::mem::offset_of!(PluginApi, delegate_provider_stream),
+            core::mem::offset_of!(PluginApi, provider_continuation),
         ] {
             let mut api = entrypoint_test_api();
             api.struct_size = size as u32;
@@ -2246,6 +2306,10 @@ mod tests {
                     assert!(api.register_tool_with_wake.is_none());
                     assert!(api.register_plugin_lifecycle.is_none());
                     assert!(api.register_provider_auth.is_none());
+                    assert!(api.register_credential_store.is_none());
+                    assert!(api.register_provider_wrapper.is_none());
+                    assert!(api.delegate_provider_stream.is_none());
+                    assert!(api.provider_continuation.is_none());
                     assert!(
                         api.register_provider.is_some(),
                         "one-shot fallback remains available"

@@ -1,0 +1,56 @@
+{
+  "status": "partial-host-capabilities-not-package-parity",
+  "platform": "linux",
+  "results": {
+    "workspace_tests": {
+      "log": "/tmp/rpi-composition-workspace-tests.log",
+      "sha256": "ddeadf84193e3994a8f4f97ff8fca0cd78912a15e0aa18f8ad73ff86be41b19d",
+      "passed": 2034,
+      "failed": 0,
+      "ignored": 10
+    },
+    "provider_regressions": {
+      "log": "/tmp/rpi-composition-provider-regressions.log",
+      "sha256": "d6769f830f2499155f1ab78e4503b4d5dbc1f6c30a6f74dcbd793d4516b32947",
+      "passed": 43,
+      "failed": 0,
+      "ignored": 1
+    },
+    "workspace_all_targets": {
+      "log": "/tmp/rpi-composition-workspace-check.log",
+      "sha256": "ade45a8a6f1c13e5312cb709b28876de38db12733192435acd6503b649b20d2f",
+      "completed": true
+    },
+    "sdk_no_default": {
+      "log": "/tmp/rpi-composition-sdk-minimal.log",
+      "sha256": "7b7b4574f6970ad381915bdd018df446be465e5b7a6353366e873118e48c374f",
+      "completed": true
+    },
+    "sdk_rust_1_78_no_default": {
+      "log": "/tmp/rpi-composition-sdk-msrv.log",
+      "sha256": "d785c148e9cd5c288f2d32e00a31941bfbe624d149080b04d28c6b008e1f1ee7",
+      "completed": true
+    },
+    "original_compiled_library": {
+      "log": "/tmp/rpi-composition-old-library.log",
+      "sha256": "f86016cf75987aa4fd409b8759874b248498d8daef7c5e2869cca2681c6268fa",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 1
+    },
+    "native_pooled_http_request": {
+      "log": "/tmp/rpi-native-wrapper-acceptance.log",
+      "sha256": "77168cc44bd2e2d55fd54fb25d2e7e1ac69144d2a0be3e74573ff8d0d9b419bc",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "not_tested": [
+    "macOS and Windows native execution",
+    "dynamic provider publication and complete wrapper runtime",
+    "complete package differential suites",
+    "live provider inference and lifecycle"
+  ],
+  "msrv_note": "The SDK no-default-feature build passes on Rust 1.78. Full host MSRV remains blocked by the pre-existing idna_adapter 1.2.2 Edition 2024 dependency."
+}

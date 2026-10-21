@@ -5,6 +5,7 @@ use std::{ffi::c_void, sync::Arc};
 use rpi_ai::auth::{
     AuthContext, AuthError, Credential, OAuthCredential, ProviderAuth, RequestAuth,
 };
+#[cfg(test)]
 use rpi_plugin_sdk::{AuthRequestControl, StbString, StbStringRef};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -79,17 +80,6 @@ pub struct RegisteredAuthProvider {
 // SAFETY: registration requires a context callable from any host worker thread.
 unsafe impl Send for RegisteredAuthProvider {}
 unsafe impl Sync for RegisteredAuthProvider {}
-
-impl RegisteredAuthProvider {
-    fn invoke(&self, request: &str, control: &AuthRequestControl, out: &mut StbString) -> i32 {
-        (self.request_fn)(
-            StbStringRef::from_str(request),
-            control,
-            out,
-            self.user_data,
-        )
-    }
-}
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -210,52 +200,25 @@ impl NativeProviderAuth {
         let request =
             json!({"version":1,"providerId":self.record.manifest.id,"action":action,"input":input})
                 .to_string();
-        let record = self.record.clone();
-        let keepalive = self.keepalive.clone();
-        let signal = signal.child_token();
-        let _cancel_callback = signal.clone().drop_guard();
-        let callback_signal = signal.clone();
-        let pending = tokio::task::spawn_blocking(move || {
-            // Pin both the library and its callback context through output reclamation,
-            // even when the caller stops waiting or its session is invalidated.
-            let _keepalive = keepalive;
-            let control = AuthRequestControl {
-                struct_size: std::mem::size_of::<AuthRequestControl>() as u32,
-                is_cancelled,
-                user_data: (&callback_signal as *const CancellationToken)
-                    .cast_mut()
-                    .cast(),
-            };
-            let mut out = StbString::empty();
-            let status = record.invoke(&request, &control, &mut out);
-            // SAFETY: the callback transfers its output to its own deallocator.
-            let out = unsafe {
-                rpi_plugin_sdk::callbacks::OwnedString::from_raw(
-                    out,
-                    Some(record.plugin_free_string),
-                )
-            };
-            if status != 0 {
-                return Err(AuthError::Resolve);
-            }
-            let response: AuthResponse =
-                serde_json::from_str(&out.to_string_lossy()).map_err(|_| AuthError::Resolve)?;
-            if response.version != 1 {
-                return Err(AuthError::Resolve);
-            }
-            Ok(response)
-        });
-        tokio::select! {
-            biased;
-            _ = signal.cancelled() => Err(AuthError::Cancelled),
-            result = pending => result.map_err(|_| AuthError::Task)?,
+        let value = crate::private_callback::invoke(
+            crate::private_callback::Callback {
+                request: self.record.request_fn,
+                free: self.record.plugin_free_string,
+                context: self.record.user_data,
+            },
+            self.keepalive.clone(),
+            request,
+            signal,
+            false,
+        )
+        .await?;
+        let response: AuthResponse =
+            serde_json::from_value(value).map_err(|_| AuthError::Resolve)?;
+        if response.version != 1 {
+            return Err(AuthError::Resolve);
         }
+        Ok(response)
     }
-}
-
-extern "C" fn is_cancelled(user_data: *mut c_void) -> u8 {
-    // SAFETY: the callback borrows the stack-owned token until it returns.
-    u8::from(unsafe { &*user_data.cast::<CancellationToken>() }.is_cancelled())
 }
 
 #[async_trait::async_trait]

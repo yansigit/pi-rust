@@ -163,7 +163,13 @@ fn compact_sdk_frames_match_full_frames_after_every_mapper_prefix() {
         let full = serde_json::to_value(event).unwrap();
         full_bytes += full.to_string().len();
         compact_bytes += frame.to_string().len();
-        assert_eq!(mapped(&mut compact, frame), mapped(&mut legacy, full));
+        let decoded = mapped(&mut compact, frame);
+        assert_eq!(
+            decoded,
+            vec![event.clone()],
+            "native wire must preserve every observable snapshot"
+        );
+        assert_eq!(decoded, mapped(&mut legacy, full));
         assert_eq!(compact.accumulated(), legacy.accumulated());
         assert_eq!(compact.aborted_message(), legacy.aborted_message());
     }

@@ -1821,7 +1821,7 @@ fn build_models_with_extensions_for_reload(
             models.push(provider);
         }
     }
-    models
+    rpi_extensions::wrap_providers(extension_session, models)
 }
 
 /// Diagnostic for registered TUI renderers. All three renderer kinds are

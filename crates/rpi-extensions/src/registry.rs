@@ -361,6 +361,8 @@ pub struct ExtensionRegistry {
     /// manifest `id` field.
     oauth_providers: Vec<RegisteredOAuthProvider>,
     auth_providers: Vec<crate::provider_auth::RegisteredAuthProvider>,
+    credential_stores: Vec<crate::credential_store::RegisteredCredentialStore>,
+    provider_wrappers: Vec<crate::provider::wrappers::RegisteredWrapper>,
     /// Registered renderers (B5c), split by kind at registration. First-wins on
     /// `(kind, name)`. The host records these now; TUI consumption is B5e.
     renderers: Vec<RegisteredRenderer>,
@@ -404,6 +406,8 @@ impl ExtensionRegistry {
             provider_manifests: std::collections::BTreeMap::new(),
             oauth_providers: Vec::new(),
             auth_providers: Vec::new(),
+            credential_stores: Vec::new(),
+            provider_wrappers: Vec::new(),
             renderers: Vec::new(),
             priority: DEFAULT_PRIORITY,
             platforms: Vec::new(),
@@ -720,6 +724,36 @@ impl ExtensionRegistry {
         false
     }
 
+    pub fn register_provider_wrapper(
+        &mut self,
+        wrapper: crate::provider::wrappers::RegisteredWrapper,
+    ) -> bool {
+        if self
+            .provider_wrappers
+            .iter()
+            .any(|known| known.plugin == wrapper.plugin && known.manifest.id == wrapper.manifest.id)
+        {
+            return true;
+        }
+        self.provider_wrappers.push(wrapper);
+        false
+    }
+
+    pub fn register_credential_store(
+        &mut self,
+        store: crate::credential_store::RegisteredCredentialStore,
+    ) -> bool {
+        if self
+            .credential_stores
+            .iter()
+            .any(|existing| existing.manifest.id == store.manifest.id)
+        {
+            return true;
+        }
+        self.credential_stores.push(store);
+        false
+    }
+
     /// Register a renderer (B5c — message/markdown/entry). First-wins on
     /// `(kind, name)`. Returns `true` if a prior renderer of the same kind+name
     /// was kept.
@@ -766,6 +800,8 @@ impl ExtensionRegistry {
             provider_manifests: self.provider_manifests.clone(),
             oauth_providers: self.oauth_providers.clone(),
             auth_providers: self.auth_providers.clone(),
+            credential_stores: self.credential_stores.clone(),
+            provider_wrappers: self.provider_wrappers.clone(),
             renderers: self.renderers.clone(),
             owns_stdio: self.owns_stdio,
             active: Arc::clone(&self.active),
@@ -882,6 +918,12 @@ impl ExtensionRegistry {
             }
             self.oauth_providers.push(oauth);
         }
+        for wrapper in other.provider_wrappers.drain(..) {
+            self.register_provider_wrapper(wrapper);
+        }
+        for store in other.credential_stores.drain(..) {
+            self.register_credential_store(store);
+        }
         for provider in other.auth_providers.drain(..) {
             self.register_provider_auth(provider);
         }
@@ -925,6 +967,8 @@ pub struct RegistrySnapshot {
     provider_manifests: std::collections::BTreeMap<String, ProviderManifest>,
     oauth_providers: Vec<RegisteredOAuthProvider>,
     auth_providers: Vec<crate::provider_auth::RegisteredAuthProvider>,
+    credential_stores: Vec<crate::credential_store::RegisteredCredentialStore>,
+    provider_wrappers: Vec<crate::provider::wrappers::RegisteredWrapper>,
     renderers: Vec<RegisteredRenderer>,
     /// A plugin's `{"ownsStdio":true}` claim (merged OR across plugins). The
     /// host reads this after `load_session` to defer `read_piped_stdin` and run
@@ -934,6 +978,14 @@ pub struct RegistrySnapshot {
 }
 
 impl RegistrySnapshot {
+    pub fn provider_wrappers(&self) -> &[crate::provider::wrappers::RegisteredWrapper] {
+        &self.provider_wrappers
+    }
+
+    pub fn credential_stores(&self) -> &[crate::credential_store::RegisteredCredentialStore] {
+        &self.credential_stores
+    }
+
     /// Provider-owned authentication registrations, in registration order.
     pub fn auth_providers(&self) -> &[crate::provider_auth::RegisteredAuthProvider] {
         &self.auth_providers

@@ -24,6 +24,7 @@ pub mod images;
 pub mod json_parse;
 pub mod model;
 pub mod provider;
+pub mod provider_wire;
 pub mod providers;
 pub mod schema;
 pub(crate) mod strict_schema;

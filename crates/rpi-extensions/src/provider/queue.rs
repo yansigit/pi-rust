@@ -32,7 +32,9 @@ pub(super) struct Queue {
     capacity: usize,
     byte_limit: usize,
     writable: Condvar,
+    writable_async: Notify,
     readable: Notify,
+    readable_blocking: Condvar,
 }
 pub(super) struct Sender(Arc<Queue>);
 pub(super) struct Receiver {
@@ -59,7 +61,9 @@ pub(super) fn channel(
         capacity,
         byte_limit,
         writable: Condvar::new(),
+        writable_async: Notify::new(),
         readable: Notify::new(),
+        readable_blocking: Condvar::new(),
     });
     *control.queue.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&queue));
     (Sender(Arc::clone(&queue)), Receiver { queue, control })
@@ -70,7 +74,9 @@ impl Queue {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.cancelled = true;
         self.writable.notify_all();
+        self.writable_async.notify_waiters();
         self.readable.notify_one();
+        self.readable_blocking.notify_all();
     }
 }
 impl Sender {
@@ -101,7 +107,34 @@ impl Sender {
             PEAK_BYTES.fetch_max(state.bytes, Ordering::Relaxed);
         }
         self.0.readable.notify_one();
+        self.0.readable_blocking.notify_all();
         Ok(())
+    }
+
+    pub(super) async fn send_async(&self, chunk: StreamChunk, bytes: usize) -> Result<(), ()> {
+        let weight = bytes.max(1).min(self.0.byte_limit);
+        loop {
+            let ready = self.0.writable_async.notified();
+            tokio::pin!(ready);
+            ready.as_mut().enable();
+            {
+                let mut state = self.0.state.lock().unwrap_or_else(|e| e.into_inner());
+                if !state.consumer_open || state.cancelled {
+                    return Err(());
+                }
+                if state.chunks.len() < self.0.capacity && weight <= self.0.byte_limit - state.bytes
+                {
+                    state.bytes += weight;
+                    state.chunks.push_back((chunk, weight));
+                    state.peak_count = state.peak_count.max(state.chunks.len());
+                    state.peak_bytes = state.peak_bytes.max(state.bytes);
+                    self.0.readable.notify_one();
+                    self.0.readable_blocking.notify_all();
+                    return Ok(());
+                }
+            }
+            ready.await;
+        }
     }
 }
 impl Drop for Sender {
@@ -112,6 +145,7 @@ impl Drop for Sender {
             .unwrap_or_else(|e| e.into_inner())
             .producer_open = false;
         self.0.readable.notify_one();
+        self.0.readable_blocking.notify_all();
     }
 }
 impl Receiver {
@@ -126,6 +160,7 @@ impl Receiver {
                 if let Some((chunk, bytes)) = state.chunks.pop_front() {
                     state.bytes -= bytes;
                     self.queue.writable.notify_all();
+                    self.queue.writable_async.notify_waiters();
                     return Some(chunk);
                 }
                 if !state.producer_open {
@@ -135,19 +170,52 @@ impl Receiver {
             ready.await;
         }
     }
+
+    /// Polling is only for a foreign cancellation control, never for capacity.
+    pub(super) fn recv_timeout(
+        &mut self,
+        timeout: std::time::Duration,
+    ) -> Result<Option<StreamChunk>, ()> {
+        let deadline = std::time::Instant::now() + timeout;
+        let mut state = self.queue.state.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if state.cancelled || !state.consumer_open {
+                return Ok(None);
+            }
+            if let Some((chunk, bytes)) = state.chunks.pop_front() {
+                state.bytes -= bytes;
+                self.queue.writable.notify_all();
+                self.queue.writable_async.notify_waiters();
+                return Ok(Some(chunk));
+            }
+            if !state.producer_open {
+                return Ok(None);
+            }
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return Err(());
+            };
+            state = self
+                .queue
+                .readable_blocking
+                .wait_timeout(state, remaining)
+                .unwrap_or_else(|e| e.into_inner())
+                .0;
+        }
+    }
     pub(super) fn close(&mut self) {
         let mut state = self.queue.state.lock().unwrap_or_else(|e| e.into_inner());
         state.consumer_open = false;
         state.chunks.clear();
         state.bytes = 0;
         self.queue.writable.notify_all();
+        self.queue.writable_async.notify_waiters();
     }
-    #[cfg(test)]
     pub(super) fn try_recv(&mut self) -> Result<StreamChunk, ()> {
         let mut state = self.queue.state.lock().unwrap_or_else(|e| e.into_inner());
         let (chunk, bytes) = state.chunks.pop_front().ok_or(())?;
         state.bytes -= bytes;
         self.queue.writable.notify_all();
+        self.queue.writable_async.notify_waiters();
         Ok(chunk)
     }
 }
@@ -168,6 +236,38 @@ impl Drop for Receiver {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[tokio::test]
+    async fn reversed_bridge_bounds_oversized_frames_and_cancellation_wakes_async_senders() {
+        let control = Arc::new(ProviderControlState::default());
+        let (tx, mut rx) = channel(1, 4, control.clone());
+        tx.send_async(serde_json::json!({"frame":0}), 100)
+            .await
+            .unwrap();
+        let pending = tokio::spawn(async move {
+            tx.send_async(serde_json::json!({"frame":1}), 2)
+                .await
+                .unwrap();
+            tx.send_async(serde_json::json!({"frame":2}), 2).await
+        });
+        let frame = rx.recv_timeout(Duration::from_millis(1)).unwrap().unwrap();
+        assert_eq!(frame["frame"], 0);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if rx.queue.state.lock().unwrap().chunks.len() == 1 {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        control.cancel();
+        assert!(pending.await.unwrap().is_err());
+        let state = rx.queue.state.lock().unwrap();
+        assert_eq!(state.peak_count, 1);
+        assert_eq!(state.peak_bytes, 4);
+    }
 
     #[tokio::test]
     async fn capacity_one_dequeues_losslessly_and_wakes_blocking_producer() {

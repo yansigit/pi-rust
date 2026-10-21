@@ -87,6 +87,7 @@ pub use oauth::{
     OAuthExtensionError, OAuthProviderInfo, OAuthResponseKind,
 };
 pub use prompt_transform::emit_before_agent_start;
+pub use provider::wrappers::{wrap_providers, RegisteredWrapper, WrapperManifest};
 pub use provider::PluggableProvider;
 pub use provider_hooks::ExtensionProviderHooks;
 pub use registry::{
@@ -107,10 +108,12 @@ pub use translate::{
 
 pub use stdio::StdioLifecycle;
 mod actions;
+pub mod credential_store;
 mod editor_text;
 mod event_log;
 mod loader;
 mod oauth;
+mod private_callback;
 mod prompt_transform;
 mod provider;
 pub mod provider_auth;
@@ -310,6 +313,10 @@ impl HostApi {
             register_tool_with_wake: Some(trampoline_register_tool_with_wake),
             register_plugin_lifecycle: Some(trampoline_register_plugin_lifecycle),
             register_provider_auth: Some(trampoline_register_provider_auth),
+            register_credential_store: Some(trampoline_register_credential_store),
+            register_provider_wrapper: Some(trampoline_register_provider_wrapper),
+            delegate_provider_stream: Some(provider::wrappers::delegate_stream),
+            provider_continuation: Some(provider::wrappers::continuation_action),
             register_command: Some(trampoline_register_command),
             register_shortcut: Some(trampoline_register_shortcut),
             register_flag: Some(trampoline_register_flag),
@@ -791,6 +798,62 @@ extern "C" fn trampoline_register_oauth_provider(
     match with_current_api(|api| api.with_registry(|reg| reg.register_oauth_provider(record))) {
         Some(Some(true)) => 1,
         Some(Some(false)) => 0,
+        _ => -1,
+    }
+}
+
+extern "C" fn trampoline_register_provider_wrapper(
+    manifest: StbStringRef,
+    stream: ProviderStreamRequestFn,
+    free: FreeStringFn,
+    context: *mut c_void,
+) -> i32 {
+    let Some(plugin) = with_current_api(|api| api.name.clone()) else {
+        return -1;
+    };
+    let Ok(manifest) = WrapperManifest::parse(unsafe { manifest.as_str() }) else {
+        return -2;
+    };
+    let record = RegisteredWrapper {
+        plugin,
+        manifest,
+        stream,
+        free,
+        context,
+    };
+    match with_current_api(|api| {
+        api.with_registry(|registry| registry.register_provider_wrapper(record))
+    }) {
+        Some(Some(duplicate)) => i32::from(duplicate),
+        _ => -1,
+    }
+}
+
+extern "C" fn trampoline_register_credential_store(
+    manifest: StbStringRef,
+    request: rpi_plugin_sdk::AuthRequestFn,
+    release: rpi_plugin_sdk::CredentialStoreReleaseFn,
+    free: FreeStringFn,
+    context: *mut c_void,
+) -> i32 {
+    let Some(plugin) = with_current_api(|api| api.name.clone()) else {
+        return -1;
+    };
+    let Ok(manifest) = credential_store::StoreManifest::parse(unsafe { manifest.as_str() }) else {
+        return -2;
+    };
+    let record = credential_store::RegisteredCredentialStore {
+        plugin,
+        manifest,
+        request,
+        release,
+        free,
+        context,
+    };
+    match with_current_api(|api| {
+        api.with_registry(|registry| registry.register_credential_store(record))
+    }) {
+        Some(Some(duplicate)) => i32::from(duplicate),
         _ => -1,
     }
 }

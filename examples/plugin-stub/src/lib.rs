@@ -600,6 +600,9 @@ extern "C" fn on_auth_request(
             Some("refresh") => serde_json::json!({"version":1,"kind":"credential","payload":{
                 "access":"stub-rotated-access","refresh":"stub-rotated-refresh","expires":1234567890123_i64
             }}),
+            Some("resolveApiKey") if request["input"]["credential"]["key"].is_string() => {
+                serde_json::json!({"version":1,"kind":"auth","payload":{"apiKey":request["input"]["credential"]["key"]}})
+            }
             Some("toAuth" | "resolveApiKey") => {
                 serde_json::json!({"version":1,"kind":"auth","payload":{"apiKey":"stub-auth-key"}})
             }
@@ -621,7 +624,15 @@ extern "C" fn on_auth_request(
     })
 }
 
+mod wrapping;
+
 rpi_plugin_sdk::export_plugin!(|api| {
+    if std::env::var_os("RPI_STUB_WRAP_AUTH").is_some() {
+        if let Err(error) = wrapping::register(api) {
+            eprintln!("stub wrapper: {error}");
+            return 1;
+        }
+    }
     if let Some(register) = api.register_provider_auth {
         let status = register(
             StbStringRef::from_str(

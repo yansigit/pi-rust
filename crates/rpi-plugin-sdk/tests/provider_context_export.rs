@@ -86,6 +86,10 @@ fn api() -> sdk::PluginApi {
         register_tool_with_wake: None,
         register_plugin_lifecycle: None,
         register_provider_auth: None,
+        register_credential_store: None,
+        register_provider_wrapper: None,
+        delegate_provider_stream: None,
+        provider_continuation: None,
     }
 }
 

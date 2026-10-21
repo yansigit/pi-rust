@@ -97,7 +97,7 @@ impl ProviderContext {
         }
     }
 
-    fn enter(
+    pub(super) fn enter(
         &self,
         options: &SimpleStreamOptions,
     ) -> Result<(tokio::runtime::Handle, RequestGuard<'_>), String> {
@@ -162,7 +162,7 @@ impl ProviderContext {
     }
 }
 
-struct RequestGuard<'a> {
+pub(super) struct RequestGuard<'a> {
     context: &'a ProviderContext,
     id: u64,
 }
