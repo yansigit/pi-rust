@@ -210,9 +210,10 @@ impl Continuation {
             return Err(AuthError::Store);
         }
         let provider_id = &self.model.provider;
-        let provider =
-            crate::provider_auth::NativeProviderAuth::from_session(&self.session, provider_id)
-                .ok_or(AuthError::Resolve)?;
+        let provider = crate::provider_auth::ProviderAuthentication::for_registered_provider(
+            &self.session,
+            provider_id,
+        );
         let store = crate::credential_store::NativeCredentialStore::from_session(
             &self.session,
             store_id,
@@ -388,9 +389,7 @@ pub(crate) extern "C" fn delegate_stream(
             let mut options_json = options_json(&continuation.options);
             if let Some(patch) = input.options {
                 for (key, value) in patch {
-                    if !options_json.as_object().unwrap().contains_key(&key)
-                        || matches!(key.as_str(), "authMode" | "responseMetadata")
-                    {
+                    if matches!(key.as_str(), "authMode" | "responseMetadata" | "streamKind") {
                         return Err("unsupported delegated option".into());
                     }
                     options_json[&key] = value;
@@ -508,7 +507,7 @@ async fn drive_delegate(
         model.id.clone(),
         0,
     );
-    let pending = provider.stream_simple(model, context, options);
+    let pending = rpi_ai::provider::forward_stream(provider.as_ref(), model, context, options);
     let mut stream = tokio::select! { biased; _ = options.signal.cancelled() => return aborted(partial), stream = pending => stream };
     let mut previous = None;
     loop {

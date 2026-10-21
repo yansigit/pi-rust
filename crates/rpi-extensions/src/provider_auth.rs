@@ -13,8 +13,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{ExtensionSession, PluginKeepalive, RegistrySnapshot};
 
+mod compatibility;
 mod interaction;
 mod legacy;
+pub use compatibility::ProviderAuthentication;
 pub use interaction::{AuthChoice, AuthInteraction};
 pub use legacy::LegacyOAuthAuth;
 

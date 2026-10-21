@@ -115,6 +115,7 @@ fn session(registry: &ExtensionRegistry) -> ExtensionSession {
 struct Base {
     models: Vec<Model>,
     calls: AtomicUsize,
+    full_calls: AtomicUsize,
     retained: Mutex<Option<rpi_ai::provider::ResponseObserver>>,
     expect_replace: bool,
 }
@@ -125,6 +126,24 @@ impl Provider for Base {
     }
     fn models(&self) -> &[Model] {
         &self.models
+    }
+    async fn stream(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &SimpleStreamOptions,
+    ) -> AssistantMessageEventStream {
+        self.full_calls.fetch_add(1, Ordering::SeqCst);
+        assert_eq!(options.provider_options["transport"], "websocket");
+        assert_eq!(
+            options.provider_options["samplingParams"],
+            json!({"top_p":0.8})
+        );
+        assert_eq!(
+            options.metadata.as_ref().unwrap()["nested"],
+            json!([true, 3])
+        );
+        self.stream_simple(model, context, options).await
     }
     async fn stream_simple(
         &self,
@@ -215,6 +234,7 @@ fn base(replace: bool) -> Arc<Base> {
             "https://bound",
         )],
         calls: AtomicUsize::new(0),
+        full_calls: AtomicUsize::new(0),
         retained: Mutex::new(None),
         expect_replace: replace,
     })
@@ -242,6 +262,11 @@ async fn nested_wrappers_preserve_identity_streaming_metadata_and_rebuild_once()
     let base = base(false);
     let received = Arc::new(Mutex::new(vec![]));
     let options = SimpleStreamOptions {
+        provider_options: json!({"transport":"websocket","samplingParams":{"top_p":0.8}})
+            .as_object()
+            .unwrap()
+            .clone(),
+        metadata: Some([("nested".into(), json!([true, 3]))].into()),
         response_observer: Some(Arc::new({
             let received = received.clone();
             move |receipt| {
@@ -257,9 +282,15 @@ async fn nested_wrappers_preserve_identity_streaming_metadata_and_rebuild_once()
         let provider = wrap_providers(&session, vec![base.clone()]).pop().unwrap();
         assert_eq!(provider.id(), "probe");
         assert_eq!(provider.models()[0].id, "m");
-        let mut stream = provider
-            .stream_simple(&base.models[0], &Context::new(vec![]), &options)
-            .await;
+        let mut stream = if count == 1 {
+            provider
+                .stream_simple(&base.models[0], &Context::new(vec![]), &options)
+                .await
+        } else {
+            provider
+                .stream(&base.models[0], &Context::new(vec![]), &options)
+                .await
+        };
         let (tags, result) = tokio::time::timeout(Duration::from_secs(3), async {
             let mut tags = vec![];
             while let Some(event) = stream.next().await {
@@ -292,6 +323,7 @@ async fn nested_wrappers_preserve_identity_streaming_metadata_and_rebuild_once()
         assert_eq!(base.calls.load(Ordering::SeqCst), count);
     }
     assert_eq!(*received.lock().unwrap(), [429, 200, 429, 200]);
+    assert_eq!(base.full_calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         *trace.lock().unwrap(),
         [
@@ -378,6 +410,7 @@ async fn forged_receipts_generations_models_and_auth_payloads_are_rejected_befor
         ("authReceipt", json!("forged")),
         ("auth", json!({"apiKey":"must-never-be-accepted"})),
         ("options", json!({"authMode":"replace"})),
+        ("options", json!({"streamKind":"stream"})),
         ("options", json!({"env":{"KEY":false}})),
     ] {
         let mut request = valid.clone();

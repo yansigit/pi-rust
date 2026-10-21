@@ -172,7 +172,7 @@ pub struct AgentHarnessStreamOptions {
     pub max_retries: Option<u32>,
     pub max_retry_delay: Option<std::time::Duration>,
     pub headers: Option<BTreeMap<String, String>>,
-    pub metadata: Option<BTreeMap<String, String>>,
+    pub metadata: Option<BTreeMap<String, serde_json::Value>>,
     pub cache_retention: Option<CacheRetention>,
 }
 
@@ -260,7 +260,7 @@ impl AgentHarnessStreamOptionsPatch {
             for (k, v) in patch {
                 match v {
                     Some(val) => {
-                        map.insert(k.clone(), val.to_string());
+                        map.insert(k.clone(), val.clone());
                     }
                     None => {
                         map.remove(k);
@@ -514,7 +514,30 @@ impl Default for AgentHarnessOptions {
 
 #[cfg(test)]
 mod tests {
-    use super::RetryPolicy;
+    use super::*;
+
+    #[test]
+    fn metadata_patch_preserves_json_types_through_provider_options() {
+        let mut options = AgentHarnessStreamOptions::default();
+        AgentHarnessStreamOptionsPatch {
+            metadata: Some(
+                [
+                    ("user_id".into(), Some(serde_json::json!("account"))),
+                    (
+                        "trace".into(),
+                        Some(serde_json::json!({"n":3,"cached":true})),
+                    ),
+                ]
+                .into(),
+            ),
+            ..Default::default()
+        }
+        .apply(&mut options);
+        let forwarded = options.merge_into(SimpleStreamOptions::default());
+        let metadata = forwarded.metadata.unwrap();
+        assert_eq!(metadata["user_id"], "account");
+        assert_eq!(metadata["trace"], serde_json::json!({"n":3,"cached":true}));
+    }
 
     #[test]
     fn retry_policy_allows_ten_retries_by_default() {

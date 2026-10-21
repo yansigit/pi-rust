@@ -340,7 +340,9 @@ impl Provider for RoutedProvider {
             })
         });
         match route {
-            Some(route) => route.stream_simple(model, context, options).await,
+            Some(route) => {
+                rpi_ai::provider::forward_stream(route.as_ref(), model, context, options).await
+            }
             None => unbound_model_error(model, &self.id).await,
         }
     }
@@ -413,7 +415,7 @@ impl Provider for ConfiguredProvider {
                 }
             }
         }
-        self.inner.stream_simple(&model, context, &options).await
+        rpi_ai::provider::forward_stream(self.inner.as_ref(), &model, context, &options).await
     }
 }
 

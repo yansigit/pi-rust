@@ -1410,7 +1410,8 @@ pub fn build_params(
         .metadata
         .as_ref()
         .and_then(|m| m.get("user_id"))
-        .map(|v| v.as_str().to_string())
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_owned)
         .map(|uid| AnthropicMetadata { user_id: uid });
     // Beta headers.
     let use_fine_grained_tool_streaming_beta =

@@ -68,9 +68,12 @@ kind and millisecond expiry, never tokens. Legacy second-based stores convert at
 the boundary. Refresh uses the existing cancellation-independent refresh/persist
 runtime; pooled refresh cannot fall back to ambient credentials.
 
-Native auth discovery and flows are wired here. Compatibility for every unrelated
-legacy provider's login path, both Pi streaming entry adapters, and full UI
-interaction parity remain separate pending ledger requirements.
+The explicit native management/pooling path also adapts legacy OAuth `begin`,
+`exchange`, `refresh`, and `revoke` callbacks, preserving their presentation and
+second-based credential contract. Registered protocol providers without a custom
+auth implementation receive a host API-key method. Unknown providers are refused.
+This does not opt legacy providers into new ambient fallback behavior. Full UI
+interaction parity remains a separate pending ledger requirement.
 
 Print and JSON modes now deliver session start/shutdown once, as interactive/RPC
 modes already did, including the shutdown authentication drain. Full event identity

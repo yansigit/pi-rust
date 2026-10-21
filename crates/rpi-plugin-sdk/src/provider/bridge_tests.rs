@@ -1,6 +1,88 @@
 use super::*;
 use rpi_ai::providers::faux::{FauxProvider, FauxScript, FauxStep};
 
+struct SeparateEntries;
+#[async_trait::async_trait]
+impl Provider for SeparateEntries {
+    fn id(&self) -> &str {
+        "faux"
+    }
+    fn models(&self) -> &[Model] {
+        &[]
+    }
+    async fn stream(
+        &self,
+        model: &Model,
+        _: &Context,
+        options: &SimpleStreamOptions,
+    ) -> rpi_ai::AssistantMessageEventStream {
+        assert_eq!(
+            options.provider_options["custom"],
+            serde_json::json!({"nested":[true,7]})
+        );
+        assert_eq!(options.metadata.as_ref().unwrap()["count"], 3);
+        entry_result(model, "full")
+    }
+    async fn stream_simple(
+        &self,
+        model: &Model,
+        _: &Context,
+        _: &SimpleStreamOptions,
+    ) -> rpi_ai::AssistantMessageEventStream {
+        entry_result(model, "simple")
+    }
+}
+fn entry_result(model: &Model, entry: &str) -> rpi_ai::AssistantMessageEventStream {
+    let (mut producer, stream) = rpi_ai::event_stream::create_assistant_message_event_stream();
+    let message = AssistantMessage::terminal(
+        model.api.clone(),
+        &model.provider,
+        &model.id,
+        StopReason::Error,
+        entry,
+        0,
+    );
+    tokio::spawn(async move {
+        producer
+            .push(AssistantMessageEvent::Error {
+                reason: rpi_ai::ErrorReason::Error,
+                error: message,
+            })
+            .await;
+    });
+    stream
+}
+
+#[test]
+fn native_adapter_preserves_full_and_simple_entry_points() {
+    fn factory(_: &Model, _: &SimpleStreamOptions) -> Arc<dyn Provider> {
+        Arc::new(SeparateEntries)
+    }
+    for (kind, expected) in [("stream", "full"), ("streamSimple", "simple")] {
+        let mut request: serde_json::Value = serde_json::from_str(&request()).unwrap();
+        request["options"] = serde_json::json!({"streamKind":kind,"custom":{"nested":[true,7]},"metadata":{"count":3}});
+        let mut out = StbString::empty();
+        assert_eq!(
+            unsafe {
+                drive(
+                    factory,
+                    StbStringRef::from_str(&request.to_string()),
+                    None,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    &mut out,
+                )
+            },
+            0
+        );
+        let owned = unsafe {
+            crate::callbacks::OwnedString::from_raw(out, Some(crate::callbacks::free_string))
+        };
+        let message: AssistantMessage = serde_json::from_str(&owned.to_string_lossy()).unwrap();
+        assert_eq!(message.error_message.as_deref(), Some(expected));
+    }
+}
+
 struct ReceiptProvider;
 #[async_trait::async_trait]
 impl Provider for ReceiptProvider {

@@ -2,16 +2,25 @@
 use super::*;
 use rpi_ai::auth::{AuthContext, AuthOptions, Clock, Credential, CredentialStore, SystemClock};
 use rpi_extensions::provider_auth::{
-    AuthAction, AuthInteraction, AuthMethod, AuthResponseKind, NativeProviderAuth,
+    AuthAction, AuthInteraction, AuthMethod, AuthResponseKind, ProviderAuthentication,
 };
 
 pub(super) struct Login {
     owner: NativeOwner,
-    auth: Arc<NativeProviderAuth>,
+    auth: Arc<ProviderAuthentication>,
     store: Arc<dyn CredentialStore>,
     continuation: Value,
 }
 impl ProviderRuntime {
+    async fn registered_auth(&self, id: &str) -> Result<Arc<ProviderAuthentication>, String> {
+        if !self.state.lock().await.catalog.has_provider(id) {
+            return Err("provider is not registered".into());
+        }
+        Ok(ProviderAuthentication::for_registered_provider(
+            &self.session,
+            id,
+        ))
+    }
     fn credential_store(
         &self,
         owner: &NativeOwner,
@@ -69,8 +78,7 @@ impl ProviderRuntime {
                 return Ok(json!(methods));
             }
         }
-        let auth = NativeProviderAuth::from_session(&self.session, id)
-            .ok_or("provider has no native authentication implementation")?;
+        let auth = self.registered_auth(id).await?;
         Ok(json!(auth.manifest().methods))
     }
     pub(super) async fn auth_request(
@@ -108,8 +116,7 @@ impl ProviderRuntime {
         if action == "methods" {
             return self.auth_methods(id, signal).await;
         }
-        let auth = NativeProviderAuth::from_session(&self.session, id)
-            .ok_or("provider has no native authentication implementation")?;
+        let auth = self.registered_auth(id).await?;
         let store = self.credential_store(&owner, id, &args)?;
         match action {
             "login" => {

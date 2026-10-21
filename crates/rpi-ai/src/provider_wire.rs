@@ -6,7 +6,9 @@ mod decoder;
 pub use decoder::StreamMapper;
 
 pub fn encode_options(opts: &SimpleStreamOptions) -> serde_json::Value {
-    serde_json::json!({
+    let mut fields = opts.provider_options.clone();
+    let reserved = serde_json::json!({
+        "streamKind": opts.stream_kind,
         "apiKey": opts.api_key,
         "timeoutMs": opts.timeout.map(|d| d.as_millis() as u64),
         "maxRetries": opts.max_retries,
@@ -25,11 +27,27 @@ pub fn encode_options(opts: &SimpleStreamOptions) -> serde_json::Value {
         "maxTokens": opts.max_tokens,
         "temperature": opts.temperature,
         "thinkingBudgets": opts.thinking_budgets,
-    })
+    });
+    fields.extend(reserved.as_object().unwrap().clone());
+    fields.into()
 }
 
 pub fn decode_options(value: &serde_json::Value, model: &Model) -> Result<SimpleStreamOptions, ()> {
     let mut options = SimpleStreamOptions::default();
+    options.stream_kind = value
+        .get("streamKind")
+        .map(|kind| serde_json::from_value(kind.clone()))
+        .transpose()
+        .map_err(|_| ())?
+        .unwrap_or_default();
+    let reserved = encode_options(&options);
+    options.provider_options = value
+        .as_object()
+        .ok_or(())?
+        .iter()
+        .filter(|(key, _)| !reserved.as_object().unwrap().contains_key(*key))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
     options.api_key = value["apiKey"].as_str().map(str::to_string);
     options.timeout = value["timeoutMs"].as_u64().map(Duration::from_millis);
     options.max_retry_delay = value["maxRetryDelayMs"].as_u64().map(Duration::from_millis);
@@ -190,6 +208,55 @@ pub fn encode_event(
 mod tests {
     use super::*;
     use crate::StopReason;
+
+    #[test]
+    fn malformed_native_block_frames_do_not_allocate_sparse_indices_or_corrupt_partial_output() {
+        let mut mapper = StreamMapper::new(crate::Api::Faux, "faux".into(), "m".into());
+        mapper.apply(serde_json::json!({"type":"start"}));
+        mapper.take_deferred();
+        mapper.apply(serde_json::json!({"type":"thinking_delta","contentIndex":0,"delta":"kept"}));
+        let before = mapper.output.clone();
+        for frame in [
+            serde_json::json!({"type":"text_delta","contentIndex":u64::MAX,"delta":"bad"}),
+            serde_json::json!({"type":"text_delta","contentIndex":-1,"delta":"bad"}),
+            serde_json::json!({"type":"text_end","contentIndex":0,"content":"bad"}),
+            serde_json::json!({"type":"toolcall_delta","contentIndex":0,"delta":"{}"}),
+            serde_json::json!({"type":"text_delta","contentIndex":0,"delta":"bad","partial":before}),
+        ] {
+            assert!(mapper.apply(frame).is_none());
+            assert_eq!(mapper.output, before);
+        }
+        assert!(mapper
+            .apply(serde_json::json!({"type":"thinking_delta","contentIndex":0,"delta":" too"}))
+            .is_some());
+        let crate::Content::Thinking(block) = &mapper.output.content[0] else {
+            panic!()
+        };
+        assert_eq!(block.thinking, "kept too");
+    }
+
+    #[test]
+    fn request_options_round_trip_json_metadata_and_provider_extensions_without_auth_forgery() {
+        let model = Model::new("m", "M", crate::Api::Faux, "faux", "http://localhost");
+        let wire = serde_json::json!({
+            "streamKind":"stream", "authMode":"ambient", "metadata":{"nested":[true,3,null]},
+            "samplingParams":{"top_p":0.9}, "transport":"websocket", "toolChoice":{"type":"tool","name":"echo"},
+            "deferred":{"window":"1h"}, "cursor":{"fast":false}
+        });
+        let mut options = decode_options(&wire, &model).unwrap();
+        options
+            .provider_options
+            .insert("authMode".into(), "replace".into());
+        options
+            .provider_options
+            .insert("apiKey".into(), "forged".into());
+        let encoded = encode_options(&options);
+        for (key, value) in wire.as_object().unwrap() {
+            assert_eq!(&encoded[key], value, "{key}");
+        }
+        assert!(encoded["apiKey"].is_null());
+        assert!(decode_options(&serde_json::json!({"streamKind":"wrong"}), &model).is_err());
+    }
     #[test]
     fn compaction_requires_exact_text_and_metadata_and_consecutive_deltas() {
         let mut before = AssistantMessage::empty(crate::Api::Faux, "faux", "m", 42);

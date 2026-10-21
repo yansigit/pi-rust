@@ -66,3 +66,18 @@ with the host, including complete partial snapshots and compact text deltas.
 This is an implemented composition foundation, not H04/H05 or package completion.
 Dynamic catalog publication, generic runtime/auth discovery, both Pi stream entry
 adapters and the full package differential suites remain separate requirements.
+
+## Streaming entries and option fidelity
+
+`Provider::stream` is the full provider-specific entry; `stream_simple` retains its
+existing default. Transparent host adapters and SDK delegation preserve the entry
+through `StreamKind`. Providers can override the full entry independently. Native
+wire requests use `streamKind: "stream" | "streamSimple"`; missing values retain
+the legacy simple behavior. A continuation cannot change its captured entry.
+
+`SimpleStreamOptions.provider_options` carries arbitrary JSON provider options
+flat on the wire. Reserved host/authentication fields take precedence. Metadata
+now retains JSON values through harness patches, request adapters and wrappers;
+it is no longer restricted to strings or stringified by a harness patch. These
+are Rust source changes requiring maintainer release coordination; C ABI slots,
+control structures and existing signatures are unchanged.

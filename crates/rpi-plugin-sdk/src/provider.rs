@@ -128,7 +128,12 @@ async fn drive_stream(
     let mut poll = tokio::time::interval(Duration::from_millis(10));
     // Some adapters wait for HTTP headers before returning their stream. Keep
     // draining the receipt port during that wait, including delegated retries.
-    let pending_stream = provider.stream_simple(&request.model, &request.context, options);
+    let pending_stream = rpi_ai::provider::forward_stream(
+        provider.as_ref(),
+        &request.model,
+        &request.context,
+        options,
+    );
     tokio::pin!(pending_stream);
     let mut stream = loop {
         if options.signal.is_cancelled()

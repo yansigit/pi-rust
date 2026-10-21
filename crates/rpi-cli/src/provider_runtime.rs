@@ -290,7 +290,10 @@ impl Provider for RuntimeProvider {
             .cloned();
         match provider {
             Some(provider) => match provider.preflight(model, options.signal.clone()).await {
-                Ok(()) => provider.stream_simple(model, context, options).await,
+                Ok(()) => {
+                    rpi_ai::provider::forward_stream(provider.as_ref(), model, context, options)
+                        .await
+                }
                 Err(error) => error_stream(model, error).await,
             },
             None => error_stream(model, "provider is no longer registered".into()).await,

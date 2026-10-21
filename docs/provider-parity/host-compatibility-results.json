@@ -1,0 +1,38 @@
+{
+  "status": "host-capabilities-not-package-parity",
+  "platform": "linux",
+  "results": {
+    "connected_suites": {
+      "log": "/tmp/rpi-provider-compatibility-tests-2.log",
+      "sha256": "7852379a823dfe2708f415cc4cd28dc8f9439a75cc048a4798323ead0fe27c73",
+      "passed": 898,
+      "failed": 0,
+      "ignored": 6
+    },
+    "runtime_auth_discovery": {
+      "log": "/tmp/rpi-compat-auth-runtime-tests.log",
+      "sha256": "b65b91cf19a8ec5f2c578bf396cc415e6df936e73ad66ce6a21976132e499358",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    "metadata_patch": {
+      "log": "/tmp/rpi-stream-metadata-test.log",
+      "sha256": "9b0000b90d3a589852ac7fe309c7e348eb62085af7959ee7bcce2c2135821434",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "workspace_all_targets": {
+      "log": "/tmp/rpi-compat-auth-check.log",
+      "sha256": "2d2527d7bb8f3b06f0e490d1f998bbba3ec249cf6559a7961bc59749bd8ee0ad",
+      "completed": true
+    }
+  },
+  "qualification": "The connected suite includes full/simple entry dispatch, two nested wrappers, metadata and provider-option fidelity, explicit legacy OAuth and host API-key auth, and bounded malformed-frame repair. Earlier tests detected a snapshot-fallback regression; the final suite preserves the existing fallback.",
+  "not_tested": [
+    "complete package differential suites",
+    "macOS and Windows",
+    "live inference"
+  ]
+}

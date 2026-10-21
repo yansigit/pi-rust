@@ -71,15 +71,11 @@ impl StreamMapper {
 
     /// A supplied delta snapshot already includes that delta. Replace the
     /// accumulator without appending the same text/arguments a second time.
-    fn apply_partial(&mut self, partial: Option<serde_json::Value>) -> bool {
-        match partial.map(serde_json::from_value::<AssistantMessage>) {
-            Some(Ok(message)) => {
+    fn apply_partial(&mut self, partial: Option<AssistantMessage>) -> bool {
+        match partial {
+            Some(message) => {
                 self.output = message;
                 true
-            }
-            Some(Err(error)) => {
-                tracing::warn!(%error, "ignoring malformed plugin provider partial snapshot");
-                false
             }
             None => false,
         }
@@ -104,7 +100,12 @@ impl StreamMapper {
         if !self.started {
             self.started = true;
             if chunk["type"] == "start" {
-                self.apply_partial(chunk.get("partial").cloned());
+                self.apply_partial(
+                    chunk
+                        .get("partial")
+                        .cloned()
+                        .and_then(|value| serde_json::from_value(value).ok()),
+                );
             }
             self.deferred = Some(std::mem::replace(&mut chunk, serde_json::Value::Null));
             return Some(AssistantMessageEvent::Start {
@@ -113,8 +114,42 @@ impl StreamMapper {
         }
 
         // Extract only after deferral: the parked frame must keep its snapshot.
-        let partial = chunk.as_object_mut()?.remove("partial");
+        let partial = match chunk
+            .as_object_mut()?
+            .remove("partial")
+            .map(serde_json::from_value::<AssistantMessage>)
+            .transpose()
+        {
+            Ok(partial) => partial,
+            Err(_) => {
+                tracing::warn!("ignoring malformed plugin provider partial snapshot");
+                None
+            }
+        };
         let kind = chunk.get("type").and_then(serde_json::Value::as_str)?;
+        if kind.starts_with("text_")
+            || kind.starts_with("thinking_")
+            || kind.starts_with("toolcall_")
+        {
+            let index = self.content_index(&chunk)?;
+            let content = partial
+                .as_ref()
+                .map_or(&self.output.content, |message| &message.content);
+            // Bound repair of skipped starts; an index must never amplify a tiny
+            // frame into an unbounded allocation or replace a different block kind.
+            if index.saturating_sub(content.len()) > 1024 {
+                return None;
+            }
+            if partial.is_some() || !kind.ends_with("_start") {
+                match content.get(index) {
+                    Some(Content::Text(_)) if kind.starts_with("text_") => {}
+                    Some(Content::Thinking(_)) if kind.starts_with("thinking_") => {}
+                    Some(Content::ToolCall(_)) if kind.starts_with("toolcall_") => {}
+                    None if partial.is_none() => {}
+                    _ => return None,
+                }
+            }
+        }
         match kind {
             // `start` is not an event of its own: the host emits `Start` above
             // the first time it sees *any* chunk, so a duplicate is dropped.
@@ -132,7 +167,7 @@ impl StreamMapper {
                 None
             }
             "text_start" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 if !self.apply_partial(partial) {
                     self.open_block(index, Content::text(String::new()));
                 }
@@ -142,7 +177,7 @@ impl StreamMapper {
                 })
             }
             "text_delta" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 let delta = chunk_string(&chunk, "delta");
                 if !self.apply_partial(partial) {
                     let block = self.ensure_text_block(index);
@@ -155,7 +190,7 @@ impl StreamMapper {
                 })
             }
             "text_end" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 self.apply_partial(partial);
                 let block = self.ensure_text_block(index);
                 let content = if chunk.get("content").is_some() {
@@ -171,7 +206,7 @@ impl StreamMapper {
                 })
             }
             "thinking_start" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 if !self.apply_partial(partial) {
                     self.open_block(index, Content::thinking(String::new()));
                 }
@@ -181,7 +216,7 @@ impl StreamMapper {
                 })
             }
             "thinking_delta" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 let delta = chunk_string(&chunk, "delta");
                 if !self.apply_partial(partial) {
                     let block = self.ensure_thinking_block(index);
@@ -194,7 +229,7 @@ impl StreamMapper {
                 })
             }
             "thinking_end" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 self.apply_partial(partial);
                 let block = self.ensure_thinking_block(index);
                 let content = if chunk.get("content").is_some() {
@@ -215,7 +250,7 @@ impl StreamMapper {
                 })
             }
             "toolcall_start" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 let id = chunk_string(&chunk, "id");
                 let name = chunk_string(&chunk, "name");
                 // The `arguments` snapshot at start is authoritative for the
@@ -237,7 +272,7 @@ impl StreamMapper {
                 })
             }
             "toolcall_delta" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 let delta = chunk_string(&chunk, "delta");
                 let accumulated = self.tool_json.entry(index).or_default();
                 accumulated.push_str(&delta);
@@ -266,7 +301,7 @@ impl StreamMapper {
                 })
             }
             "toolcall_end" => {
-                let index = self.content_index(&chunk);
+                let index = self.content_index(&chunk)?;
                 self.apply_partial(partial);
                 let id = chunk_string(&chunk, "id");
                 let name = chunk_string(&chunk, "name");
@@ -317,12 +352,11 @@ impl StreamMapper {
         }
     }
 
-    fn content_index(&self, chunk: &serde_json::Value) -> usize {
-        chunk
-            .get("contentIndex")
-            .and_then(serde_json::Value::as_u64)
-            .map(|n| n as usize)
-            .unwrap_or(0)
+    fn content_index(&self, chunk: &serde_json::Value) -> Option<usize> {
+        match chunk.get("contentIndex") {
+            None => Some(0),
+            Some(value) => value.as_u64()?.try_into().ok(),
+        }
     }
 
     /// Append a freshly-opened block at `index`, padding any gap with empty text

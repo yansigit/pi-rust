@@ -138,6 +138,52 @@ async fn request(
     args["port"] = "providers".into();
     runtime.request(owner, args, CancellationToken::new()).await
 }
+
+#[tokio::test]
+async fn authentication_discovery_uses_registered_native_legacy_or_protocol_auth() {
+    let (runtime, owner, _) = fixture();
+    let methods = runtime
+        .auth_request(
+            owner.clone(),
+            json!({"action":"methods","providerId":"test"}),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        methods,
+        json!([{"id":"api_key","name":"API key","kind":"api_key"}])
+    );
+    assert!(runtime
+        .auth_request(
+            owner,
+            json!({"action":"methods","providerId":"unregistered"}),
+            CancellationToken::new()
+        )
+        .await
+        .is_err());
+    let (runtime, owner, _) = fixture_with(|registry| {
+        registry.register_oauth_provider(rpi_extensions::RegisteredOAuthProvider {
+            plugin: "test-plugin".into(),
+            manifest_json: r#"{"id":"test"}"#.into(),
+            request_fn: unused,
+            plugin_free_string: rpi_plugin_sdk::callbacks::free_string,
+            user_data: std::ptr::null_mut(),
+        });
+    });
+    let methods = runtime
+        .auth_request(
+            owner,
+            json!({"action":"methods","providerId":"test"}),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        methods,
+        json!([{"id":"oauth","name":"OAuth","kind":"oauth"}])
+    );
+}
 #[tokio::test]
 async fn publication_rejects_foreign_child_stale_and_failed_installs_without_committing() {
     let (runtime, owner, host) = fixture();

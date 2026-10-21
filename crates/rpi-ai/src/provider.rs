@@ -40,11 +40,25 @@ pub enum CacheRetention {
     Long,
 }
 
+/// Preserve the caller's entry point through transparent native wrappers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum StreamKind {
+    #[serde(rename = "streamSimple")]
+    #[default]
+    Simple,
+    #[serde(rename = "stream")]
+    Full,
+}
+
 /// Options for a "simple" (non-agent) stream call — what compaction / smoke
 /// tests / bare provider usage pass. The agent loop wraps this with its richer
 /// equivalent when it drives a real turn (M2).
 #[derive(Clone)]
 pub struct SimpleStreamOptions {
+    pub stream_kind: StreamKind,
+    /// Provider-specific JSON options, including sampling, transport and tool
+    /// selection. Reserved fields below always win when encoding the request.
+    pub provider_options: serde_json::Map<String, serde_json::Value>,
     /// API key. A provider may fall back to an env var when `None` (M3 anthropic
     /// reads `ANTHROPIC_API_KEY`); faux ignores it.
     pub api_key: Option<String>,
@@ -64,7 +78,7 @@ pub struct SimpleStreamOptions {
     pub headers: Option<BTreeMap<String, String>>,
     /// Free-form provider metadata (request id, trace id, …). Anthropic reads
     /// `user_id` for abuse tracking; faux ignores it.
-    pub metadata: Option<BTreeMap<String, String>>,
+    pub metadata: Option<BTreeMap<String, serde_json::Value>>,
     /// Cache-retention hint for prompt caching.
     pub cache_retention: CacheRetention,
     /// Optional session id (faux uses it to simulate prompt-cache hits).
@@ -93,6 +107,8 @@ pub struct SimpleStreamOptions {
 impl Default for SimpleStreamOptions {
     fn default() -> Self {
         Self {
+            stream_kind: StreamKind::Simple,
+            provider_options: Default::default(),
             api_key: None,
             authentication: crate::auth::AttemptAuth::Ambient,
             env: BTreeMap::new(),
@@ -116,6 +132,7 @@ impl Default for SimpleStreamOptions {
 impl std::fmt::Debug for SimpleStreamOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SimpleStreamOptions")
+            .field("stream_kind", &self.stream_kind)
             .field("api_key", &self.api_key.as_ref().map(|_| "[redacted]"))
             .field("authentication", &self.authentication)
             .field("env", &"[redacted]")
@@ -208,6 +225,19 @@ pub trait Provider: Send + Sync {
         Ok(())
     }
 
+    /// Full provider-specific options entry point. Existing implementations
+    /// share their simple implementation; adapters may override this method.
+    async fn stream(
+        &self,
+        model: &Model,
+        ctx: &Context,
+        opts: &SimpleStreamOptions,
+    ) -> AssistantMessageEventStream {
+        let mut options = opts.clone();
+        options.stream_kind = StreamKind::Full;
+        self.stream_simple(model, ctx, &options).await
+    }
+
     /// Stream a single assistant turn against `ctx` on `model`. Returns the
     /// consumer end of an event stream; the producer task is already running.
     async fn stream_simple(
@@ -226,6 +256,19 @@ pub trait Provider: Send + Sync {
     /// spares every existing implementation.
     fn deferred(&self) -> Option<&dyn DeferredProvider> {
         None
+    }
+}
+
+/// Transparent host adapters must forward the original entry point.
+pub async fn forward_stream(
+    provider: &dyn Provider,
+    model: &Model,
+    context: &Context,
+    options: &SimpleStreamOptions,
+) -> AssistantMessageEventStream {
+    match options.stream_kind {
+        StreamKind::Full => provider.stream(model, context, options).await,
+        StreamKind::Simple => provider.stream_simple(model, context, options).await,
     }
 }
 
@@ -389,7 +432,7 @@ pub struct SimpleStreamOptionsPatch {
     /// `None` = leave; `Some(map)` = merge, inner `None` deletes a key.
     pub headers: Option<BTreeMap<String, Option<String>>>,
     /// `None` = leave; `Some(map)` = merge, inner `None` deletes a key.
-    pub metadata: Option<BTreeMap<String, Option<String>>>,
+    pub metadata: Option<BTreeMap<String, Option<serde_json::Value>>>,
     pub cache_retention: Option<Option<CacheRetention>>,
     pub max_tokens: Option<Option<u64>>,
     pub temperature: Option<Option<f64>>,
