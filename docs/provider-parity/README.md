@@ -101,7 +101,10 @@ hashes and evidence hashes. All three unchanged suites pass in
 [CI run 39569889592](https://github.com/yansigit/pi-rust/actions/runs/39569889592):
 Antigravity 4,009 passed/one upstream skip; multiprovider 107 passed;
 Cursor 1,634 unit tests and 53 native tests passed/two upstream skips.
-Cross-platform and inference acceptance remain untested.
+One authorized live Gemini 3.8 Flash request passed on Linux, including refresh
+and durable persistence (588 reported tokens, exact `OK`, unchanged source Pi
+files); see [live evidence](live-acceptance.json). Combined inference, vault live
+acceptance and platform execution remain pending.
 Read-only live discovery with one authorized Cursor account confirmed Composer 2.5
 and Grok 4.7, including their `fast=false` setting; this is not inference acceptance.
 `scripts/provider-auth-reference.mjs INSTALL_DIRECTORY` executes Pi 1.3.0's
@@ -230,8 +233,8 @@ The [Cursor SDK distribution review](cursor-sdk-distribution.md) requires the
 pinned SDK to be installed separately. Release archives must not vendor its
 proprietary dependencies or platform binaries.
 Antigravity's account-suspension warning and Cursor's native tool/cloud execution
-behavior remain operational risks. This work has performed no live inference or
-remote account/agent mutations.
+behavior remain operational risks. The bounded Antigravity local test above used
+one isolated credential copy; live vault and Cursor acceptance remain pending.
 
 Clean-runner reference baselines are also run by
 [`provider-reference-baseline.yml`](../../.github/workflows/provider-reference-baseline.yml).

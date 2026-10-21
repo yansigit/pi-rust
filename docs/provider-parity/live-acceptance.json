@@ -1,0 +1,40 @@
+{
+  "model": "antigravity-gemini-3.8-flash",
+  "exitCode": 0,
+  "timedOut": false,
+  "elapsedSeconds": 3.36,
+  "assistantMessages": 1,
+  "stopReasons": [
+    "stop"
+  ],
+  "refreshPersisted": true,
+  "refreshTokenChanged": false,
+  "sourceUnchanged": true,
+  "isolatedDirectory": "/home/user/.rpi/provider-parity-live/antigravity-20261021-100819",
+  "usage": [
+    {
+      "input": 548,
+      "output": 40,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "totalTokens": 588,
+      "cost": {
+        "input": 0.0,
+        "output": 0.0,
+        "cacheRead": 0.0,
+        "cacheWrite": 0.0,
+        "total": 0.0
+      }
+    }
+  ],
+  "exactOK": true,
+  "status": "passed",
+  "qualification": "One authorized Antigravity local account, copied to isolated rpi storage. Successful local refresh and one exact-OK inference; reported zero catalog prices are not billing evidence.",
+  "notTested": [
+    "Antigravity live vault enrollment/inference",
+    "Cursor local inference/tools/images/cancellation/resume",
+    "Cursor Cloud lifecycle",
+    "combined pooling inference",
+    "macOS and Windows execution"
+  ]
+}
