@@ -271,7 +271,13 @@ impl CredentialStore for CompatibilityCredentialStore {
         let provider = provider.to_owned();
         tokio::task::spawn_blocking(move || {
             let values = read(&path).map_err(|_| AuthError::Store)?;
-            from_legacy(values.get(&provider))
+            let mut credential = from_legacy(values.get(&provider))?;
+            if let Some(Credential::ApiKey { key, env }) = &mut credential {
+                *key = key
+                    .as_deref()
+                    .and_then(|key| super::resolve_config_value(key, Some(env)));
+            }
+            Ok(credential)
         })
         .await
         .map_err(|_| AuthError::Task)?

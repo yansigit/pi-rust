@@ -38,9 +38,23 @@
       "passed": 1,
       "failed": 0,
       "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-native-credential-values-unit.log",
+      "sha256": "9a9a9cd0046b1ce5558ca00837a32ee6ee0124371d50c5c08e8a00933b830bba",
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-native-credential-values-loaded.log",
+      "sha256": "7bfab0f2082cf100811c9b0289014b877e3b032a2c1796d6c502fb8852289f7d",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
     }
   ],
-  "qualification": "Private provider request authentication across the actual loaded library: malformed dormant store, stored API key and expired OAuth crossed with prepared, ambient, refused and invalid callback results; prepared/refused/invalid leave credential bytes unchanged; ambient refresh persists its rotation; legacy malformed-store error and native provider failure terminate. Request-only environment is isolated and credentials never appear in output. Unit regressions cover replacement credential isolation and provider binding. A stored credential command is not executed during catalog setup for a native auth provider.",
+  "qualification": "Private provider request authentication across the actual loaded library: malformed dormant store, stored API key and expired OAuth crossed with prepared, ambient, refused and invalid callback results; prepared/refused/invalid leave credential bytes unchanged; ambient refresh persists its rotation; legacy malformed-store error and native provider failure terminate. Request-only environment is isolated and credentials never appear in output. Unit regressions cover replacement credential isolation and provider binding. A stored credential command is not executed during catalog setup for a native auth provider. Native compatibility reads resolve stored API-key references once using the credential environment; locked mutations retain the raw value and storage bytes. Six reference/escape/command cases and the loaded-provider environment-key case pass.",
   "not_tested": [
     "complete Antigravity custody startup and sends",
     "macOS and Windows native execution"

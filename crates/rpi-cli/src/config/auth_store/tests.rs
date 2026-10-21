@@ -33,6 +33,35 @@ fn expiry_conversion_is_explicit_and_never_extends_validity() {
 }
 
 #[tokio::test]
+async fn request_reads_resolve_key_references_without_rewriting_the_stored_value() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("auth.json");
+    for (key, expected) in [
+        ("$RPI_FIXTURE_AUTH_KEY", Some("resolved")),
+        ("prefix-${RPI_FIXTURE_AUTH_KEY}", Some("prefix-resolved")),
+        ("$$RPI_FIXTURE_AUTH_KEY", Some("$RPI_FIXTURE_AUTH_KEY")),
+        ("$!echo literal", Some("!echo literal")),
+        ("!echo resolved", Some("resolved")),
+        ("$RPI_FIXTURE_AUTH_MISSING", None),
+    ] {
+        let bytes = serde_json::json!({"test":{"type":"api_key","key":key,"env":{"RPI_FIXTURE_AUTH_KEY":"resolved"}}}).to_string();
+        std::fs::write(&path, &bytes).unwrap();
+        let store = CompatibilityCredentialStore::new(path.clone()).unwrap();
+        let Some(Credential::ApiKey { key: resolved, .. }) = store.read("test").await.unwrap()
+        else {
+            panic!("missing key credential")
+        };
+        assert_eq!(resolved.as_deref(), expected);
+        let transaction = store.lock("test", CancellationToken::new()).await.unwrap();
+        let Some(Credential::ApiKey { key: stored, .. }) = transaction.current() else {
+            panic!("missing raw transaction credential")
+        };
+        assert_eq!(stored.as_deref(), Some(key));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), bytes);
+    }
+}
+
+#[tokio::test]
 async fn refresh_and_login_preserve_other_providers_and_extension_fields() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("auth.json");

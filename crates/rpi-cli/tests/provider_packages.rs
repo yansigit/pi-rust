@@ -95,6 +95,7 @@ fn native_request_auth_preserves_dormant_credentials_and_legacy_failure() {
     for credential in [
         "malformed dormant credential",
         r#"{"stub-provider":{"type":"api_key","key":"stored-fixture-key"}}"#,
+        r#"{"stub-provider":{"type":"api_key","key":"$RPI_FIXTURE_NATIVE_KEY","env":{"RPI_FIXTURE_NATIVE_KEY":"stored-fixture-key"}}}"#,
         r#"{"stub-provider":{"type":"oauth","access":"expired","refresh":"dormant-refresh","expires":1}}"#,
     ] {
         for mode in ["prepared", "ambient", "refuse", "invalid"] {

@@ -55,6 +55,8 @@ rotation even if the request stops waiting. File-store mutation synchronizes the
 temporary file, renames it, and synchronizes the parent directory on Unix. Windows
 durability has not been qualified.
 
+Native compatibility-store reads resolve API-key references with the credential environment, including escaped literals and cached commands. Locked mutations receive the raw stored value; request resolution does not rewrite it.
+
 Native auth is applied by the CLI execution binding for every physical send.
 `AuthRuntime::resolve_replacement` resolves an account with its own store and no
 ambient environment. An unavailable account fails closed. The binding removes

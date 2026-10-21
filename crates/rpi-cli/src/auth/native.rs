@@ -133,14 +133,11 @@ async fn execute(
                             .saturating_add(MINIMUM_OAUTH_VALIDITY_MS);
                     (!credential.access.is_empty() && !expired, "oauth", expired)
                 }
-                Some(NativeCredential::ApiKey { key, env }) if auth.manifest().api_key => {
-                    let key = key.and_then(|key| config::resolve_config_value(&key, Some(&env)));
-                    (
-                        key.is_some_and(|key| !key.trim().is_empty()),
-                        "auth.json",
-                        false,
-                    )
-                }
+                Some(NativeCredential::ApiKey { key, .. }) if auth.manifest().api_key => (
+                    key.is_some_and(|key| !key.trim().is_empty()),
+                    "auth.json",
+                    false,
+                ),
                 Some(_) => (false, "unsupported", false),
                 None => {
                     return Ok(super::run_check(&args[1..], session.snapshot_arc().as_ref()).await)
