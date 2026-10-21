@@ -33,7 +33,12 @@ harness consumes its adapters through injection.
 - **Tool bridge.** `PluginToolAdapter` implements the agent's `AgentTool` trait
   on top of a plugin's four-function lifecycle (`execute` → `poll` → `cancel` →
   `destroy`). The blocking `poll` loop runs on `spawn_blocking` inside the
-  ambient runtime — the adapter does not own a runtime of its own.
+  ambient runtime — the adapter does not own a runtime of its own. Tools registered
+  with `register_tool_with_wake` use short, serialized blocking calls and sleep
+  asynchronously on `Pending`, without retaining an idle blocking worker. Wakes
+  during callback installation or poll are retained. Cancellation or caller drop
+  cancels, unregisters the callback and destroys the handle exactly once, while
+  retaining the library and invocation context through cleanup.
 - **Partial results.** Tool progress flows back through an unbounded channel and
   is forwarded to `on_update`, behind a `catch_unwind` trampoline so a panicking
   callback cannot unwind across the FFI boundary.

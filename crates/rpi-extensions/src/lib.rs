@@ -47,6 +47,10 @@
 //! `cancel` is an idempotent thread-safe flag-set; `destroy` is the single
 //! free, owned by the driver.
 //!
+//! Wake-capable tools use an owned async driver with serialized, short
+//! `spawn_blocking` FFI calls. Wake notifications are retained across polls;
+//! an idle `Pending` execution occupies no blocking worker.
+//!
 //! ## Events
 //!
 //! [`ExtensionEmitter`] impls `AgentEmitter` by subscribing to the host's
@@ -275,6 +279,7 @@ impl HostApi {
             struct_size: std::mem::size_of::<rpi_plugin_sdk::PluginApi>() as u32,
             free_string: host_free_string,
             register_tool: Some(trampoline_register_tool),
+            register_tool_with_wake: Some(trampoline_register_tool_with_wake),
             register_command: Some(trampoline_register_command),
             register_shortcut: Some(trampoline_register_shortcut),
             register_flag: Some(trampoline_register_flag),
@@ -348,6 +353,46 @@ extern "C" fn trampoline_register_tool(
     destroy_fn: ToolDestroyFn,
     plugin_free_string: FreeStringFn,
 ) -> i32 {
+    register_tool(
+        schema,
+        execute_fn,
+        poll_fn,
+        cancel_fn,
+        destroy_fn,
+        plugin_free_string,
+        None,
+    )
+}
+
+extern "C" fn trampoline_register_tool_with_wake(
+    schema: *const StableToolSchema,
+    execute_fn: ToolExecuteFn,
+    poll_fn: ToolPollFn,
+    cancel_fn: ToolCancelFn,
+    destroy_fn: ToolDestroyFn,
+    plugin_free_string: FreeStringFn,
+    set_waker_fn: rpi_plugin_sdk::ToolSetWakerFn,
+) -> i32 {
+    register_tool(
+        schema,
+        execute_fn,
+        poll_fn,
+        cancel_fn,
+        destroy_fn,
+        plugin_free_string,
+        Some(set_waker_fn),
+    )
+}
+
+fn register_tool(
+    schema: *const StableToolSchema,
+    execute_fn: ToolExecuteFn,
+    poll_fn: ToolPollFn,
+    cancel_fn: ToolCancelFn,
+    destroy_fn: ToolDestroyFn,
+    plugin_free_string: FreeStringFn,
+    set_waker_fn: Option<rpi_plugin_sdk::ToolSetWakerFn>,
+) -> i32 {
     if !current_api_present() {
         return -1;
     }
@@ -393,6 +438,7 @@ extern "C" fn trampoline_register_tool(
         cancel_fn,
         destroy_fn,
         plugin_free_string,
+        set_waker_fn,
         runtime_handle: None,
     };
     // `register_tool` returns `bool` (true on overwrite of a prior same-named
