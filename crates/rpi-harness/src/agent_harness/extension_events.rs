@@ -29,6 +29,31 @@ impl AiProvider for SummaryProvider {
     }
 }
 impl AgentHarness {
+    pub(super) fn public_model(model: &Model) -> serde_json::Value {
+        serde_json::json!({"id":model.id,"provider":model.provider,"api":model.api,"name":model.name,
+            "reasoning":model.reasoning,"thinkingLevelMap":model.thinking_level_map,"input":model.input,
+            "cost":model.cost,"contextWindow":model.context_window,"maxTokens":model.max_tokens})
+    }
+
+    pub(super) async fn emit_configuration_event(&self, event: &str, data: serde_json::Value) {
+        let (hooks, scope) = {
+            let inner = self.inner.lock().unwrap();
+            (inner.provider_hooks.clone(), inner.execution_scope.clone())
+        };
+        if let Some(hooks) = hooks {
+            let identity =
+                RequestIdentity::operation(Some(self.session.storage().metadata().id), event);
+            let callback = rpi_ai::identity::scope(
+                identity.clone(),
+                hooks.lifecycle(event, data, identity, CancellationToken::new()),
+            );
+            let _ = match scope {
+                Some(scope) => scope.run(callback).await,
+                None => callback.await,
+            };
+        }
+    }
+
     pub(super) async fn compaction_preparation_failed(
         &self,
         run_id: &str,

@@ -19,6 +19,8 @@ impl ExtensionProviderHooks {
     pub fn from_session(session: &ExtensionSession) -> Option<Self> {
         let snapshot = session.snapshot_arc()?;
         if ![
+            EventTag::ModelSelect,
+            EventTag::SessionInfoChanged,
             EventTag::SessionBeforeCompact,
             EventTag::SessionCompact,
             EventTag::SessionCompactFailed,
@@ -72,6 +74,8 @@ impl ProviderHooks for ExtensionProviderHooks {
         signal: tokio_util::sync::CancellationToken,
     ) -> Result<Option<serde_json::Value>, String> {
         let tag = match event {
+            "model_select" => EventTag::ModelSelect,
+            "session_info_changed" => EventTag::SessionInfoChanged,
             "session_before_compact" => EventTag::SessionBeforeCompact,
             "session_compact" => EventTag::SessionCompact,
             "session_compact_failed" => EventTag::SessionCompactFailed,

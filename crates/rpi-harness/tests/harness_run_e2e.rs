@@ -4355,6 +4355,127 @@ async fn operation_turn_and_request_ids_do_not_depend_on_prompt_timestamps() {
     assert_eq!(requests[2].operation_id, second.run_id);
 }
 
+#[tokio::test]
+async fn selection_and_name_events_match_pinned_pi_and_observe_committed_state() {
+    use rpi_harness::agent_harness::{ModelSelectionSource, WeakAgentHarness};
+    struct Hooks {
+        harness: WeakAgentHarness,
+        events: Mutex<Vec<serde_json::Value>>,
+    }
+    #[async_trait::async_trait]
+    impl rpi_ai::ProviderHooks for Hooks {
+        async fn lifecycle(
+            &self,
+            event: &str,
+            mut data: serde_json::Value,
+            identity: rpi_ai::identity::RequestIdentity,
+            _: tokio_util::sync::CancellationToken,
+        ) -> Result<Option<serde_json::Value>, String> {
+            assert_eq!(identity.session_id.as_deref(), Some("e2e"));
+            assert_eq!(identity.purpose, event);
+            assert_eq!(rpi_ai::identity::current(), Some(identity));
+            let harness = self.harness.upgrade().unwrap();
+            if event == "session_info_changed" {
+                assert_eq!(
+                    harness.get_name().await.unwrap().as_deref(),
+                    data["name"].as_str()
+                );
+            } else {
+                assert_eq!(harness.get_model().await.unwrap().id, data["model"]["id"]);
+                for field in ["model", "previousModel"] {
+                    assert!(data[field].get("headers").is_none());
+                    assert!(data[field].get("baseUrl").is_none());
+                    data[field]
+                        .as_object_mut()
+                        .unwrap()
+                        .retain(|key, _| ["api", "id", "name", "provider"].contains(&key.as_str()));
+                }
+            }
+            tokio::task::yield_now().await;
+            data["type"] = event.into();
+            self.events.lock().unwrap().push(data);
+            Ok(None)
+        }
+    }
+    let reference: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../docs/provider-parity/selection-reference.json"
+    ))
+    .unwrap();
+    for row in reference["modelRows"].as_array().unwrap() {
+        let (harness, _, _) = harness_with(FauxScript::new()).await;
+        let mut previous = rpi_ai::Model::new(
+            "one",
+            "One",
+            rpi_ai::Api::Other("fixture-api".into()),
+            "fixture",
+            "https://private.invalid/secret",
+        );
+        previous.headers = Some(std::collections::BTreeMap::from([(
+            "Authorization".into(),
+            "secret".into(),
+        )]));
+        harness.set_model(previous.clone()).await.unwrap();
+        let hooks = Arc::new(Hooks {
+            harness: harness.downgrade(),
+            events: Mutex::new(Vec::new()),
+        });
+        harness
+            .set_provider_hooks(Some(hooks.clone()))
+            .await
+            .unwrap();
+        let mut next = previous;
+        match row["mode"].as_str().unwrap() {
+            "same" => {}
+            "metadata" => next.name = "Updated".into(),
+            "model" => next.id = "two".into(),
+            "provider" => next.provider = "other".into(),
+            _ => unreachable!(),
+        }
+        let source: ModelSelectionSource = serde_json::from_value(row["source"].clone()).unwrap();
+        harness
+            .lane("main")
+            .set_model_with_source(next.clone(), source)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::json!(*hooks.events.lock().unwrap()),
+            row["events"]
+        );
+        assert_eq!(harness.get_model().await.unwrap(), next);
+    }
+    let (harness, _, _) = harness_with(FauxScript::new()).await;
+    let hooks = Arc::new(Hooks {
+        harness: harness.downgrade(),
+        events: Mutex::new(Vec::new()),
+    });
+    harness
+        .set_provider_hooks(Some(hooks.clone()))
+        .await
+        .unwrap();
+    for event in reference["nameEvents"].as_array().unwrap() {
+        harness
+            .lane("main")
+            .set_name(event["name"].as_str())
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        serde_json::json!(*hooks.events.lock().unwrap()),
+        reference["nameEvents"]
+    );
+    harness.set_name(None).await.unwrap();
+    assert_eq!(
+        hooks.events.lock().unwrap().last().unwrap(),
+        &serde_json::json!({"type":"session_info_changed"})
+    );
+    let count = hooks.events.lock().unwrap().len();
+    let model = harness.get_model().await.unwrap();
+    harness.close().await.unwrap();
+    assert!(harness.set_name(Some("closed")).await.is_err());
+    assert!(harness.set_model(model).await.is_err());
+    assert_eq!(hooks.events.lock().unwrap().len(), count);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn before_operation_receives_the_loaded_prompt_inputs() {
     #[derive(Default)]

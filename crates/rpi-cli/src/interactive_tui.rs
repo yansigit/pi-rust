@@ -69,7 +69,9 @@ use tokio_util::sync::CancellationToken;
 
 use rpi_agent::{AgentEvent, AgentMessage};
 use rpi_ai::types::{AssistantMessage, Content, UserMessage};
-use rpi_harness::agent_harness::{AgentHarness, AgentLane, HarnessRunOutcome};
+use rpi_harness::agent_harness::{
+    AgentHarness, AgentLane, HarnessRunOutcome, ModelSelectionSource,
+};
 use rpi_harness::session::types::{Entry, EntryOrder, EntryQuery};
 use rpi_tui::scroll_view::{OverscrollMode, ScrollbarMode};
 #[cfg(test)]
@@ -2386,7 +2388,15 @@ pub async fn interactive_tui(
                 tokio::spawn(async move {
                     match cycle_model(&lane, &catalog, cycle_backward).await {
                         Ok(Some(model)) => {
-                            report_model_selection(&lane, &state, &tui, model, false).await;
+                            report_model_selection(
+                                &lane,
+                                &state,
+                                &tui,
+                                model,
+                                false,
+                                ModelSelectionSource::Cycle,
+                            )
+                            .await;
                         }
                         Ok(None) => {}
                         Err(error) => {
@@ -3062,7 +3072,7 @@ pub async fn interactive_tui(
                 tui.request_render(false);
             }
             Some(TuiMessage::SetSessionName(name)) => {
-                let outcome = harness.session().set_name(Some(&name)).await;
+                let outcome = harness.set_name(Some(&name)).await;
                 match outcome {
                     Ok(_) => add_note_message(
                         &chat_container,

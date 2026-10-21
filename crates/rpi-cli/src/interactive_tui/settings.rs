@@ -469,7 +469,8 @@ pub(super) fn open_settings_model_selector(
         let state = state_sel.clone();
         let tui = tui_sel.clone();
         tokio::spawn(async move {
-            report_model_selection(&lane, &state, &tui, model, true).await;
+            report_model_selection(&lane, &state, &tui, model, true, ModelSelectionSource::Set)
+                .await;
         });
         close_selector(&state_sel, &ec_sel, &editor_sel, &tui_sel);
     }));

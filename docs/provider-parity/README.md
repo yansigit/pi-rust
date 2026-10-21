@@ -78,6 +78,11 @@ The [compaction lifecycle checks](host-compaction-results.json) add the pinned
 reason/retry/source/failure fields, captured branch entries, cancellation before
 commit and repeated cancellation through the installed Cursor worker. Full
 compaction preparation and automatic-trigger parity remain separate work.
+The [selection event checks](host-selection-results.json) add committed name
+notifications, set/cycle/restore model events, private-model redaction and child
+execution scope. The installed Cursor worker responds to model selection by
+updating its recorded-activity tool activation. Tree navigation and fresh runtime
+ownership across session replacement remain pending.
 
 [Native services](native-services.md) add versioned private calls, bounded ordered
 subscriptions, child ownership and leased invocation context across foreign workers.

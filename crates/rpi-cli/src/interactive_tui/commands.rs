@@ -143,7 +143,15 @@ impl SlashCommand for ModelCommand {
                 let state = ctx.state.clone();
                 let tui = ctx.tui.clone();
                 tokio::spawn(async move {
-                    report_model_selection(&lane, &state, &tui, model, false).await;
+                    report_model_selection(
+                        &lane,
+                        &state,
+                        &tui,
+                        model,
+                        false,
+                        ModelSelectionSource::Set,
+                    )
+                    .await;
                 });
                 return;
             }

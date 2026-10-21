@@ -58,10 +58,23 @@ cancellation, preparation failures and the same failure-field projection.
 
 The legacy redacted before-provider observations remain separate from private
 provider request ownership. Cursor's stable header-object receipt and abort-signal
-mapping is supplied by its owning worker port. Tree, session-info and model-selection result dispatch still
-need to be connected to their authoritative session/UI operations. Synchronous
+mapping is supplied by its owning worker port. Tree result dispatch still
+needs to be connected to its authoritative session/UI operations. Synchronous
 progress callbacks retain the observer path. Complete differential event traces,
 platform loading and package acceptance remain pending.
+
+`events.selectionDetails` dispatches session-name and model-selection events from
+the harness mutations, including CLI and child actions. Names are published after
+their write succeeds, including repeated names; clearing omits `name`. Selection
+sources are `set`, `cycle` and `restore`; unchanged provider/model identities do
+not emit an event even when descriptor metadata changes. These callbacks are
+awaited and use explicit session/operation identities. Child configuration and
+manual compaction callbacks enter the child's execution scope even when invoked
+directly. Models use the same public projection as context snapshots, excluding
+credential headers and endpoints. `check-selection-reference.mjs` captures 12
+model traces and four name writes through the unchanged Pi 1.3.0 implementation.
+`AgentLane::set_model_with_source` has a backward-compatible default; existing
+callers of `set_model` use `set`. There is no C ABI layout change.
 
 `events.promptContext` supplies the captured cwd, loaded context-file contents,
 skills, selected tools and composed prompt as `systemPromptOptions` before an

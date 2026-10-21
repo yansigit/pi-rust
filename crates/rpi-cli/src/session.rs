@@ -1847,7 +1847,13 @@ where
             .unwrap_or_else(|error| error.into_inner()) = catalog;
         // Refresh the public descriptor. Credentials remain in the newly bound
         // provider instances installed above and never enter the lane model.
-        let _ = harness.lane("main").set_model(resolved.model.clone()).await;
+        let _ = harness
+            .lane("main")
+            .set_model_with_source(
+                resolved.model.clone(),
+                rpi_harness::agent_harness::ModelSelectionSource::Restore,
+            )
+            .await;
     }
 
     // Re-merge extension tools (a reloaded plugin may have added/removed a

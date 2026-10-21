@@ -234,6 +234,37 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
             "cancelled compactions must release the worker's bounded operation inventory"
         );
     }
+    harness
+        .set_provider_hooks(Some(Arc::new(
+            rpi_extensions::ExtensionProviderHooks::from_session(&extensions).unwrap(),
+        )))
+        .await
+        .unwrap();
+    harness
+        .set_name(Some("native renamed session"))
+        .await
+        .unwrap();
+    let lane = harness.lane("main");
+    let mut other = model.clone();
+    other.provider = "fixture-other".into();
+    other.api = rpi_ai::Api::Faux;
+    lane.set_model(other).await.unwrap();
+    assert!(harness
+        .inspect_tools()
+        .unwrap()
+        .iter()
+        .any(|tool| tool["name"] == "cursor" && tool["active"] == false));
+    lane.set_model_with_source(
+        model.clone(),
+        rpi_harness::agent_harness::ModelSelectionSource::Cycle,
+    )
+    .await
+    .unwrap();
+    assert!(harness
+        .inspect_tools()
+        .unwrap()
+        .iter()
+        .any(|tool| tool["name"] == "cursor" && tool["active"] == true));
     harness.set_provider_hooks(None).await.unwrap();
 
     let files = vec![rpi_harness::context_files::ContextFile {

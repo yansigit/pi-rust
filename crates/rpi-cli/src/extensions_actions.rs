@@ -723,7 +723,8 @@ impl RuntimeActionHost for HarnessActionHost {
     async fn set_session_name(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
         let name = arg_str(&args, "name")?;
         self.harness()?
-            .session()
+            .for_current_execution()
+            .map_err(|e| e.to_string())?
             .set_name(Some(&name))
             .await
             .map_err(|e| e.to_string())?;
@@ -753,8 +754,13 @@ impl RuntimeActionHost for HarnessActionHost {
         let model = self
             .resolve_model(&id)
             .ok_or_else(|| format!("model `{id}` not in catalog"))?;
-        let lane = self.harness()?.lane("main");
-        lane.set_model(model.clone())
+        let target = self
+            .harness()?
+            .for_current_execution()
+            .map_err(|e| e.to_string())?;
+        target
+            .lane("main")
+            .set_model(model.clone())
             .await
             .map_err(|e| e.to_string())?;
         Ok(serde_json::json!({ "model": model.id }))

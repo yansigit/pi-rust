@@ -302,6 +302,7 @@ pub(crate) extern "C" fn request(
                     "context.trustProvenance",
                     "events.lifecycleReasons",
                     "events.compactionDetails",
+                    "events.selectionDetails",
                     "events.promptContext",
                     "tools.provenance",
                     "tools.metadata",

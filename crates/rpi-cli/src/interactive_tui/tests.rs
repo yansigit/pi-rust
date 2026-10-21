@@ -739,9 +739,10 @@ fn hot_cycle_crosses_providers_and_anchors_duplicate_ids_to_the_live_lane() {
                 lane.set_model(first.clone()).await.unwrap();
                 let next = cycle_model(&lane, &catalog, false).await.unwrap().unwrap();
                 assert_eq!(next, second);
-                let note = apply_model_selection(&lane, &state, next, false)
-                    .await
-                    .unwrap();
+                let note =
+                    apply_model_selection(&lane, &state, next, false, ModelSelectionSource::Cycle)
+                        .await
+                        .unwrap();
                 assert!(note.contains("second/shared"));
                 assert_eq!(lane.get_model().await.unwrap(), second);
                 assert!(
@@ -773,9 +774,15 @@ fn hot_cycle_crosses_providers_and_anchors_duplicate_ids_to_the_live_lane() {
                 let old_id = state.current_model_id();
                 let old_footer = state.footer.render(120);
                 harness.close().await.unwrap();
-                assert!(apply_model_selection(&lane, &state, first, true)
-                    .await
-                    .is_err());
+                assert!(apply_model_selection(
+                    &lane,
+                    &state,
+                    first,
+                    true,
+                    ModelSelectionSource::Set
+                )
+                .await
+                .is_err());
                 assert_eq!(state.current_model_id(), old_id);
                 assert_eq!(state.footer.render(120), old_footer);
                 assert_eq!(

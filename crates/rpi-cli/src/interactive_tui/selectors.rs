@@ -164,7 +164,8 @@ pub(super) fn open_model_selector(
         let state = state_sel.clone();
         let tui = tui_sel.clone();
         tokio::spawn(async move {
-            report_model_selection(&lane, &state, &tui, model, false).await;
+            report_model_selection(&lane, &state, &tui, model, false, ModelSelectionSource::Set)
+                .await;
         });
         close_selector(&state_sel, &ec_sel, &editor_sel, &tui_sel);
     }));
@@ -217,9 +218,10 @@ pub(super) async fn apply_model_selection(
     state: &Arc<TuiState>,
     model: rpi_ai::Model,
     save_default: bool,
+    source: ModelSelectionSource,
 ) -> Result<String, String> {
     let current = lane.get_model().await.map_err(|error| error.to_string())?;
-    lane.set_model(model.clone())
+    lane.set_model_with_source(model.clone(), source)
         .await
         .map_err(|error| format!("Could not switch model: {error}"))?;
     state.set_current_model(&model);
@@ -242,8 +244,9 @@ pub(super) async fn report_model_selection(
     tui: &Arc<TuiAltScreen>,
     model: rpi_ai::Model,
     save_default: bool,
+    source: ModelSelectionSource,
 ) {
-    match apply_model_selection(lane, state, model, save_default).await {
+    match apply_model_selection(lane, state, model, save_default, source).await {
         Ok(note) => add_note_message(&state.chat_container, &note),
         Err(error) => add_error_message(&state.chat_container, &error),
     }

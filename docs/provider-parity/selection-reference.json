@@ -1,0 +1,185 @@
+{
+  "reference": "Pi 1.3.0",
+  "modelRows": [
+    {
+      "source": "set",
+      "mode": "same",
+      "events": []
+    },
+    {
+      "source": "set",
+      "mode": "metadata",
+      "events": []
+    },
+    {
+      "source": "set",
+      "mode": "model",
+      "events": [
+        {
+          "type": "model_select",
+          "model": {
+            "id": "two",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "previousModel": {
+            "id": "one",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "source": "set"
+        }
+      ]
+    },
+    {
+      "source": "set",
+      "mode": "provider",
+      "events": [
+        {
+          "type": "model_select",
+          "model": {
+            "id": "one",
+            "provider": "other",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "previousModel": {
+            "id": "one",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "source": "set"
+        }
+      ]
+    },
+    {
+      "source": "cycle",
+      "mode": "same",
+      "events": []
+    },
+    {
+      "source": "cycle",
+      "mode": "metadata",
+      "events": []
+    },
+    {
+      "source": "cycle",
+      "mode": "model",
+      "events": [
+        {
+          "type": "model_select",
+          "model": {
+            "id": "two",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "previousModel": {
+            "id": "one",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "source": "cycle"
+        }
+      ]
+    },
+    {
+      "source": "cycle",
+      "mode": "provider",
+      "events": [
+        {
+          "type": "model_select",
+          "model": {
+            "id": "one",
+            "provider": "other",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "previousModel": {
+            "id": "one",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "source": "cycle"
+        }
+      ]
+    },
+    {
+      "source": "restore",
+      "mode": "same",
+      "events": []
+    },
+    {
+      "source": "restore",
+      "mode": "metadata",
+      "events": []
+    },
+    {
+      "source": "restore",
+      "mode": "model",
+      "events": [
+        {
+          "type": "model_select",
+          "model": {
+            "id": "two",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "previousModel": {
+            "id": "one",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "source": "restore"
+        }
+      ]
+    },
+    {
+      "source": "restore",
+      "mode": "provider",
+      "events": [
+        {
+          "type": "model_select",
+          "model": {
+            "id": "one",
+            "provider": "other",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "previousModel": {
+            "id": "one",
+            "provider": "fixture",
+            "api": "fixture-api",
+            "name": "One"
+          },
+          "source": "restore"
+        }
+      ]
+    }
+  ],
+  "nameEvents": [
+    {
+      "type": "session_info_changed",
+      "name": "First"
+    },
+    {
+      "type": "session_info_changed",
+      "name": "First"
+    },
+    {
+      "type": "session_info_changed",
+      "name": "Second"
+    },
+    {
+      "type": "session_info_changed",
+      "name": ""
+    }
+  ]
+}

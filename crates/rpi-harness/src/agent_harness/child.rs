@@ -78,11 +78,8 @@ impl AgentHarness {
                 .iter()
                 .any(|item| item.lane == self.lane)
         }) || inner.pending_context_lanes.contains(&self.lane);
-        let model = &inner.model;
         Ok(serde_json::json!({
-            "model": {"id":model.id,"provider":model.provider,"api":model.api,"name":model.name,
-                "reasoning":model.reasoning,"thinkingLevelMap":model.thinking_level_map,"input":model.input,
-                "cost":model.cost,"contextWindow":model.context_window,"maxTokens":model.max_tokens},
+            "model": Self::public_model(&inner.model),
             "thinkingLevel":inner.thinking_level,
             "isIdle":!inner.active_run.as_ref().is_some_and(|run| run.lane == self.lane),
             "hasPendingMessages":pending,

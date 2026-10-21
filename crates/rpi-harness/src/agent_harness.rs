@@ -135,6 +135,15 @@ pub enum CompactionOutcome {
     },
 }
 
+/// The action that selected a model, independent of request/run identity.
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ModelSelectionSource {
+    Set,
+    Cycle,
+    Restore,
+}
+
 /// `NavigationOutcome`. Mirrors TS `NavigationOutcome`. v1 only emits
 /// `Declined` on a no-op navigation (the real branch navigation loop is
 /// deferred).
@@ -402,6 +411,13 @@ pub trait AgentLane: Send + Sync {
 
     async fn get_model(&self) -> HarnessResult<Model>;
     async fn set_model(&self, model: Model) -> HarnessResult<()>;
+    async fn set_model_with_source(
+        &self,
+        model: Model,
+        _source: ModelSelectionSource,
+    ) -> HarnessResult<()> {
+        self.set_model(model).await
+    }
     async fn get_thinking_level(&self) -> HarnessResult<ThinkingLevel>;
     async fn set_thinking_level(&self, level: ThinkingLevel) -> HarnessResult<()>;
     async fn get_active_tools(&self) -> HarnessResult<Vec<String>>;
@@ -1592,10 +1608,20 @@ impl AgentHarness {
     /// `setName(name)` — set/clear the session name. Mirrors TS
     /// `AgentHarness.setName`.
     pub async fn set_name(&self, name: Option<&str>) -> HarnessResult<()> {
+        if self.inner.lock().unwrap().closed {
+            return Err(HarnessError::closed());
+        }
         self.view()
             .set_name(name)
             .await
-            .map_err(session_to_harness_err)
+            .map_err(session_to_harness_err)?;
+        let mut data = serde_json::json!({});
+        if let Some(name) = name {
+            data["name"] = name.into();
+        }
+        self.emit_configuration_event("session_info_changed", data)
+            .await;
+        Ok(())
     }
 
     /// `getLabel(targetId)` — the label attached to an entry, when set.
@@ -4802,8 +4828,12 @@ impl AgentLane for AgentHarness {
     }
 
     async fn compact(&self, custom_instructions: Option<&str>) -> HarnessResult<CompactionResult> {
-        self.compact_core(custom_instructions.map(|s| s.to_string()))
-            .await
+        let scope = self.inner.lock().unwrap().execution_scope.clone();
+        let operation = self.compact_core(custom_instructions.map(str::to_owned));
+        match scope {
+            Some(scope) => scope.run(operation).await,
+            None => operation.await,
+        }
     }
 
     async fn navigate_tree(
@@ -5159,11 +5189,30 @@ impl AgentLane for AgentHarness {
     }
 
     async fn set_model(&self, model: Model) -> HarnessResult<()> {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.closed {
-            return Err(HarnessError::closed());
+        self.set_model_with_source(model, ModelSelectionSource::Set)
+            .await
+    }
+
+    async fn set_model_with_source(
+        &self,
+        model: Model,
+        source: ModelSelectionSource,
+    ) -> HarnessResult<()> {
+        let previous = {
+            let mut inner = self.inner.lock().unwrap();
+            if inner.closed {
+                return Err(HarnessError::closed());
+            }
+            std::mem::replace(&mut inner.model, model.clone())
+        };
+        if previous.id != model.id || previous.provider != model.provider {
+            self.emit_configuration_event(
+                "model_select",
+                serde_json::json!({"model":Self::public_model(&model),
+                    "previousModel":Self::public_model(&previous),"source":source}),
+            )
+            .await;
         }
-        inner.model = model;
         Ok(())
     }
 
@@ -5492,12 +5541,15 @@ impl AgentLane for LaneHandle {
     }
 
     async fn set_model(&self, model: Model) -> HarnessResult<()> {
-        let mut inner = self.inner.lock().unwrap();
-        if inner.closed {
-            return Err(HarnessError::closed());
-        }
-        inner.model = model;
-        Ok(())
+        self.runner().set_model(model).await
+    }
+
+    async fn set_model_with_source(
+        &self,
+        model: Model,
+        source: ModelSelectionSource,
+    ) -> HarnessResult<()> {
+        self.runner().set_model_with_source(model, source).await
     }
 
     async fn get_thinking_level(&self) -> HarnessResult<ThinkingLevel> {
@@ -5585,10 +5637,7 @@ impl AgentLane for LaneHandle {
     }
 
     async fn set_name(&self, name: Option<&str>) -> HarnessResult<()> {
-        self.view
-            .set_name(name)
-            .await
-            .map_err(session_to_harness_err)
+        self.runner().set_name(name).await
     }
 
     async fn get_label(&self, target_id: &str) -> HarnessResult<Option<String>> {

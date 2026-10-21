@@ -25,6 +25,51 @@ fn emitter() -> Arc<dyn AgentEmitter> {
 }
 
 #[tokio::test]
+async fn child_configuration_and_compaction_events_keep_the_child_execution_scope() {
+    struct Hooks(AtomicUsize);
+    #[async_trait::async_trait]
+    impl rpi_ai::ProviderHooks for Hooks {
+        async fn lifecycle(
+            &self,
+            event: &str,
+            _: serde_json::Value,
+            identity: rpi_ai::identity::RequestIdentity,
+            _: CancellationToken,
+        ) -> Result<Option<serde_json::Value>, String> {
+            let scope = rpi_agent::tool_execution_scope::current_scope().unwrap();
+            let target = scope.host::<WeakAgentHarness>().unwrap().upgrade().unwrap();
+            assert_eq!(target.session().storage().metadata().id, "child");
+            assert_eq!(identity.session_id.as_deref(), Some("child"));
+            assert!(matches!(
+                event,
+                "model_select" | "session_info_changed" | "session_compact_failed"
+            ));
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+    }
+    let (parent, _, _) = parent(FauxScript::new()).await;
+    let hooks = Arc::new(Hooks(AtomicUsize::new(0)));
+    parent
+        .set_provider_hooks(Some(hooks.clone()))
+        .await
+        .unwrap();
+    let child = parent
+        .create_child(session("child"), emitter(), 2, None)
+        .await
+        .unwrap();
+    let original = parent.get_model().await.unwrap();
+    let mut model = original.clone();
+    model.id = "selected".into();
+    child.harness.set_model(model).await.unwrap();
+    child.harness.set_name(Some("child name")).await.unwrap();
+    child.harness.compact(None).await.unwrap();
+    assert_eq!(parent.get_model().await.unwrap(), original);
+    assert_eq!(parent.get_name().await.unwrap(), None);
+    assert_eq!(hooks.0.load(Ordering::SeqCst), 3);
+}
+
+#[tokio::test]
 async fn named_abort_only_cancels_the_matching_run_on_its_lane() {
     let (harness, _, _) = parent(FauxScript::new()).await;
     let (old, old_signal, _) = harness.acquire_run(OperationKind::Run).await.unwrap();

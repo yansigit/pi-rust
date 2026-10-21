@@ -1,0 +1,54 @@
+{
+  "status": "Name and model lifecycle dispatch verified on Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "reference": {
+      "log": "/tmp/rpi-selection-pi-reference.log",
+      "sha256": "9ab60c17e06b9e34cdfc14f7fdc4ccb39b85183e5bc3c4f522a60a47db4fca58",
+      "passed": 16
+    },
+    "nativeTrace": {
+      "log": "/tmp/rpi-selection-events.log",
+      "sha256": "1712eeb6dc7eb5f24203027a77051d666456b16d0077fcd318bb5cd63f4b3cad",
+      "passed": 1
+    },
+    "childScope": {
+      "log": "/tmp/rpi-selection-child.log",
+      "sha256": "805c15e925141661b6b0ef5c24baed755295bc4e3d218a36908aff891ded1db8",
+      "passed": 1
+    },
+    "workspace": {
+      "log": "/tmp/rpi-selection-workspace.log",
+      "sha256": "1d23b6340260d2cf928bc6c99fd902cdfdfdfe213b1faaa1093fe87feac0b86a"
+    },
+    "installedCursor": {
+      "log": "/tmp/rpi-cursor-selection-dll.log",
+      "sha256": "5957d120968304599901269765c39e3f02d4b3e7d219ca4b168cd564323a46d2",
+      "passed": 4
+    },
+    "cycles": {
+      "log": "/tmp/rpi-selection-cycle.log",
+      "sha256": "90d6258ffd234cfdaa9ca7c94ea53e8d3e42cb418eca28e4f4f6f1a598c30939",
+      "passed": 4
+    },
+    "harness": {
+      "log": "/tmp/rpi-selection-harness.log",
+      "sha256": "6951b4a2979831c1f88b01fb4132473af1026efcbbda9e1197dc744924bfcc66",
+      "passed": 46
+    }
+  },
+  "assertions": [
+    "Twelve model traces and four committed name events match unchanged Pi 1.3.0 behavior",
+    "Provider/model identity suppresses same-selection events while descriptor metadata still updates",
+    "Model events omit credential headers and endpoints; explicit identities are scoped to the target session",
+    "Name listeners observe committed storage; direct child model/name/compaction calls retain child execution scope without modifying the parent",
+    "UI selectors, hot cycling, extension actions and reload descriptors carry the appropriate source",
+    "Installed native Cursor deactivates and reactivates recorded activity when switching away and back; rename completes through its retained hooks"
+  ],
+  "review": "Manual exact-diff review covered caller routing, source selection, locks across awaits, committed names, callback scope, model redaction, closed mutations and actual worker ownership. No material findings. The added AgentLane method has a default implementation; no C ABI layout or workspace version changes.",
+  "notTested": [
+    "Tree navigation and model restoration across session replacement",
+    "Full live Cursor acceptance",
+    "macOS and Windows execution"
+  ]
+}
