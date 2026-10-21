@@ -2643,6 +2643,7 @@ mod tests {
 
     fn tool_result(id: &str) -> Message {
         ToolResultMessage {
+            structured_content: None,
             role: ToolResultRole,
             tool_call_id: id.into(),
             tool_name: "read".into(),
@@ -2814,6 +2815,7 @@ mod tests {
             json!({"payload": "a\"\nb"}),
         )];
         let result = ToolResultMessage {
+            structured_content: None,
             role: ToolResultRole,
             tool_call_id: "call_1|ctc_1".into(),
             tool_name: "run_grammar".into(),
@@ -2919,6 +2921,7 @@ mod tests {
             json!({"path":"README.md"}),
         )];
         let tool_result = ToolResultMessage {
+            structured_content: None,
             role: ToolResultRole,
             tool_call_id: "call_123|fc_456".into(),
             tool_name: "read".into(),

@@ -33,11 +33,28 @@ pub(crate) async fn invoke(
     signal: CancellationToken,
     drain: bool,
 ) -> Result<serde_json::Value, AuthError> {
+    invoke_scoped(callback, keepalive, request, signal, drain, None).await
+}
+
+pub(crate) async fn invoke_scoped(
+    callback: Callback,
+    keepalive: Arc<crate::PluginKeepalive>,
+    request: String,
+    signal: CancellationToken,
+    drain: bool,
+    bridge: Option<Arc<crate::ActionBridge>>,
+) -> Result<serde_json::Value, AuthError> {
+    let background = rpi_agent::tool_execution_scope::track_background_tool();
     let signal = signal.child_token();
     let _cancel_callback = signal.clone().drop_guard();
     let callback_signal = signal.clone();
-    let pending = tokio::task::spawn_blocking(move || {
+    let mut pending = tokio::task::spawn_blocking(move || {
         let _keepalive = keepalive;
+        let _background = background;
+        let _invocation = bridge.as_ref().map(|bridge| bridge.enter_invocation());
+        if callback_signal.is_cancelled() {
+            return Err(AuthError::Cancelled);
+        }
         let control = AuthRequestControl {
             struct_size: std::mem::size_of::<AuthRequestControl>() as u32,
             is_cancelled,
@@ -63,8 +80,11 @@ pub(crate) async fn invoke(
     } else {
         tokio::select! {
             biased;
-            _ = signal.cancelled() => Err(AuthError::Cancelled),
-            result = pending => result.map_err(|_| AuthError::Task)?,
+            _ = signal.cancelled() => {
+                pending.abort(); // A queued foreign call must not begin after cancellation.
+                Err(AuthError::Cancelled)
+            },
+            result = &mut pending => result.map_err(|_| AuthError::Task)?,
         }
     }
 }

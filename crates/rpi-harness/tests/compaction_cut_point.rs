@@ -76,6 +76,7 @@ fn tool_result_msg(seq: u64, parent: Option<&str>) -> Entry {
     Entry::Message(MessageEntry {
         base: base(seq, parent, "message"),
         message: AgentMessage::ToolResult(Box::new(rpi_ai::types::ToolResultMessage {
+            structured_content: None,
             role: rpi_ai::types::ToolResultRole,
             tool_call_id: "call-1".to_string(),
             tool_name: "read".to_string(),

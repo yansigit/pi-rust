@@ -116,6 +116,7 @@ impl ImageTool {
         });
 
         Ok(AgentToolResult {
+            structured_content: None,
             content: vec![TextContentOrImage::text(format!(
                 "Image info: {}x{} {} ({} bytes)",
                 width,
@@ -155,6 +156,7 @@ impl ImageTool {
         });
 
         Ok(AgentToolResult {
+            structured_content: None,
             content: vec![TextContentOrImage::text(format!(
                 "Image resized to {}x{} ({} bytes)",
                 width,
@@ -194,6 +196,7 @@ impl ImageTool {
         });
 
         Ok(AgentToolResult {
+            structured_content: None,
             content: vec![TextContentOrImage::text(format!(
                 "Image converted to {} ({} bytes)",
                 mime,
@@ -239,6 +242,7 @@ impl ImageTool {
         });
 
         Ok(AgentToolResult {
+            structured_content: None,
             content: vec![TextContentOrImage::text(format!(
                 "Image processed: {}x{} {} ({} bytes)",
                 width,

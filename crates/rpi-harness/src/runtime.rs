@@ -487,6 +487,7 @@ mod tests {
 
     fn tool_result(call_id: &str, name: &str) -> ToolResultMessage {
         ToolResultMessage {
+            structured_content: None,
             role: ToolResultRole,
             tool_call_id: call_id.to_string(),
             tool_name: name.to_string(),

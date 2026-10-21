@@ -758,6 +758,20 @@ rpi_plugin_sdk::export_plugin!(|api| {
         return rc;
     }
 
+    if std::env::var_os("RPI_STUB_CATALOG").is_some() {
+        let rc = register_provider(
+            StbStringRef::from_str("stub-auth"),
+            StbStringRef::from_str("https://stub.example"),
+            StbStringRef::from_str("faux"),
+            on_provider_request,
+            plugin_free_string,
+            std::ptr::null_mut(),
+        );
+        if rc != 0 {
+            return rc;
+        }
+    }
+
     // Register a **streaming** provider (B5c-s). Same identity triple as above
     // but a different id, plus the per-chunk callback the host relays into
     // `AssistantMessageEvent`s while the request is still running. This slot is

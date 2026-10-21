@@ -676,13 +676,15 @@ pub enum EventTag {
     /// is deliberately not shipped, because subscribers (a voice extension
     /// barging in on playback) only need to know *that* the user is composing.
     EditorChange = 36,
+    /// A compaction operation failed; identity matches its before event.
+    SessionCompactFailed = 37,
 }
 
-/// Number of event categories — `37` (33 Pi `on()` categories + 1 rpi-specific
+/// Number of event categories — `38` (34 Pi `on()` categories + 1 rpi-specific
 /// [`EventTag::BeforeTuiStart`] + 2 UI prompt events + 1 rpi-specific
 /// [`EventTag::EditorChange`]). A test asserts
-/// `EVENT_TAG_COUNT == 37` so a future edit that adds/removes a tag is caught.
-pub const EVENT_TAG_COUNT: usize = 37;
+/// `EVENT_TAG_COUNT == 38` so a future edit that adds/removes a tag is caught.
+pub const EVENT_TAG_COUNT: usize = 38;
 
 /// The application name of the host that loads plugins: `"rpi"`.
 ///
@@ -861,9 +863,9 @@ impl StablePluginEvent {
     pub fn empty(tag: EventTag) -> Self {
         Self {
             tag,
-            payload: EventPayload {
-                empty: EventEmpty::INSTANCE,
-            },
+            // Some legacy lifecycle tags also permit an optional data view.
+            // Every union arm contains only pointers and integers; zero is valid.
+            payload: unsafe { core::mem::zeroed() },
         }
     }
 
@@ -1632,6 +1634,9 @@ pub struct PluginApi {
     pub native_request: Option<AuthRequestFn>,
     /// Provider-owned catalog refresh, admission, and auth-method discovery.
     pub register_provider_runtime: Option<RegisterProviderAuthFn>,
+    /// Awaited, ordered event callbacks. Request and response use the versioned JSON event contract.
+    pub register_event_result_handler:
+        Option<extern "C" fn(EventTag, AuthRequestFn, FreeStringFn, *mut c_void) -> i32>,
 }
 unsafe impl Send for PluginApi {}
 unsafe impl Sync for PluginApi {}
@@ -1918,9 +1923,9 @@ mod tests {
     }
 
     #[test]
-    fn event_tag_count_is_37() {
+    fn event_tag_count_is_38() {
         // Enumerate every tag; a compile-time + runtime guarantee that the
-        // 37-category surface is intact (33 Pi on() categories + the
+        // 38-category surface is intact (34 Pi on() categories + the
         // rpi-specific BeforeTuiStart + 2 UI prompt events + EditorChange).
         let tags = [
             EventTag::ProjectTrust,
@@ -1960,13 +1965,14 @@ mod tests {
             EventTag::UiPromptStart,
             EventTag::UiPromptEnd,
             EventTag::EditorChange,
+            EventTag::SessionCompactFailed,
         ];
         assert_eq!(tags.len(), EVENT_TAG_COUNT);
-        assert_eq!(EVENT_TAG_COUNT, 37);
-        // Distinct discriminants 0..36.
+        assert_eq!(EVENT_TAG_COUNT, 38);
+        // Distinct discriminants 0..37.
         let mut discs: Vec<u32> = tags.iter().map(|t| *t as u32).collect();
         discs.sort();
-        assert_eq!(discs, (0..37).collect::<Vec<u32>>());
+        assert_eq!(discs, (0..38).collect::<Vec<u32>>());
     }
 
     #[test]
@@ -2030,6 +2036,7 @@ mod tests {
             provider_continuation: None,
             native_request: None,
             register_provider_runtime: None,
+            register_event_result_handler: None,
         };
         // All optional slots are null → plugin must degrade.
         assert!(api.register_tool.is_none());
@@ -2136,8 +2143,12 @@ mod tests {
             core::mem::offset_of!(PluginApi, register_provider_auth) + size_of::<usize>()
         );
         assert_eq!(
-            size_of::<PluginApi>(),
+            core::mem::offset_of!(PluginApi, register_event_result_handler),
             core::mem::offset_of!(PluginApi, register_provider_runtime) + size_of::<usize>()
+        );
+        assert_eq!(
+            size_of::<PluginApi>(),
+            core::mem::offset_of!(PluginApi, register_event_result_handler) + size_of::<usize>()
         );
         assert_eq!(
             core::mem::offset_of!(PluginApi, register_provider_wrapper),
@@ -2240,6 +2251,7 @@ mod tests {
             provider_continuation: None,
             native_request: None,
             register_provider_runtime: None,
+            register_event_result_handler: None,
         }
     }
 
@@ -2299,6 +2311,7 @@ mod tests {
             core::mem::offset_of!(PluginApi, provider_continuation),
             core::mem::offset_of!(PluginApi, native_request),
             core::mem::offset_of!(PluginApi, register_provider_runtime),
+            core::mem::offset_of!(PluginApi, register_event_result_handler),
         ] {
             let mut api = entrypoint_test_api();
             api.struct_size = size as u32;
@@ -2330,6 +2343,7 @@ mod tests {
                     assert!(api.provider_continuation.is_none());
                     assert!(api.native_request.is_none());
                     assert!(api.register_provider_runtime.is_none());
+                    assert!(api.register_event_result_handler.is_none());
                     assert!(
                         api.register_provider.is_some(),
                         "one-shot fallback remains available"

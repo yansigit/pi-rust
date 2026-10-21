@@ -76,6 +76,43 @@ extern "C" fn finish(context: *mut c_void) -> i32 {
     }
     0
 }
+extern "C" fn event(
+    input: StbStringRef,
+    _: *const AuthRequestControl,
+    out: *mut StbString,
+    _: *mut c_void,
+) -> i32 {
+    guard_or(1, || {
+        let request: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+        let tag = request["tag"].as_u64().unwrap();
+        assert!(request["identity"]["operationId"].is_string());
+        assert!(request["identity"]["sessionId"].is_string());
+        let result = if tag == EventTag::BeforeAgentStart as u64 {
+            eprintln!("native operation start fixture passed");
+            json!({"systemPrompt":"native fixture system prompt", "message":{
+                "customType":"native-fixture", "content":"native custom context", "display":false
+            }})
+        } else if tag == EventTag::Context as u64 {
+            assert!(request["identity"]["requestId"].is_string());
+            assert!(request["identity"]["turnId"].is_string());
+            assert!(request["event"]["messages"]
+                .to_string()
+                .contains("native custom context"));
+            json!({})
+        } else if request["event"]["message"]["kind"] == "assistant" {
+            let mut message = request["event"]["message"].clone();
+            message["content"] = json!([{"type":"text","text":"native event modified response"}]);
+            eprintln!("native message result fixture passed");
+            json!({"message":message})
+        } else {
+            json!({})
+        };
+        unsafe {
+            *out = StbString::from_string(json!({"version":1,"result":result}).to_string());
+        }
+        0
+    })
+}
 pub fn register(api: &PluginApi) -> Result<(), String> {
     let lifecycle = api.register_plugin_lifecycle.ok_or("missing lifecycle")?;
     let events = api.register_event_handler.ok_or("missing events")?;
@@ -84,7 +121,20 @@ pub fn register(api: &PluginApi) -> Result<(), String> {
         .ok_or("missing provider runtime")?;
     let declare = api.declare.ok_or("missing declarations")?;
     provider::native::Client::new(api)?;
-    if declare(StbStringRef::from_str(&json!({"providers":[{"id":"stub-provider","requiresAuth":false,"models":[model("catalog-before")]}]}).to_string())) != 0 { return Err("catalog declaration failed".into()); }
+    let result_events = api
+        .register_event_result_handler
+        .ok_or("missing awaited events")?;
+    for tag in [
+        EventTag::BeforeAgentStart,
+        EventTag::Context,
+        EventTag::MessageEnd,
+    ] {
+        if result_events(tag, event, callbacks::free_string, std::ptr::null_mut()) != 0 {
+            return Err("event registration failed".into());
+        }
+    }
+
+    if declare(StbStringRef::from_str(&json!({"providers":[{"id":"stub-provider","requiresAuth":false,"models":[model("catalog-before")]},{"id":"stub-auth","models":[]}]}).to_string())) != 0 { return Err("catalog declaration failed".into()); }
     if operations_register(
         StbStringRef::from_str(
             r#"{"version":1,"id":"stub-provider","actions":["preflight","refreshCatalog"]}"#,

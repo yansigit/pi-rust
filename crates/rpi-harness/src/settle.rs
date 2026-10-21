@@ -646,7 +646,24 @@ impl SettlingEmitter {
 }
 
 impl AgentEmitter for SettlingEmitter {
+    fn prepare_event(&self, event: AgentEvent) -> BoxFuture<'static, AgentEvent> {
+        self.inner.prepare_event(event)
+    }
+
     fn emit(&self, event: AgentEvent) -> BoxFuture<'static, ()> {
+        self.emit_inner(event, false)
+    }
+    fn emit_prepared(&self, event: AgentEvent) -> BoxFuture<'static, ()> {
+        self.emit_inner(event, true)
+    }
+
+    fn try_emit(&self, event: AgentEvent) {
+        self.inner.try_emit(event);
+    }
+}
+
+impl SettlingEmitter {
+    fn emit_inner(&self, event: AgentEvent, prepared: bool) -> BoxFuture<'static, ()> {
         let inner = Arc::clone(&self.inner);
         let settles = self.handle(&event);
         Box::pin(async move {
@@ -655,11 +672,11 @@ impl AgentEmitter for SettlingEmitter {
             if let Some(settles) = settles {
                 settles.await;
             }
-            inner.emit(event).await;
+            if prepared {
+                inner.emit_prepared(event).await;
+            } else {
+                inner.emit(event).await;
+            }
         })
-    }
-
-    fn try_emit(&self, event: AgentEvent) {
-        self.inner.try_emit(event);
     }
 }

@@ -9,6 +9,7 @@ pub fn encode_options(opts: &SimpleStreamOptions) -> serde_json::Value {
     let mut fields = opts.provider_options.clone();
     let reserved = serde_json::json!({
         "streamKind": opts.stream_kind,
+        "identity": opts.identity,
         "apiKey": opts.api_key,
         "timeoutMs": opts.timeout.map(|d| d.as_millis() as u64),
         "maxRetries": opts.max_retries,
@@ -40,6 +41,8 @@ pub fn decode_options(value: &serde_json::Value, model: &Model) -> Result<Simple
         .transpose()
         .map_err(|_| ())?
         .unwrap_or_default();
+    options.identity = serde_json::from_value(value.get("identity").cloned().unwrap_or_default())
+        .map_err(|_| ())?;
     let reserved = encode_options(&options);
     options.provider_options = value
         .as_object()

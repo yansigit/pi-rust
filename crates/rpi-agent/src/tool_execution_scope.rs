@@ -57,6 +57,15 @@ impl ToolExecutionScope {
 pub fn is_child_execution() -> bool {
     CURRENT.try_with(|_| ()).is_ok()
 }
+pub fn current_scope() -> Option<Arc<ToolExecutionScope>> {
+    CURRENT.try_with(Clone::clone).ok()
+}
+pub async fn inherit<F: Future>(scope: Option<Arc<ToolExecutionScope>>, future: F) -> F::Output {
+    match scope {
+        Some(scope) => scope.run(future).await,
+        None => future.await,
+    }
+}
 pub fn execution_context() -> Option<serde_json::Value> {
     CURRENT
         .try_with(|scope| scope.context.clone())

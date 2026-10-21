@@ -117,6 +117,7 @@ async fn capture_request(content: Vec<Content>, vision: bool, deferred: bool) ->
     )];
     assistant.stop_reason = StopReason::ToolUse;
     let result = ToolResultMessage {
+        structured_content: None,
         role: Default::default(),
         tool_call_id: "tool_synthetic".into(),
         tool_name: "screenshot".into(),

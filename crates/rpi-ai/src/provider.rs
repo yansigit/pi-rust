@@ -55,6 +55,7 @@ pub enum StreamKind {
 /// equivalent when it drives a real turn (M2).
 #[derive(Clone)]
 pub struct SimpleStreamOptions {
+    pub identity: Option<crate::identity::RequestIdentity>,
     pub stream_kind: StreamKind,
     /// Provider-specific JSON options, including sampling, transport and tool
     /// selection. Reserved fields below always win when encoding the request.
@@ -107,6 +108,7 @@ pub struct SimpleStreamOptions {
 impl Default for SimpleStreamOptions {
     fn default() -> Self {
         Self {
+            identity: None,
             stream_kind: StreamKind::Simple,
             provider_options: Default::default(),
             api_key: None,
@@ -334,7 +336,45 @@ pub trait DeferredProvider: Send + Sync {
 /// swallowed (the run continues with the unpatched options), mirroring the
 /// "hooks must not throw" contract from pi and the harness's other hooks
 /// (`before_tool_call` etc.).
+#[async_trait::async_trait]
 pub trait ProviderHooks: Send + Sync {
+    /// Awaited operation lifecycle. Returned objects may cancel or supply an operation result.
+    async fn lifecycle(
+        &self,
+        _event: &str,
+        _data: serde_json::Value,
+        _identity: crate::identity::RequestIdentity,
+        _signal: CancellationToken,
+    ) -> Result<Option<serde_json::Value>, String> {
+        Ok(None)
+    }
+
+    /// Once per admitted operation, before its first provider request.
+    async fn begin_operation(
+        &self,
+        _model: &Model,
+        _context: &Context,
+        _options: &SimpleStreamOptions,
+    ) -> Option<OperationStartPatch> {
+        None
+    }
+
+    /// Awaited before the provider opens a stream. Existing synchronous hooks
+    /// retain their order; native result handlers override this boundary.
+    async fn prepare_request(
+        &self,
+        model: &Model,
+        context: &mut Context,
+        options: &mut SimpleStreamOptions,
+    ) {
+        if let Some(patch) = self.transform_context(model, context) {
+            patch.apply(context);
+        }
+        if let Some(patch) = self.before_request(model, context, options) {
+            patch.apply(options);
+        }
+    }
+
     /// Fired before each `stream_simple` call, with a snapshot of the model +
     /// context + opts the harness is about to pass. Return a patch that the
     /// harness applies to a clone of `ctx` before calling the provider; return
@@ -379,6 +419,12 @@ pub trait ProviderHooks: Send + Sync {
     /// one the loop emits as `MessageEnd`). `None` lets the default no-op impl
     /// apply. Runs on the blocking-bridge thread.
     fn after_response(&self, _model: &Model, _message: &AssistantMessage) {}
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct OperationStartPatch {
+    pub system_prompt: Option<String>,
+    pub messages: Vec<serde_json::Value>,
 }
 
 /// A no-op default so the harness can install a `ProviderHooks` slot cheaply

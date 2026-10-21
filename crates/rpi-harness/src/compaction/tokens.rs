@@ -25,7 +25,7 @@ use crate::session::types::Entry;
 /// `FileOperations`. `BTreeSet` (not `HashSet`) so derived lists are sorted and
 /// deterministic — the TS code sorts at `computeFileLists` time; we keep the
 /// sets unsorted and sort once at list-computation, matching that.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct FileOperations {
     pub read: BTreeSet<String>,
     pub written: BTreeSet<String>,

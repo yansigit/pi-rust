@@ -358,6 +358,7 @@ pub fn repair_orphaned_tool_calls(
         for (tool_call_id, tool_name) in pending {
             report.repaired_call_ids.push(tool_call_id.clone());
             repaired.push(AgentMessage::ToolResult(Box::new(ToolResultMessage {
+                structured_content: None,
                 role: ToolResultRole,
                 tool_call_id,
                 tool_name,
@@ -462,6 +463,7 @@ mod tests {
 
     fn tool_result(id: &str, name: &str) -> AgentMessage {
         AgentMessage::ToolResult(Box::new(ToolResultMessage {
+            structured_content: None,
             role: ToolResultRole,
             tool_call_id: id.to_string(),
             tool_name: name.to_string(),

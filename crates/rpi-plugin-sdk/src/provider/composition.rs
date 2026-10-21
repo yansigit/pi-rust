@@ -118,7 +118,7 @@ impl Provider for DelegatedProvider {
         let mut options = options.clone();
         options.signal = producer.cancellation_token();
         let mut wire_options = encode_options(&options);
-        for private in ["authMode", "responseMetadata"] {
+        for private in ["authMode", "responseMetadata", "streamKind", "identity"] {
             wire_options.as_object_mut().unwrap().remove(private);
         }
         let request = json!({"version":1,"continuation":self.continuation.descriptor,

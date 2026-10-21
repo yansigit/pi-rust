@@ -144,6 +144,7 @@ pub async fn unknown_tool_outcomes(
 /// The synthetic error result that stands in for an interrupted tool call.
 pub fn interrupted_tool_result(outcome: &UnknownToolOutcome, timestamp: i64) -> AgentMessage {
     AgentMessage::ToolResult(Box::new(rpi_ai::types::ToolResultMessage {
+        structured_content: None,
         role: rpi_ai::types::ToolResultRole,
         tool_call_id: outcome.tool_call_id.clone(),
         tool_name: outcome.tool_name.clone(),
@@ -453,7 +454,24 @@ impl FrameRecordingEmitter {
 }
 
 impl AgentEmitter for FrameRecordingEmitter {
+    fn prepare_event(&self, event: AgentEvent) -> BoxFuture<'static, AgentEvent> {
+        self.inner.prepare_event(event)
+    }
+
     fn emit(&self, event: AgentEvent) -> BoxFuture<'static, ()> {
+        self.emit_inner(event, false)
+    }
+    fn emit_prepared(&self, event: AgentEvent) -> BoxFuture<'static, ()> {
+        self.emit_inner(event, true)
+    }
+
+    fn try_emit(&self, event: AgentEvent) {
+        self.inner.try_emit(event);
+    }
+}
+
+impl FrameRecordingEmitter {
+    fn emit_inner(&self, event: AgentEvent, prepared: bool) -> BoxFuture<'static, ()> {
         let inner = Arc::clone(&self.inner);
         let shared = Arc::clone(&self.shared);
         // Extract the frame source before moving `event` into the future.
@@ -483,11 +501,11 @@ impl AgentEmitter for FrameRecordingEmitter {
             if let Some(event) = to_record {
                 FrameRecordingEmitter::record(&shared, &event).await;
             }
-            inner.emit(event).await;
+            if prepared {
+                inner.emit_prepared(event).await;
+            } else {
+                inner.emit(event).await;
+            }
         })
-    }
-
-    fn try_emit(&self, event: AgentEvent) {
-        self.inner.try_emit(event);
     }
 }

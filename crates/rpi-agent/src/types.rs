@@ -37,17 +37,25 @@ pub enum QueueMode {
 /// Result returned from a tool `execute`. Mirrors TS `AgentToolResult<T>`:
 /// `content` goes back to the model, `details` are structured log/UI payload,
 /// `usage` is optionally reported, and `terminate` hints the batch should stop.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct AgentToolResult {
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "rpi_ai::types::deserialize_present_json"
+    )]
+    pub structured_content: Option<serde_json::Value>,
     pub content: Vec<TextContentOrImage>,
     pub details: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<Usage>,
     pub added_tool_names: Vec<String>,
     pub terminate: bool,
 }
 /// an enum so tool authors stay within the provider-content language without
 /// pulling in the full `Content` union (which adds Thinking/ToolCall).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
 pub enum TextContentOrImage {
     Text(TextContent),
     Image(ImageContent),
@@ -67,6 +75,7 @@ impl AgentToolResult {
     /// Convenience: a single text block, empty details.
     pub fn text(message: impl Into<String>) -> Self {
         Self {
+            structured_content: None,
             content: vec![TextContentOrImage::text(message)],
             details: serde_json::Value::Null,
             usage: None,
@@ -126,6 +135,7 @@ pub struct BeforeToolCallResult {
 /// the original. No deep merge.
 #[derive(Debug, Clone, Default)]
 pub struct AfterToolCallResult {
+    pub structured_content: Option<Option<serde_json::Value>>,
     pub content: Option<Vec<TextContentOrImage>>,
     pub details: Option<serde_json::Value>,
     pub is_error: Option<bool>,
@@ -268,4 +278,28 @@ pub(crate) fn default_model() -> rpi_ai::model::Model {
         "unknown",
         "",
     )
+}
+
+#[cfg(test)]
+mod structured_content_tests {
+    #[test]
+    fn structured_content_distinguishes_absence_and_explicit_null() {
+        for input in [
+            serde_json::json!({}),
+            serde_json::json!({"structuredContent":null}),
+            serde_json::json!({"structuredContent":{"ok":true}}),
+        ] {
+            let result: super::AgentToolResult = serde_json::from_value(input.clone()).unwrap();
+            assert_eq!(
+                result.structured_content,
+                input.get("structuredContent").cloned()
+            );
+            assert_eq!(
+                serde_json::to_value(result)
+                    .unwrap()
+                    .get("structuredContent"),
+                input.get("structuredContent")
+            );
+        }
+    }
 }

@@ -1562,6 +1562,7 @@ mod tests {
             AssistantMessage::empty(Api::OpenaiCompletions, "gateway", "gpt-test", 1);
         assistant.content = vec![Content::thinking("private"), Content::text("answer")];
         let tool_result = ToolResultMessage {
+            structured_content: None,
             role: ToolResultRole,
             tool_call_id: "call-1".into(),
             tool_name: "read".into(),

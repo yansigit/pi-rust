@@ -668,6 +668,7 @@ pub struct AgentHarness {
 }
 
 mod child;
+mod extension_events;
 pub use child::ChildHarness;
 mod weak;
 pub use weak::WeakAgentHarness;
@@ -2237,6 +2238,20 @@ impl AgentHarness {
         Ok(())
     }
 
+    pub async fn set_tool_call_hooks(
+        &self,
+        before: Option<rpi_agent::BeforeToolCall>,
+        after: Option<rpi_agent::AfterToolCall>,
+    ) -> HarnessResult<()> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.closed {
+            return Err(HarnessError::closed());
+        }
+        inner.before_tool_call = before;
+        inner.after_tool_call = after;
+        Ok(())
+    }
+
     // -- private helpers ----------------------------------------------------
 
     /// Reject if closed or if a lane already has an active operation. On
@@ -2791,6 +2806,7 @@ impl AgentHarness {
                 let mut content = result.clone().into_content();
                 content.push(Content::text(crate::tool_recovery::REPLAYED_TOOL_RESULT));
                 AgentMessage::ToolResult(Box::new(rpi_ai::types::ToolResultMessage {
+                    structured_content: result.structured_content.clone(),
                     role: rpi_ai::types::ToolResultRole,
                     tool_call_id: outcome.tool_call_id.clone(),
                     tool_name: outcome.tool_name.clone(),
@@ -2803,6 +2819,7 @@ impl AgentHarness {
                 }))
             }
             Err(error) => AgentMessage::ToolResult(Box::new(rpi_ai::types::ToolResultMessage {
+                structured_content: None,
                 role: rpi_ai::types::ToolResultRole,
                 tool_call_id: outcome.tool_call_id.clone(),
                 tool_name: outcome.tool_name.clone(),
@@ -2967,22 +2984,13 @@ impl AgentHarness {
                         // reach the provider — then layer the per-call
                         // `ProviderHooks::before_request` patch on top.
                         let mut opts = stream_options.merge_into(opts.clone());
-                        if let Some(hooks) = &provider_hooks {
-                            // pi's `transform_context`: the last chance to change
-                            // what the model reads. Applied to `ctx` before the
-                            // request, so a plugin's forced prompt is what this
-                            // request carries — and only this one, since `ctx` is
-                            // rebuilt per call from the loop's context.
-                            if let Some(patch) = hooks.transform_context(&model, &ctx) {
-                                patch.apply(&mut ctx);
-                            }
-                            if let Some(patch) = hooks.before_request(&model, &ctx, &opts) {
-                                patch.apply(&mut opts);
-                            }
-                        }
                         tokio::task::block_in_place(|| {
-                            Handle::current()
-                                .block_on(async move { p.stream_simple(&model, &ctx, &opts).await })
+                            Handle::current().block_on(async {
+                                if let Some(hooks) = &provider_hooks {
+                                    hooks.prepare_request(&model, &mut ctx, &mut opts).await;
+                                }
+                                p.stream_simple(&model, &ctx, &opts).await
+                            })
                         })
                     }
                     None => {
@@ -3546,7 +3554,22 @@ impl AgentHarness {
         resume: Option<PendingResume>,
     ) -> HarnessResult<RunResult> {
         let scope = self.inner.lock().unwrap().execution_scope.clone();
-        let run = self.run_admitted_inner(prompts, from_assistant, admission, resume);
+        let metadata = self
+            .session
+            .get_metadata()
+            .await
+            .map_err(session_to_harness_err)?;
+        let identity = rpi_ai::identity::RequestIdentity {
+            session_id: Some(metadata.id),
+            operation_id: admission.0.clone(),
+            purpose: "prompt".into(),
+            turn_id: None,
+            request_id: None,
+        };
+        let run = rpi_ai::identity::scope(
+            identity,
+            Box::pin(self.run_admitted_inner(prompts, from_assistant, admission, resume)),
+        );
         match scope {
             Some(scope) => scope.run(run).await,
             None => run.await,
@@ -3733,25 +3756,16 @@ impl AgentHarness {
                             },
                             custom_instructions: None,
                         };
-                        match {
-                            let _progress = crate::events::CompactionProgressGuard::new(
-                                &self.bus, &self.lane, false,
-                            );
-                            compact(&prep, &llm_opts).await
-                        } {
-                            Ok(result) => {
-                                let _ = self
-                                    .persist_compaction_entry(
-                                        &run_id,
-                                        &result,
-                                        // The pre-run check fires when the context
-                                        // crosses the configured threshold, i.e.
-                                        // proactively, not in reaction to a provider
-                                        // overflow error.
-                                        CompactionReason::Threshold,
-                                    )
-                                    .await?;
-                            }
+                        match self
+                            .compact_with_extensions(
+                                &run_id,
+                                &prep,
+                                &llm_opts,
+                                CompactionReason::Threshold,
+                            )
+                            .await
+                        {
+                            Ok(_) => {}
                             Err(e) => {
                                 // Compaction failed; abort the run.
                                 let leaf = self
@@ -3809,6 +3823,57 @@ impl AgentHarness {
             messages: ctx.messages,
             tools,
         };
+
+        if let Some(hooks) = &snap.provider_hooks {
+            let context = rpi_ai::Context {
+                system_prompt: Some(agent_context.system_prompt.clone()),
+                messages: harness_convert_to_llm(agent_context.messages.clone()),
+                tools: agent_context
+                    .tools
+                    .iter()
+                    .map(|tool| tool.schema().clone())
+                    .collect(),
+            };
+            let options = rpi_ai::SimpleStreamOptions {
+                identity: rpi_ai::identity::current(),
+                signal: signal.clone(),
+                ..Default::default()
+            };
+            if let Some(patch) = hooks.begin_operation(&snap.model, &context, &options).await {
+                if let Some(prompt) = patch.system_prompt {
+                    agent_context.system_prompt = prompt;
+                }
+                for value in patch.messages {
+                    #[derive(serde::Deserialize)]
+                    #[serde(rename_all = "camelCase")]
+                    struct Custom {
+                        custom_type: String,
+                        content: rpi_ai::types::UserContent,
+                        #[serde(default)]
+                        display: bool,
+                        details: Option<serde_json::Value>,
+                    }
+                    let Ok(custom) = serde_json::from_value::<Custom>(value) else {
+                        tracing::warn!("invalid before_agent_start custom message");
+                        continue;
+                    };
+                    let message = crate::messages::create_custom_message(
+                        custom.custom_type,
+                        custom.content,
+                        custom.display,
+                        custom.details,
+                        now_ms(),
+                    );
+                    self.session
+                        .view(&self.lane)
+                        .append_message(message.clone())
+                        .await
+                        .map_err(session_to_harness_err)?;
+                    agent_context.messages.push(message.clone());
+                    self.emit_appended_messages(vec![message]).await;
+                }
+            }
+        }
 
         // Build the config.
         let convert = Self::build_convert_to_llm(snap.to_provider_messages);
@@ -3907,10 +3972,9 @@ impl AgentHarness {
                             })).collect();
                             let prep = match prepare_compaction(&entries, settings) { Ok(Some(p)) => p, _ => return None };
                             let opts = CompactionLlmOptions { provider, model: model.clone(), api_key: None, signal: compaction_signal, thinking_level: None, retry: None, custom_instructions: None };
-                            let result = match { let _progress = crate::events::CompactionProgressGuard::new(&harness.bus, &harness.lane, false); compact(&prep, &opts).await } { Ok(r) => r, Err(_) => return None };
+                            let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &opts, CompactionReason::Threshold).await { Ok(Some((result, _))) => result, _ => return None };
                             // Mid-loop compaction fires because the turn pushed the
                             // context over the threshold.
-                            if harness.persist_compaction_entry(&compaction_run_id, &result, CompactionReason::Threshold).await.is_err() { return None; }
                             cut.store(new_messages_len, Ordering::Release);
                             let mut messages = Vec::with_capacity(result.retained_tail.len() + 1);
                             messages.push(create_compaction_summary_message(&result.summary, result.tokens_before, 0));
@@ -3959,7 +4023,7 @@ impl AgentHarness {
                 snap.retry.max_agent_delay_ms,
             )),
             cache_retention: snap.stream_options.cache_retention.unwrap_or_default(),
-            session_id: None,
+            session_id: rpi_ai::identity::current().and_then(|identity| identity.session_id),
             signal: signal.clone(),
         };
 
@@ -4379,22 +4443,19 @@ impl AgentHarness {
                         },
                         custom_instructions: custom_instructions.clone(),
                     };
-                    match {
-                        let _progress = crate::events::CompactionProgressGuard::new(
-                            &self.bus, &self.lane, true,
-                        );
-                        compact(&prep, &llm_opts).await
-                    } {
-                        Ok(result) => {
-                            let entry = self
-                                .persist_compaction_entry(
-                                    &run_id,
-                                    &result,
-                                    // `/compact` and the compaction command run when
-                                    // the user asks for them.
-                                    CompactionReason::Manual,
-                                )
-                                .await?;
+                    match self
+                        .compact_with_extensions(
+                            &run_id,
+                            &prep,
+                            &llm_opts,
+                            CompactionReason::Manual,
+                        )
+                        .await
+                    {
+                        Ok(None) => CompactionOutcome::Declined {
+                            leaf_id: source_leaf.clone().unwrap_or_default(),
+                        },
+                        Ok(Some((_, entry))) => {
                             let leaf = entry.base().id.clone();
                             let _ = self
                                 .write_operation_finished(

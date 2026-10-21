@@ -52,6 +52,7 @@ impl<'a> EventView<'a> {
                 | EventTag::SessionBeforeFork
                 | EventTag::SessionBeforeCompact
                 | EventTag::SessionCompact
+                | EventTag::SessionCompactFailed
                 | EventTag::SessionBeforeTree
                 | EventTag::SessionTree
                 | EventTag::Context
@@ -219,5 +220,22 @@ mod tests {
             ),
             crate::EVENT_HANDLER_ERROR
         );
+    }
+}
+
+#[cfg(test)]
+mod empty_payload_tests {
+    #[test]
+    fn legacy_empty_lifecycle_events_have_a_valid_empty_data_view() {
+        for tag in [
+            crate::EventTag::UiPromptStart,
+            crate::EventTag::UiPromptEnd,
+            crate::EventTag::SessionInfoChanged,
+            crate::EventTag::SessionBeforeCompact,
+        ] {
+            let event = crate::StablePluginEvent::empty(tag);
+            let view = unsafe { super::EventView::from_raw(&event) };
+            assert_eq!(view.data_text().as_deref(), Some(""));
+        }
     }
 }

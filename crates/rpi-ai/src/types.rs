@@ -616,6 +616,12 @@ impl UserMessage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolResultMessage {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present_json"
+    )]
+    pub structured_content: Option<serde_json::Value>,
     #[serde(rename = "role")]
     pub role: ToolResultRole,
     pub tool_call_id: String,
@@ -1230,4 +1236,11 @@ impl Serialize for AssistantMessageEvent {
             }
         }
     }
+}
+
+/// Preserve an explicitly supplied JSON null separately from an absent field.
+pub fn deserialize_present_json<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<serde_json::Value>, D::Error> {
+    serde_json::Value::deserialize(deserializer).map(Some)
 }

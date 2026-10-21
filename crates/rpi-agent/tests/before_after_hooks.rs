@@ -94,6 +94,7 @@ impl rpi_agent::AgentTool for EchoTool {
             .push(value.clone());
         let mut result = AgentToolResult::text(format!("echoed: {value}"));
         result.details = serde_json::json!({ "value": value });
+        result.structured_content = Some(serde_json::json!({"original":true}));
         if let Some(u) = &self.usage {
             result.usage = Some(u.clone());
         }
@@ -465,4 +466,90 @@ async fn before_tool_call_mixed_batch_continues() {
         2,
         "mixed batch with not-all-terminate must continue for a second LLM turn"
     );
+}
+
+#[tokio::test]
+async fn replacing_tool_text_clears_old_structured_content_and_persists_explicit_replacement() {
+    for replacement in [None, Some(serde_json::json!({"replacement":true}))] {
+        let (tool, _) = EchoTool::new_recording();
+        let mut config = base_config();
+        let expected = replacement.clone();
+        config.after_tool_call = Some(Arc::new(move |ctx, _| {
+            assert_eq!(
+                ctx.result.structured_content,
+                Some(serde_json::json!({"original":true}))
+            );
+            let replacement = replacement.clone();
+            Box::pin(async move {
+                Some(AfterToolCallResult {
+                    content: Some(vec![rpi_agent::TextContentOrImage::text("updated")]),
+                    structured_content: replacement.map(Some),
+                    ..Default::default()
+                })
+            })
+        }));
+        let stream = common::mock_stream_fn(vec![
+            assistant_tool_calls(
+                vec![("tool", "echo", serde_json::json!({"value":"hello"}))],
+                StopReason::ToolUse,
+            ),
+            assistant_text("done", StopReason::Stop),
+        ]);
+        let (_, messages) = run_and_collect(
+            vec![user_message("request")],
+            context_with_tools(vec![Arc::new(tool)]),
+            config,
+            stream,
+        )
+        .await;
+        let result = messages
+            .iter()
+            .find_map(|message| match message {
+                rpi_agent::AgentMessage::ToolResult(result) => Some(result),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(result.structured_content, expected);
+        assert_eq!(result.content[0], rpi_ai::Content::text("updated"));
+    }
+}
+
+#[tokio::test]
+async fn parallel_tool_result_hooks_keep_the_owning_child_execution_scope() {
+    let (tool, _) = EchoTool::new_recording();
+    let mut config = base_config();
+    config.tool_execution = ToolExecutionMode::Parallel;
+    config.after_tool_call = Some(Arc::new(|_, _| {
+        Box::pin(async {
+            assert!(rpi_agent::tool_execution_scope::is_child_execution());
+            assert_eq!(
+                rpi_agent::tool_execution_scope::execution_context().unwrap()["owner"],
+                "child"
+            );
+            assert!(rpi_agent::tool_execution_scope::track_background_tool().is_some());
+            None
+        })
+    }));
+    let stream = common::mock_stream_fn(vec![
+        assistant_tool_calls(
+            vec![("tool", "echo", serde_json::json!({"value":"hello"}))],
+            StopReason::ToolUse,
+        ),
+        assistant_text("done", StopReason::Stop),
+    ]);
+    let scope = Arc::new(
+        rpi_agent::tool_execution_scope::ToolExecutionScope::with_context(
+            serde_json::json!({"owner":"child"}),
+        ),
+    );
+    scope
+        .run(run_and_collect(
+            vec![user_message("request")],
+            context_with_tools(vec![Arc::new(tool)]),
+            config,
+            stream,
+        ))
+        .await;
+    scope.wait_idle().await;
+    assert!(!rpi_agent::tool_execution_scope::is_child_execution());
 }

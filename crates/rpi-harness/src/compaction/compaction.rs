@@ -124,7 +124,8 @@ pub struct CompactionDetails {
 
 /// Generated compaction data ready to be persisted as a compaction entry.
 /// Mirrors TS `CompactResult<T>`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompactResult {
     pub summary: String,
     pub tokens_before: i64,
@@ -134,7 +135,8 @@ pub struct CompactResult {
 }
 
 /// Prepared inputs for a compaction run. Mirrors TS `CompactionPreparation`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompactionPreparation {
     pub messages_to_summarize: Vec<AgentMessage>,
     pub turn_prefix_messages: Vec<AgentMessage>,
@@ -407,7 +409,8 @@ pub async fn complete_simple_with_retries(
             let provider = Arc::clone(&provider);
             let model = model.clone();
             let context = context.clone();
-            let options = options.clone();
+            let mut options = options.clone();
+            options.identity = rpi_ai::identity::next_request();
             async move {
                 let stream = provider.stream_simple(&model, &context, &options).await;
                 match stream.result().await {

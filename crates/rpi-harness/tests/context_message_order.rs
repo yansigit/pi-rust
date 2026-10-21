@@ -1219,6 +1219,7 @@ async fn all_accepted_message_roles_keep_delivery_ids_across_restart() {
             StopReason::Stop,
         ))),
         AgentMessage::ToolResult(Box::new(rpi_ai::types::ToolResultMessage {
+            structured_content: None,
             role: rpi_ai::types::ToolResultRole,
             tool_call_id: "extension-result".into(),
             tool_name: "extension".into(),

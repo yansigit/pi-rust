@@ -122,6 +122,7 @@ mod provider_hooks;
 pub mod provider_runtime;
 mod registry;
 mod resources;
+pub mod result_events;
 mod status;
 mod stdio;
 mod tool;
@@ -321,6 +322,7 @@ impl HostApi {
             provider_continuation: Some(provider::wrappers::continuation_action),
             native_request: Some(native::request),
             register_provider_runtime: Some(trampoline_register_provider_runtime),
+            register_event_result_handler: Some(trampoline_register_event_result_handler),
             register_command: Some(trampoline_register_command),
             register_shortcut: Some(trampoline_register_shortcut),
             register_flag: Some(trampoline_register_flag),
@@ -1220,4 +1222,28 @@ mod current_api_tests {
             Some("parent")
         );
     }
+}
+
+extern "C" fn trampoline_register_event_result_handler(
+    tag: EventTag,
+    handler: rpi_plugin_sdk::AuthRequestFn,
+    free: FreeStringFn,
+    context: *mut c_void,
+) -> i32 {
+    with_current_api(|api| {
+        api.with_registry(|registry| {
+            registry.register_result_handler(
+                api.name.clone(),
+                tag,
+                private_callback::Callback {
+                    request: handler,
+                    free,
+                    context,
+                },
+                api.action_bridge.clone(),
+            );
+        })
+    })
+    .flatten()
+    .map_or(-1, |_| 0)
 }

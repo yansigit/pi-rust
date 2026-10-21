@@ -122,6 +122,16 @@ impl AgentEvent {
 ///   Order is preserved because `try_emit` is only ever called from within a
 ///   single tool's `execute`, and `emit` is awaited between tool phases.
 pub trait AgentEmitter: Send + Sync {
+    /// Apply awaited event modifications before persistence and presentation.
+    fn prepare_event(&self, event: AgentEvent) -> futures::future::BoxFuture<'static, AgentEvent> {
+        Box::pin(async move { event })
+    }
+
+    /// Publish an event already passed through prepare_event.
+    fn emit_prepared(&self, event: AgentEvent) -> futures::future::BoxFuture<'static, ()> {
+        self.emit(event)
+    }
+
     /// Async emit — awaited by the loop so event order matches emit call order.
     fn emit(&self, event: AgentEvent) -> futures::future::BoxFuture<'static, ()>;
 

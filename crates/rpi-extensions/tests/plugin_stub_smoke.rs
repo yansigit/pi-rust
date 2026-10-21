@@ -771,8 +771,16 @@ async fn a_real_cdylib_can_replace_the_system_prompt() {
     };
 
     let hits_before = stub_prompt_transform_hits(&stub_path);
+    let mut opts = rpi_ai::SimpleStreamOptions {
+        identity: Some(rpi_ai::identity::RequestIdentity::operation(
+            Some("fixture".into()),
+            "prompt",
+        )),
+        ..Default::default()
+    };
     let patch = hooks
-        .transform_context(&model, &ctx)
+        .begin_operation(&model, &ctx, &opts)
+        .await
         .expect("the stub's transformer returns a patch");
     let hits_after = stub_prompt_transform_hits(&stub_path);
 
@@ -791,17 +799,23 @@ async fn a_real_cdylib_can_replace_the_system_prompt() {
         "the base prompt the plugin appended to must survive; got {applied:?}"
     );
 
-    // Per-prompt caching: a second provider call for the SAME prompt reuses the
-    // computed result and does not re-run the handler.
-    let again = hooks
-        .transform_context(&model, &ctx)
-        .expect("cached result is still a patch");
-    assert_eq!(again.system_prompt.as_deref(), Some(applied.as_str()));
+    let mut context = ctx.clone();
+    context.system_prompt = Some(applied.clone());
+    hooks.prepare_request(&model, &mut context, &mut opts).await;
+    hooks.prepare_request(&model, &mut context, &mut opts).await;
+    assert_eq!(context.system_prompt.as_deref(), Some(applied.as_str()));
     assert_eq!(
         stub_prompt_transform_hits(&stub_path),
         hits_before + 1,
-        "a second request for the same prompt must reuse the cached transform"
+        "provider requests reuse the operation's transformed prompt"
     );
+    // Identical history and timestamps still represent a distinct admitted run.
+    opts.identity = Some(rpi_ai::identity::RequestIdentity::operation(
+        Some("fixture".into()),
+        "prompt",
+    ));
+    hooks.begin_operation(&model, &ctx, &opts).await.unwrap();
+    assert_eq!(stub_prompt_transform_hits(&stub_path), hits_before + 2);
 }
 
 /// Read the stub's `plugin_stub_discover_hits` counter through the cdylib

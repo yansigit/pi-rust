@@ -366,6 +366,7 @@ pub fn transform_messages(messages: &[Message], model: &Model) -> Vec<Message> {
         for tc in pending.drain(..) {
             if !existing.contains(&tc.id) {
                 out.push(Message::ToolResult(Box::new(ToolResultMessage {
+                    structured_content: None,
                     role: crate::types::ToolResultRole,
                     tool_call_id: tc.id.clone(),
                     tool_name: tc.name.clone(),
@@ -1555,6 +1556,7 @@ mod tests {
         // A toolResult with added_tool_names=["b"] but no preceding assistant
         // tool call invoking "b" → "b" is deferred.
         let tr = ToolResultMessage {
+            structured_content: None,
             role: crate::types::ToolResultRole,
             tool_call_id: "t1".into(),
             tool_name: "a".into(),

@@ -76,6 +76,27 @@ pub async fn run_agent_loop(
     emit: Arc<dyn AgentEmitter>,
     stream_fn: StreamFn,
 ) -> Result<NewMessages, AgentError> {
+    let identity =
+        rpi_ai::identity::RequestIdentity::operation(config.session_id.clone(), "prompt");
+    rpi_ai::identity::scope_if_absent(
+        identity,
+        crate::tool_execution_scope::with_invocation_signal(
+            config.signal.clone(),
+            Box::pin(run_agent_loop_scoped(
+                prompts, context, config, emit, stream_fn,
+            )),
+        ),
+    )
+    .await
+}
+
+async fn run_agent_loop_scoped(
+    prompts: Vec<AgentMessage>,
+    context: AgentContext,
+    config: AgentLoopConfig,
+    emit: Arc<dyn AgentEmitter>,
+    stream_fn: StreamFn,
+) -> Result<NewMessages, AgentError> {
     let mut new_messages: Vec<AgentMessage> = prompts.clone();
     let mut current_context = AgentContext {
         system_prompt: context.system_prompt.clone(),
@@ -127,6 +148,26 @@ pub async fn run_agent_loop_continue(
     emit: Arc<dyn AgentEmitter>,
     stream_fn: StreamFn,
 ) -> Result<NewMessages, AgentError> {
+    let identity =
+        rpi_ai::identity::RequestIdentity::operation(config.session_id.clone(), "prompt");
+    rpi_ai::identity::scope_if_absent(
+        identity,
+        crate::tool_execution_scope::with_invocation_signal(
+            config.signal.clone(),
+            Box::pin(run_agent_loop_continue_scoped(
+                context, config, emit, stream_fn,
+            )),
+        ),
+    )
+    .await
+}
+
+async fn run_agent_loop_continue_scoped(
+    context: AgentContext,
+    config: AgentLoopConfig,
+    emit: Arc<dyn AgentEmitter>,
+    stream_fn: StreamFn,
+) -> Result<NewMessages, AgentError> {
     if context.messages.is_empty() {
         return Err(AgentError::State(
             "cannot continue: no messages in context".into(),
@@ -168,6 +209,26 @@ pub async fn run_agent_loop_continue(
 /// Errors when the last message is not an assistant message: there would be
 /// nothing to resume, and silently calling the provider instead would be wrong.
 pub async fn run_agent_loop_from_assistant(
+    context: AgentContext,
+    config: AgentLoopConfig,
+    emit: Arc<dyn AgentEmitter>,
+    stream_fn: StreamFn,
+) -> Result<NewMessages, AgentError> {
+    let identity =
+        rpi_ai::identity::RequestIdentity::operation(config.session_id.clone(), "prompt");
+    rpi_ai::identity::scope_if_absent(
+        identity,
+        crate::tool_execution_scope::with_invocation_signal(
+            config.signal.clone(),
+            Box::pin(run_agent_loop_from_assistant_scoped(
+                context, config, emit, stream_fn,
+            )),
+        ),
+    )
+    .await
+}
+
+async fn run_agent_loop_from_assistant_scoped(
     context: AgentContext,
     config: AgentLoopConfig,
     emit: Arc<dyn AgentEmitter>,
@@ -473,7 +534,8 @@ async fn stream_assistant_response(
         config.api_key.clone()
     };
 
-    let opts = config.to_stream_options(resolved_api_key);
+    let mut opts = config.to_stream_options(resolved_api_key);
+    opts.identity = rpi_ai::identity::next_request();
     let mut response = stream_fn(&config.model, &llm_context, &opts);
 
     let mut added_partial = false;
@@ -536,7 +598,13 @@ async fn stream_assistant_response(
                     )
                     .await;
                 }
-                emit_event(emit, AgentEvent::MessageEnd { message: am }).await;
+                let finalized = emit_event(emit, AgentEvent::MessageEnd { message: am }).await;
+                if let Some(AgentMessage::Assistant(message)) = finalized {
+                    if let Some(last) = context.messages.last_mut() {
+                        *last = AgentMessage::Assistant(message.clone());
+                    }
+                    return Ok(*message);
+                }
                 return Ok(final_message);
             }
         }
@@ -562,7 +630,13 @@ async fn stream_assistant_response(
         )
         .await;
     }
-    emit_event(emit, AgentEvent::MessageEnd { message: am }).await;
+    let finalized = emit_event(emit, AgentEvent::MessageEnd { message: am }).await;
+    if let Some(AgentMessage::Assistant(message)) = finalized {
+        if let Some(last) = context.messages.last_mut() {
+            *last = AgentMessage::Assistant(message.clone());
+        }
+        return Ok(*message);
+    }
     Ok(final_message)
 }
 
@@ -765,11 +839,25 @@ async fn execute_tool_calls_parallel(
                 let ctx = current_context.clone();
                 let cfg = config.clone();
                 let emit2 = Arc::clone(emit);
-                let handle = tokio::spawn(async move {
-                    let executed =
-                        execute_prepared_tool_call(&tc, &tool, &args, &cfg, &emit2).await;
-                    finalize_executed_tool_call(&ctx, &am, &tc, &args, executed, &cfg).await
-                });
+                let identity = rpi_ai::identity::operation();
+                let execution = crate::tool_execution_scope::current_scope();
+                let invocation_signal = cfg.signal.clone();
+                let handle = tokio::spawn(rpi_ai::identity::inherit(
+                    identity,
+                    crate::tool_execution_scope::inherit(
+                        execution,
+                        crate::tool_execution_scope::with_invocation_signal(
+                            invocation_signal,
+                            async move {
+                                let executed =
+                                    execute_prepared_tool_call(&tc, &tool, &args, &cfg, &emit2)
+                                        .await;
+                                finalize_executed_tool_call(&ctx, &am, &tc, &args, executed, &cfg)
+                                    .await
+                            },
+                        ),
+                    ),
+                ));
                 entries.push(Entry::Running(handle));
             }
         }
@@ -1184,7 +1272,11 @@ async fn finalize_executed_tool_call(
         match after(ctx, config.signal.clone()).await {
             Some(after_result) => {
                 if let Some(c) = after_result.content {
+                    result.structured_content = None;
                     result.content = c;
+                }
+                if let Some(structured) = after_result.structured_content {
+                    result.structured_content = structured;
                 }
                 if let Some(d) = after_result.details {
                     result.details = d;
@@ -1235,6 +1327,7 @@ fn create_tool_result_message(
     is_error: bool,
 ) -> ToolResultMessage {
     ToolResultMessage {
+        structured_content: result.structured_content.clone(),
         role: ToolResultRole,
         tool_call_id: tool_call.id.clone(),
         tool_name: tool_call.name.clone(),
@@ -1353,8 +1446,17 @@ async fn should_stop_after_turn(
 }
 
 /// Emit one event via the emitter.
-async fn emit_event(emit: &Arc<dyn AgentEmitter>, event: AgentEvent) {
-    emit.emit(event).await;
+async fn emit_event(emit: &Arc<dyn AgentEmitter>, event: AgentEvent) -> Option<AgentMessage> {
+    if matches!(event, AgentEvent::TurnStart) {
+        rpi_ai::identity::next_turn();
+    }
+    let event = emit.prepare_event(event).await;
+    let message = match &event {
+        AgentEvent::MessageEnd { message } => Some(message.clone()),
+        _ => None,
+    };
+    emit.emit_prepared(event).await;
+    message
 }
 
 /// A placeholder tool call for the panic-recovery path.

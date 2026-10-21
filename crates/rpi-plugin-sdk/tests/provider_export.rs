@@ -175,6 +175,7 @@ fn api() -> sdk::PluginApi {
         provider_continuation: None,
         native_request: None,
         register_provider_runtime: None,
+        register_event_result_handler: None,
     }
 }
 

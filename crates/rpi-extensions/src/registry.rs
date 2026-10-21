@@ -344,6 +344,7 @@ pub struct ExtensionRegistry {
     shortcuts: Vec<RegisteredShortcut>,
     /// `handlers[tag as usize]` — all handlers subscribed to that tag.
     handlers: [Vec<RegisteredHandler>; EVENT_TAG_COUNT],
+    listeners: [Vec<crate::result_events::Listener>; EVENT_TAG_COUNT],
     /// `resources_discover` handlers (B5b). Fan-out on discovery, in registration
     /// order. Unlike event handlers (which key off a tag in a fixed array), these
     /// are a single flat list — `resources_discover` has its own out-param
@@ -404,6 +405,7 @@ impl ExtensionRegistry {
             flags: Vec::new(),
             shortcuts: Vec::new(),
             handlers,
+            listeners: std::array::from_fn(|_| Vec::new()),
             resources_discover: Vec::new(),
             before_agent_start: Vec::new(),
             providers: Vec::new(),
@@ -502,15 +504,37 @@ impl ExtensionRegistry {
             // Stamp the registering plugin's current declaration (P2). A plugin
             // typically declares BEFORE registering handlers; `apply_declaration`
             // also retro-updates any handler registered before the declare call.
-            self.handlers[idx].push(RegisteredHandler {
+            let record = RegisteredHandler {
                 plugin,
                 priority: self.priority,
                 platforms: self.platforms.clone(),
                 handler,
                 user_data,
-            });
+            };
+            self.handlers[idx].push(record.clone());
+            self.listeners[idx].push(crate::result_events::Listener::Observer(record));
         }
         false
+    }
+
+    pub(crate) fn register_result_handler(
+        &mut self,
+        plugin: String,
+        tag: EventTag,
+        callback: crate::private_callback::Callback,
+        bridge: Option<Arc<crate::ActionBridge>>,
+    ) {
+        if let Some(listeners) = self.listeners.get_mut(tag as usize) {
+            listeners.push(crate::result_events::Listener::Result(
+                crate::result_events::Handler {
+                    plugin,
+                    priority: self.priority,
+                    platforms: self.platforms.clone(),
+                    callback,
+                    bridge,
+                },
+            ));
+        }
     }
 
     /// Apply a plugin's declaration parsed from the unified C ABI `declare` JSON
@@ -531,6 +555,11 @@ impl ExtensionRegistry {
                     h.priority = priority;
                 }
             }
+            for listeners in &mut self.listeners {
+                for listener in listeners {
+                    listener.set_priority(priority);
+                }
+            }
             applied += 1;
         }
         if let Some(platforms) = platforms {
@@ -538,6 +567,11 @@ impl ExtensionRegistry {
             for tag_handlers in self.handlers.iter_mut() {
                 for h in tag_handlers.iter_mut() {
                     h.platforms = platforms.clone();
+                }
+            }
+            for listeners in &mut self.listeners {
+                for listener in listeners {
+                    listener.set_platforms(&platforms);
                 }
             }
             applied += 1;
@@ -831,6 +865,10 @@ impl ExtensionRegistry {
         for tag_handlers in handlers.iter_mut() {
             tag_handlers.sort_by_key(|h| h.priority);
         }
+        let mut listeners = self.listeners.clone();
+        for group in &mut listeners {
+            group.sort_by_key(|listener| listener.priority());
+        }
         RegistrySnapshot {
             tools: self
                 .tools
@@ -844,6 +882,7 @@ impl ExtensionRegistry {
             flags: self.flags.clone(),
             shortcuts: self.shortcuts.clone(),
             handlers,
+            listeners,
             resources_discover: self.resources_discover.clone(),
             before_agent_start: self.before_agent_start.clone(),
             providers: self.providers.clone(),
@@ -926,6 +965,9 @@ impl ExtensionRegistry {
         }
         for (tag_idx, handlers) in other.handlers.iter_mut().enumerate() {
             self.handlers[tag_idx].append(handlers);
+        }
+        for (idx, listeners) in other.listeners.iter_mut().enumerate() {
+            self.listeners[idx].append(listeners);
         }
         self.resources_discover
             .append(&mut other.resources_discover);
@@ -1019,6 +1061,7 @@ pub struct RegistrySnapshot {
     flags: Vec<RegisteredFlag>,
     shortcuts: Vec<RegisteredShortcut>,
     handlers: [Vec<RegisteredHandler>; EVENT_TAG_COUNT],
+    listeners: [Vec<crate::result_events::Listener>; EVENT_TAG_COUNT],
     resources_discover: Vec<ResourcesDiscoverHandler>,
     before_agent_start: Vec<BeforeAgentStartHandler>,
     providers: Vec<RegisteredProvider>,
@@ -1103,6 +1146,15 @@ impl RegistrySnapshot {
         } else {
             &[]
         }
+    }
+
+    pub(crate) fn listeners(&self, tag: EventTag) -> &[crate::result_events::Listener] {
+        self.listeners.get(tag as usize).map_or(&[], Vec::as_slice)
+    }
+    pub fn has_result_handlers(&self, tag: EventTag) -> bool {
+        self.listeners(tag)
+            .iter()
+            .any(|listener| matches!(listener, crate::result_events::Listener::Result(_)))
     }
 
     /// The `resources_discover` handlers, registration order (B5b). Empty when

@@ -71,44 +71,7 @@ pub struct PluginToolHandle {
 /// host `free_string`) and is also the shape the plugin returns for `Done`.
 #[allow(dead_code)]
 fn result_to_json(result: &AgentToolResult) -> String {
-    let mut txt = String::new();
-    txt.push('{');
-    txt.push_str("\"content\":[");
-    for (i, c) in result.content.iter().enumerate() {
-        if i > 0 {
-            txt.push(',');
-        }
-        match c {
-            TextContentOrImage::Text(t) => {
-                txt.push_str(
-                    &serde_json::to_string(&serde_json::json!({ "type": "text", "text": t.text }))
-                        .unwrap_or_else(|_| "\"\"".into()),
-                );
-            }
-            TextContentOrImage::Image(img) => {
-                txt.push_str(
-                    &serde_json::to_string(&serde_json::json!({
-                        "type": "image",
-                        "data": img.data,
-                        "mimeType": img.mime_type,
-                    }))
-                    .unwrap_or_else(|_| "\"\"".into()),
-                );
-            }
-        }
-    }
-    txt.push(']');
-    txt.push_str(",\"details\":");
-    txt.push_str(&serde_json::to_string(&result.details).unwrap_or_else(|_| "null".into()));
-    txt.push_str(",\"terminate\":");
-    txt.push_str(if result.terminate { "true" } else { "false" });
-    txt.push_str(",\"addedToolNames\":");
-    txt.push_str(&serde_json::to_string(&result.added_tool_names).unwrap_or_else(|_| "[]".into()));
-    // usage omitted from the wire shape (Option<Usage> is not in every plugin's
-    // contract; the model-visible content/details are what matter). Documented
-    // v1 limit: usage does not cross to the plugin.
-    txt.push('}');
-    txt
+    serde_json::to_string(result).expect("tool result is JSON serializable")
 }
 
 /// Parse a plugin-produced JSON `AgentToolResult` back into the native struct.
@@ -152,6 +115,7 @@ fn json_to_result(text: &str) -> AgentToolResult {
                 }
             }
         }
+        result.structured_content = obj.get("structuredContent").cloned();
         if let Some(details) = obj.get("details") {
             result.details = details.clone();
         }

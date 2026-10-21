@@ -1,251 +1,212 @@
-//! B4 — extension provider hooks. Bridges an extension's `on(BeforeProviderRequest)`
-//! / `on(BeforeProviderHeaders)` / `on(AfterProviderResponse)` handlers into
-//! rpi-ai's [`ProviderHooks`] slot, so every provider call fans the live
-//! request/response context out to the subscribed plugins.
-//!
-//! **Observer semantics (v1):** the SDK `EventHandlerFn` returns `i32` (no
-//! result payload), so a handler observes the request/response — it can record
-//! state, rotate an external token store, emit diagnostics — but cannot PATCH
-//! the live `SimpleStreamOptions`. The `before_request` hook therefore returns
-//! `None` (no patch); a future ABI extension (an `out` pointer on the handler)
-//! would unlock the patch path. The harness treats a `None` return as
-//! "leave opts untouched", so the observer path is safe.
-
+//! Provider context hooks and the legacy, redacted request observations.
+use crate::{
+    loader::ExtensionSession, prompt_transform::emit_before_agent_start,
+    registry::RegistrySnapshot, translate::dispatch_data_event, PluginKeepalive,
+};
+use rpi_ai::types::{AssistantMessage, Content, Message, UserContent};
+use rpi_ai::{
+    Context, ContextPatch, Model, ProviderHooks, SimpleStreamOptions, SimpleStreamOptionsPatch,
+};
+use rpi_plugin_sdk::EventTag;
 use std::sync::{Arc, Mutex};
 
-use rpi_ai::types::{AssistantMessage, Content, Message, UserContent};
-use rpi_ai::Context;
-use rpi_ai::{ContextPatch, Model, ProviderHooks, SimpleStreamOptions, SimpleStreamOptionsPatch};
-use rpi_plugin_sdk::EventTag;
-
-use crate::loader::ExtensionSession;
-use crate::prompt_transform::emit_before_agent_start;
-use crate::registry::RegistrySnapshot;
-use crate::translate::dispatch_data_event;
-use crate::PluginKeepalive;
-
-/// A [`ProviderHooks`] that dispatches to the registered extension handlers.
-/// Keeps the cdylib mappings alive via the keepalive (the handler fn pointers
-/// live inside the plugins).
 pub struct ExtensionProviderHooks {
     snapshot: Arc<RegistrySnapshot>,
     _keepalive: Arc<PluginKeepalive>,
-    /// Timestamp of the last user message we emitted `BeforeAgentStart` for.
-    /// The hook fires once per provider call, but `before_agent_start` must
-    /// fire once per prompt, so the prompt timestamp is the dedupe key.
-    last_before_agent_start: Mutex<Option<i64>>,
-    /// The prompt transform result for the prompt identified by the timestamp,
-    /// cached so it is computed **once per prompt** rather than once per
-    /// provider call. pi computes it once before the run and reuses it
-    /// (`_runSystemPromptOptions`, reset in the run's `finally`); a tool loop
-    /// makes several provider calls for one prompt, and re-running every
-    /// registered handler on each of them would both repeat side effects and
-    /// let an unstable handler change the prompt mid-run.
-    ///
-    /// `Some((timestamp, prompt))` where `prompt: None` records "this prompt was
-    /// transformed, result was no-change" — distinct from "not yet computed",
-    /// so handlers are not re-run just because they declined to change anything.
-    last_forced_prompt: Mutex<Option<(i64, Option<String>)>>,
+    last_before_agent_start: Mutex<Option<String>>,
 }
-
 impl ExtensionProviderHooks {
-    /// Build hooks over a loaded extension session's registry snapshot. Returns
-    /// `None` when nothing needs this bridge (so a session without provider or
-    /// prompt hooks runs the plain no-op path).
-    ///
-    /// Two independent reasons to install it, and both must be checked:
-    ///
-    /// - **Provider-hook tags** — a plugin observing request/response. Includes
-    ///   `BeforeAgentStart`, which is emitted from this bridge (see
-    ///   [`Self::before_request`]) because the harness never emits a prompt
-    ///   message event.
-    /// - **`before_agent_start` transformers** — a plugin that *replaces* the
-    ///   system prompt. This is a separate slot, not an event subscription, so a
-    ///   plugin that only transforms the prompt registers no handlers at all;
-    ///   keying this check on the tags alone would skip the bridge and silently
-    ///   ignore its transform.
     pub fn from_session(session: &ExtensionSession) -> Option<Self> {
         let snapshot = session.snapshot_arc()?;
-        let observes_events = [
+        if ![
+            EventTag::SessionBeforeCompact,
+            EventTag::SessionCompact,
+            EventTag::SessionCompactFailed,
+            EventTag::SessionBeforeTree,
+            EventTag::SessionTree,
+            EventTag::Context,
             EventTag::BeforeProviderRequest,
             EventTag::BeforeProviderHeaders,
             EventTag::AfterProviderResponse,
             EventTag::BeforeAgentStart,
         ]
         .iter()
-        .any(|t| !snapshot.handlers_for(*t).is_empty());
-        let transforms_prompt = !snapshot.before_agent_start().is_empty();
-        if !observes_events && !transforms_prompt {
+        .any(|tag| !snapshot.handlers_for(*tag).is_empty() || snapshot.has_result_handlers(*tag))
+            && snapshot.before_agent_start().is_empty()
+        {
             return None;
         }
         Some(Self {
             snapshot,
             _keepalive: session.keepalive(),
             last_before_agent_start: Mutex::new(None),
-            last_forced_prompt: Mutex::new(None),
         })
     }
-}
-
-impl ProviderHooks for ExtensionProviderHooks {
-    /// pi's `transform_context` / `before_agent_start`-returns-`systemPrompt`:
-    /// let a plugin replace the prompt the request carries.
-    ///
-    /// Computed once per prompt and cached, so every provider call of a run
-    /// (the tool loop) sees the same prompt — see
-    /// [`Self::last_forced_prompt`]. Returns `None` when no plugin registered a
-    /// transformer, when they all declined, or when the registry is stale, all
-    /// of which mean "leave the prompt alone".
-    fn transform_context(&self, _model: &Model, ctx: &Context) -> Option<ContextPatch> {
-        if self.snapshot.before_agent_start().is_empty() {
-            return None;
-        }
-        // Keyed on the user prompt, like the observer event below: the prompt is
-        // what identifies a turn, and it is stable across the run's provider
-        // calls. With no user message (a continuation) there is nothing to key
-        // on, so the transform is skipped rather than applied to an unknown turn.
-        let (timestamp, prompt, image_count) = latest_user_prompt(&ctx.messages)?;
-
-        let mut cache = self.last_forced_prompt.lock().unwrap();
-        if cache.as_ref().map(|(ts, _)| *ts) != Some(timestamp) {
-            let event = before_agent_start_event(&prompt, image_count, ctx);
-            let forced = emit_before_agent_start(
-                ctx.system_prompt.as_deref().unwrap_or_default(),
-                &event.to_string(),
-                &self.snapshot,
-            );
-            *cache = Some((timestamp, forced));
-        }
-        cache
-            .as_ref()
-            .and_then(|(_, forced)| forced.clone())
-            .map(|system_prompt| ContextPatch {
-                system_prompt: Some(system_prompt),
-            })
-    }
-
-    /// Fan the planned request out to `BeforeProviderRequest` +
-    /// `BeforeProviderHeaders` subscribers. Returns `None` for the stream options
-    /// — observer-only (the event handler ABI has no result channel); a plugin's
-    /// influence on the *prompt* travels through [`Self::transform_context`]
-    /// instead.
-    fn before_request(
-        &self,
-        model: &Model,
-        ctx: &Context,
-        opts: &SimpleStreamOptions,
-    ) -> Option<SimpleStreamOptionsPatch> {
-        // (A) pi's `before_agent_start`: observe each NEW user prompt exactly
-        // once. The harness persists prompts before the run and calls
-        // `run_agent_loop` with an empty prompts vec, so no
-        // MessageStart/MessageEnd reaches plugins for them. This bridge is the
-        // first place the prompt is visible, so it emits the pi-equivalent
-        // event. Dedupe by prompt timestamp: one run can make several provider
-        // calls, but `before_agent_start` fires once per prompt.
-        if let Some((timestamp, prompt, image_count)) = latest_user_prompt(&ctx.messages) {
-            let mut last = self.last_before_agent_start.lock().unwrap();
-            if *last != Some(timestamp) {
-                *last = Some(timestamp);
-                drop(last);
-                let event = before_agent_start_event(&prompt, image_count, ctx);
-                // Synchronous, like the request dispatch below: a subscriber's
-                // `BeforeAgentStart` handler runs before any
-                // `BeforeProviderRequest` of this turn reaches it, so the turn is
-                // fully identified (session included) by the time its first
-                // generation is created.
-                dispatch_data_event(
-                    &self.snapshot,
-                    EventTag::BeforeAgentStart,
-                    &event.to_string(),
-                );
-            }
-        }
-
+    fn observe_request(&self, model: &Model, ctx: &Context, opts: &SimpleStreamOptions) {
         let request = serde_json::json!({
-            "model": model.id,
-            "provider": model.provider,
-            "baseUrl": model.base_url,
-            "reasoning": model.reasoning,
-            "pricingAvailable": model.has_pricing(),
-            "apiKey": null,
-            "timeoutMs": opts.timeout.map(|d| d.as_millis() as u64),
-            "headers": null,
-            "metadata": opts.metadata,
-            "maxTokens": opts.max_tokens,
-            "temperature": opts.temperature,
-            // (B) the model-facing messages, so observers (e.g. rpi-langfuse)
-            // can record the real generation input. `ctx` was previously
-            // discarded entirely, which is why generation/trace input was
-            // always null for plugins.
-            "messages": ctx.messages,
+            "model":model.id,"provider":model.provider,"baseUrl":model.base_url,
+            "reasoning":model.reasoning,"pricingAvailable":model.has_pricing(),
+            "apiKey":null,"headers":null,"timeoutMs":opts.timeout.map(|d| d.as_millis() as u64),
+            "metadata":opts.metadata,"maxTokens":opts.max_tokens,"temperature":opts.temperature,
+            "messages":ctx.messages,"identity":opts.identity,
         });
         dispatch_data_event(
             &self.snapshot,
             EventTag::BeforeProviderRequest,
             &request.to_string(),
         );
-        let headers = serde_json::json!({ "headers": null });
         dispatch_data_event(
             &self.snapshot,
             EventTag::BeforeProviderHeaders,
-            &headers.to_string(),
+            &serde_json::json!({"headers":null,"identity":opts.identity}).to_string(),
         );
-        None
+    }
+}
+#[async_trait::async_trait]
+impl ProviderHooks for ExtensionProviderHooks {
+    async fn lifecycle(
+        &self,
+        event: &str,
+        data: serde_json::Value,
+        identity: rpi_ai::identity::RequestIdentity,
+        signal: tokio_util::sync::CancellationToken,
+    ) -> Result<Option<serde_json::Value>, String> {
+        let tag = match event {
+            "session_before_compact" => EventTag::SessionBeforeCompact,
+            "session_compact" => EventTag::SessionCompact,
+            "session_compact_failed" => EventTag::SessionCompactFailed,
+            "session_before_tree" => EventTag::SessionBeforeTree,
+            "session_tree" => EventTag::SessionTree,
+            _ => return Err("unsupported lifecycle event".into()),
+        };
+        crate::result_events::dispatch(
+            self.snapshot.clone(),
+            self._keepalive.clone(),
+            tag,
+            data,
+            Some(identity),
+            signal,
+        )
+        .await
+        .map(|result| result.result)
     }
 
-    /// Fan the terminal assistant message out to `AfterProviderResponse`
-    /// subscribers.
+    async fn begin_operation(
+        &self,
+        model: &Model,
+        ctx: &Context,
+        opts: &SimpleStreamOptions,
+    ) -> Option<rpi_ai::provider::OperationStartPatch> {
+        let mut start_context = ctx.clone();
+        if let Some(patch) = self.transform_context(model, &start_context) {
+            patch.apply(&mut start_context);
+        }
+        let (prompt, images) = latest_user_prompt(&start_context.messages).unwrap_or_default();
+        let event =
+            before_agent_start_event(&prompt, images, &start_context, opts.identity.as_ref());
+        let result = crate::result_events::dispatch(
+            self.snapshot.clone(),
+            self._keepalive.clone(),
+            EventTag::BeforeAgentStart,
+            event,
+            opts.identity.clone(),
+            opts.signal.clone(),
+        )
+        .await;
+        Some(match result {
+            Ok(result) => rpi_ai::provider::OperationStartPatch {
+                system_prompt: result.event["systemPrompt"].as_str().map(str::to_owned),
+                messages: result.messages,
+            },
+            Err(_) => rpi_ai::provider::OperationStartPatch {
+                system_prompt: start_context.system_prompt,
+                messages: Vec::new(),
+            },
+        })
+    }
+    async fn prepare_request(
+        &self,
+        model: &Model,
+        ctx: &mut Context,
+        opts: &mut SimpleStreamOptions,
+    ) {
+        let event = serde_json::json!({"messages":ctx.messages});
+        if let Ok(result) = crate::result_events::dispatch(
+            self.snapshot.clone(),
+            self._keepalive.clone(),
+            EventTag::Context,
+            event,
+            opts.identity.clone(),
+            opts.signal.clone(),
+        )
+        .await
+        {
+            if let Ok(messages) = serde_json::from_value(result.event["messages"].clone()) {
+                ctx.messages = messages;
+            }
+        }
+        self.observe_request(model, ctx, opts);
+    }
+    fn transform_context(&self, _model: &Model, ctx: &Context) -> Option<ContextPatch> {
+        if self.snapshot.before_agent_start().is_empty() {
+            return None;
+        }
+        let (prompt, images) = latest_user_prompt(&ctx.messages).unwrap_or_default();
+        let identity = rpi_ai::identity::current();
+        let event = before_agent_start_event(&prompt, images, ctx, identity.as_ref());
+        emit_before_agent_start(
+            ctx.system_prompt.as_deref().unwrap_or_default(),
+            &event.to_string(),
+            &self.snapshot,
+        )
+        .map(|system_prompt| ContextPatch {
+            system_prompt: Some(system_prompt),
+        })
+    }
+    fn before_request(
+        &self,
+        model: &Model,
+        ctx: &Context,
+        opts: &SimpleStreamOptions,
+    ) -> Option<SimpleStreamOptionsPatch> {
+        if let Some(identity) = opts
+            .identity
+            .as_ref()
+            .filter(|identity| identity.purpose == "prompt")
+        {
+            let mut last = self.last_before_agent_start.lock().unwrap();
+            if last.as_deref() != Some(identity.operation_id.as_str()) {
+                *last = Some(identity.operation_id.clone());
+                drop(last);
+                let (prompt, images) = latest_user_prompt(&ctx.messages).unwrap_or_default();
+                dispatch_data_event(
+                    &self.snapshot,
+                    EventTag::BeforeAgentStart,
+                    &before_agent_start_event(&prompt, images, ctx, Some(identity)).to_string(),
+                );
+            }
+        }
+        self.observe_request(model, ctx, opts);
+        None
+    }
     fn after_response(&self, _model: &Model, message: &AssistantMessage) {
-        let json = serde_json::to_value(message).unwrap_or(serde_json::json!({}));
         dispatch_data_event(
             &self.snapshot,
             EventTag::AfterProviderResponse,
-            &json.to_string(),
+            &serde_json::to_string(message).unwrap(),
         );
     }
 }
-
-/// The `before_agent_start` envelope: what the observer event carries and what
-/// a prompt-transforming handler reads.
-///
-/// One builder for both, so an observer and a transformer cannot be shown
-/// different views of the same turn.
-///
-/// `systemPrompt` is read from `ctx`, which means the **post-transform** prompt
-/// when the observer event is dispatched: rpi emits that event from
-/// `before_request`, and `ProviderHooks::transform_context` runs first (the same
-/// order pi uses in `assistant.ts` — transform, then request). So an observer
-/// sees the prompt the provider is about to be given. pi's own
-/// `before_agent_start` fires earlier in the run and therefore carries the base
-/// prompt; a plugin that needs the pre-transform value should capture it from
-/// its own transformer's input instead of from this event.
-fn before_agent_start_event(prompt: &str, image_count: usize, ctx: &Context) -> serde_json::Value {
-    serde_json::json!({
-        "prompt": prompt,
-        "imageCount": image_count,
-        "systemPrompt": ctx.system_prompt,
-        // The session this process serves. A plugin that traces the run reports
-        // it as the session id (nothing else tells an observer which session it
-        // is watching). Read from the environment per turn rather than captured
-        // at harness build, so an in-process session swap is reflected on the
-        // very next turn.
-        "sessionId": std::env::var(rpi_plugin_sdk::SESSION_ID_ENV).ok(),
-        // Who this extension is embedded in, so it can label its own output
-        // (trace name, tags, `service.name`) without hardcoding a brand that a
-        // rename would silently invalidate. Sent per turn, so it describes the
-        // process actually running rather than the SDK the plugin was built
-        // against.
-        "host": host_identity(),
-    })
+fn before_agent_start_event(
+    prompt: &str,
+    image_count: usize,
+    ctx: &Context,
+    identity: Option<&rpi_ai::identity::RequestIdentity>,
+) -> serde_json::Value {
+    serde_json::json!({"prompt":prompt,"imageCount":image_count,"systemPrompt":ctx.system_prompt,
+        "sessionId":identity.and_then(|id| id.session_id.as_deref()),"identity":identity,"host":host_identity()})
 }
 
-/// The host's own identity, as handed to plugins.
-///
-/// The name is the plugin contract's constant ([`rpi_plugin_sdk::HOST_NAME`])
-/// and the version is this host crate's own `CARGO_PKG_VERSION` — every
-/// workspace crate shares one version, so this is the running host's version
-/// and not the SDK a plugin was compiled against. Both are compile-time
-/// aliases, so there is exactly one place to change either.
 fn host_identity() -> serde_json::Value {
     serde_json::json!({
         "name": rpi_plugin_sdk::HOST_NAME,
@@ -255,10 +216,9 @@ fn host_identity() -> serde_json::Value {
 
 /// Text/timestamp/image-count of the most recent user message. Mirrors the
 /// `prompt`/`images` fields pi puts on its `before_agent_start` event.
-fn latest_user_prompt(messages: &[Message]) -> Option<(i64, String, usize)> {
+fn latest_user_prompt(messages: &[Message]) -> Option<(String, usize)> {
     messages.iter().rev().find_map(|message| match message {
         Message::User(user) => Some((
-            user.timestamp,
             user_content_text(&user.content),
             user_content_image_count(&user.content),
         )),
@@ -352,7 +312,6 @@ mod tests {
             snapshot: Arc::clone(&snapshot),
             _keepalive: Arc::new(crate::PluginKeepalive::new(Vec::new(), None)),
             last_before_agent_start: Mutex::new(None),
-            last_forced_prompt: Mutex::new(None),
         };
         let model = rpi_ai::Model::new(
             "m",
@@ -368,6 +327,10 @@ mod tests {
             ),
         )]);
         let opts = rpi_ai::SimpleStreamOptions {
+            identity: Some(rpi_ai::identity::RequestIdentity::operation(
+                Some("test-session".into()),
+                "prompt",
+            )),
             api_key: Some("private-api-secret".into()),
             headers: Some([("x-custom-credential".into(), "private-header-secret".into())].into()),
             env: [("ACCOUNT_TOKEN".into(), "private-env-secret".into())].into(),
@@ -396,15 +359,7 @@ mod tests {
             serde_json::from_str(&agent_starts[0].1).expect("before_agent_start payload is JSON");
         assert_eq!(start_payload["prompt"], "hello");
         assert_eq!(start_payload["imageCount"], 0);
-        // The session id rides along so an observer can name the session on the
-        // very first turn (the prompt is the only per-turn channel it gets).
-        // Absent when this process has no session id in its environment.
-        assert_eq!(
-            start_payload.get("sessionId").map(|v| v.is_null()),
-            Some(std::env::var(rpi_plugin_sdk::SESSION_ID_ENV).is_err()),
-            "sessionId must mirror the host's session id env var: {}",
-            agent_starts[0].1
-        );
+        assert_eq!(start_payload["sessionId"], "test-session");
         // And the host identifies itself, so a plugin can label its own output
         // (trace name, tags, service.name) without hardcoding a brand.
         assert_eq!(start_payload["host"]["name"], rpi_plugin_sdk::HOST_NAME);
@@ -481,7 +436,6 @@ mod tests {
             snapshot: Arc::clone(&snapshot),
             _keepalive: Arc::new(crate::PluginKeepalive::new(Vec::new(), None)),
             last_before_agent_start: Mutex::new(None),
-            last_forced_prompt: Mutex::new(None),
         };
         let model = rpi_ai::Model::new(
             "m",
@@ -567,7 +521,6 @@ mod tests {
             snapshot: Arc::new(registry.snapshot()),
             _keepalive: Arc::new(crate::PluginKeepalive::new(Vec::new(), None)),
             last_before_agent_start: Mutex::new(None),
-            last_forced_prompt: Mutex::new(None),
         }
     }
 
@@ -725,7 +678,6 @@ mod tests {
             snapshot: Arc::new(registry.snapshot()),
             _keepalive: Arc::new(crate::PluginKeepalive::new(Vec::new(), None)),
             last_before_agent_start: Mutex::new(None),
-            last_forced_prompt: Mutex::new(None),
         };
 
         let model = rpi_ai::Model::new(
@@ -749,7 +701,14 @@ mod tests {
             .transform_context(&model, &ctx)
             .expect("transformer changed the prompt");
         patch.apply(&mut ctx);
-        hooks.before_request(&model, &ctx, &rpi_ai::SimpleStreamOptions::default());
+        hooks.before_request(
+            &model,
+            &ctx,
+            &rpi_ai::SimpleStreamOptions {
+                identity: Some(rpi_ai::identity::RequestIdentity::operation(None, "prompt")),
+                ..Default::default()
+            },
+        );
 
         let captured = CAPTURED.lock().unwrap().clone();
         let start = captured

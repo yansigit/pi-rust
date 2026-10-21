@@ -389,7 +389,10 @@ pub(crate) extern "C" fn delegate_stream(
             let mut options_json = options_json(&continuation.options);
             if let Some(patch) = input.options {
                 for (key, value) in patch {
-                    if matches!(key.as_str(), "authMode" | "responseMetadata" | "streamKind") {
+                    if matches!(
+                        key.as_str(),
+                        "authMode" | "responseMetadata" | "streamKind" | "identity"
+                    ) {
                         return Err("unsupported delegated option".into());
                     }
                     options_json[&key] = value;

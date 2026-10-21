@@ -45,6 +45,14 @@ TUI callers and complete differential tests are integrated. The
 [SDK distribution review](cursor-sdk-distribution.md) keeps the pinned Cursor SDK
 external to release archives.
 
+[Native events](native-events.md) add awaited ordered callbacks, explicit run/turn/
+request/session identities, authoritative message edits, tool-result chaining, and
+compaction success/failure notifications. This is partial H06 infrastructure; tree
+and UI dispatch and the Cursor private request-receipt boundary remain pending.
+The native catalog fixture also verifies empty-catalog auth discovery and edits
+through an actually loaded library. [Event evidence](host-events-results.json) records
+the full workspace and targeted regression runs.
+
 [baseline-results.json](baseline-results.json) records upstream results, lock
 hashes and evidence hashes. All three unchanged suites pass in
 [CI run 39569889592](https://github.com/yansigit/pi-rust/actions/runs/39569889592):

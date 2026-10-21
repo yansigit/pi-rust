@@ -2349,6 +2349,7 @@ fn assistant_with_one_tool_call(call_id: &str, name: &str) -> rpi_ai::types::Ass
 
 fn tool_result_of(call_id: &str, name: &str) -> rpi_ai::types::ToolResultMessage {
     rpi_ai::types::ToolResultMessage {
+        structured_content: None,
         role: rpi_ai::types::ToolResultRole,
         tool_call_id: call_id.to_string(),
         tool_name: name.to_string(),
@@ -4103,4 +4104,205 @@ async fn resuming_through_a_provider_without_the_capability_is_an_error() {
         format!("{error:?}").contains("no provider"),
         "the error must say which provider is missing, got {error:?}"
     );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compaction_hooks_acknowledge_commits_and_preserve_failure_identity() {
+    use rpi_ai::{identity::RequestIdentity, ProviderHooks};
+    struct Hooks {
+        fail: bool,
+        events: Mutex<Vec<(String, RequestIdentity, serde_json::Value)>>,
+    }
+    #[async_trait::async_trait]
+    impl ProviderHooks for Hooks {
+        async fn lifecycle(
+            &self,
+            event: &str,
+            data: serde_json::Value,
+            identity: RequestIdentity,
+            _: tokio_util::sync::CancellationToken,
+        ) -> Result<Option<serde_json::Value>, String> {
+            self.events
+                .lock()
+                .unwrap()
+                .push((event.into(), identity, data));
+            if event == "session_before_compact" {
+                if self.fail {
+                    return Err("fixture summary failure".into());
+                }
+                return Ok(Some(
+                    serde_json::json!({"compaction":{"summary":"extension summary","tokensBefore":100,
+                    "retainedTail":[],"usage":null,"details":null}}),
+                ));
+            }
+            Ok(None)
+        }
+    }
+    for fail in [false, true] {
+        let (harness, provider, _) = harness_with(FauxScript::new().with_text("unused")).await;
+        let hooks = Arc::new(Hooks {
+            fail,
+            events: Mutex::new(Vec::new()),
+        });
+        harness
+            .set_provider_hooks(Some(hooks.clone()))
+            .await
+            .unwrap();
+        harness
+            .append_message(AgentMessage::User(UserMessage::new(
+                UserContent::Text("history".into()),
+                42,
+            )))
+            .await
+            .unwrap();
+        let result = harness.compact(None).await.unwrap();
+        let events = hooks.events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].0, "session_before_compact");
+        assert_eq!(events[0].1.operation_id, result.run_id);
+        assert_eq!(events[0].1.session_id.as_deref(), Some("e2e"));
+        assert_eq!(events[0].1.purpose, "compaction");
+        assert_eq!(events[0].1, events[1].1);
+        if fail {
+            assert_eq!(events[1].0, "session_compact_failed");
+            assert_eq!(events[1].2["error"], "fixture summary failure");
+            assert!(matches!(
+                result.outcome,
+                rpi_harness::agent_harness::CompactionOutcome::Failed { .. }
+            ));
+        } else {
+            assert_eq!(events[1].0, "session_compact");
+            let id = events[1].2["compactionEntry"]["id"].as_str().unwrap();
+            assert!(harness.get_entry(id).await.unwrap().is_some());
+            assert!(matches!(
+                result.outcome,
+                rpi_harness::agent_harness::CompactionOutcome::Completed { .. }
+            ));
+        }
+        assert_eq!(provider.script().pending_count(), 1);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn operation_turn_and_request_ids_do_not_depend_on_prompt_timestamps() {
+    use rpi_ai::{identity::RequestIdentity, ProviderHooks};
+    #[derive(Default)]
+    struct Hooks {
+        starts: Mutex<Vec<RequestIdentity>>,
+        requests: Mutex<Vec<RequestIdentity>>,
+    }
+    #[async_trait::async_trait]
+    impl ProviderHooks for Hooks {
+        async fn begin_operation(
+            &self,
+            _: &rpi_ai::Model,
+            _: &rpi_ai::Context,
+            options: &rpi_ai::SimpleStreamOptions,
+        ) -> Option<rpi_ai::provider::OperationStartPatch> {
+            self.starts
+                .lock()
+                .unwrap()
+                .push(options.identity.clone().unwrap());
+            None
+        }
+        fn before_request(
+            &self,
+            _: &rpi_ai::Model,
+            _: &rpi_ai::Context,
+            options: &rpi_ai::SimpleStreamOptions,
+        ) -> Option<rpi_ai::SimpleStreamOptionsPatch> {
+            self.requests
+                .lock()
+                .unwrap()
+                .push(options.identity.clone().unwrap());
+            None
+        }
+    }
+    let (harness, _, _) = harness_with(
+        FauxScript::new()
+            .with_tool_call(
+                "write",
+                serde_json::json!({"path":"ids.txt","content":"ok"}),
+            )
+            .with_text("done")
+            .with_text("again"),
+    )
+    .await;
+    let hooks = Arc::new(Hooks::default());
+    harness
+        .set_provider_hooks(Some(hooks.clone()))
+        .await
+        .unwrap();
+    let prompt = AgentMessage::User(UserMessage::new(
+        UserContent::Text("same prompt".into()),
+        42,
+    ));
+    let first = harness.prompt_messages(vec![prompt.clone()]).await.unwrap();
+    let second = harness.prompt_messages(vec![prompt]).await.unwrap();
+    let starts = hooks.starts.lock().unwrap();
+    let requests = hooks.requests.lock().unwrap();
+    assert_eq!(starts.len(), 2);
+    assert_eq!(requests.len(), 3);
+    assert_eq!(starts[0].operation_id, first.run_id);
+    assert_eq!(starts[1].operation_id, second.run_id);
+    assert_ne!(first.run_id, second.run_id);
+    assert_eq!(starts[0].session_id.as_deref(), Some("e2e"));
+    assert!(starts
+        .iter()
+        .all(|identity| identity.turn_id.is_none() && identity.request_id.is_none()));
+    assert_eq!(requests[0].operation_id, requests[1].operation_id);
+    assert_ne!(requests[0].turn_id, requests[1].turn_id);
+    assert_ne!(requests[0].request_id, requests[1].request_id);
+    assert_eq!(requests[2].operation_id, second.run_id);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn message_end_modifications_precede_settlement_and_reach_the_run_result() {
+    struct Edit;
+    impl AgentEmitter for Edit {
+        fn prepare_event(
+            &self,
+            mut event: AgentEvent,
+        ) -> futures::future::BoxFuture<'static, AgentEvent> {
+            Box::pin(async move {
+                if let AgentEvent::MessageEnd {
+                    message: AgentMessage::Assistant(message),
+                } = &mut event
+                {
+                    message.content = vec![rpi_ai::Content::text("edited before persistence")];
+                }
+                event
+            })
+        }
+        fn emit(&self, _: AgentEvent) -> futures::future::BoxFuture<'static, ()> {
+            Box::pin(async {})
+        }
+    }
+    let (harness, _, _) = harness_with_options(
+        FauxScript::new().with_text("original"),
+        RetryPolicy::default(),
+        Some(Arc::new(Edit)),
+    )
+    .await;
+    let result = harness.prompt_text("hello", vec![]).await.unwrap();
+    let HarnessRunOutcome::Completed {
+        final_entry_id,
+        final_message,
+        ..
+    } = result.outcome
+    else {
+        panic!("run failed");
+    };
+    assert_eq!(
+        final_message.content,
+        vec![rpi_ai::Content::text("edited before persistence")]
+    );
+    let entry = harness.get_entry(&final_entry_id).await.unwrap().unwrap();
+    let rpi_harness::session::types::Entry::Message(entry) = entry else {
+        panic!("expected message");
+    };
+    let AgentMessage::Assistant(message) = entry.message else {
+        panic!("expected assistant");
+    };
+    assert_eq!(message.content, final_message.content);
 }

@@ -101,6 +101,7 @@ fn assistant_message_all_blocks_raw_roundtrip() {
 #[test]
 fn tool_result_mixed_blocks_raw_roundtrip() {
     let message = ToolResultMessage {
+        structured_content: None,
         role: Default::default(),
         tool_call_id: "call_synthetic".into(),
         tool_name: "screenshot".into(),

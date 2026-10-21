@@ -749,19 +749,11 @@ pub async fn build_prepared(
     // tool-call handler. An extension session may contain flags/resources but
     // no handler; dispatching through that empty session needlessly crosses
     // the plugin bridge and can leave a headless RPC tool call waiting.
-    let before_tool_call = extension_session
-        .snapshot()
-        .filter(|snapshot| {
-            !snapshot
-                .handlers_for(rpi_plugin_sdk::EventTag::ToolCall)
-                .is_empty()
-        })
-        .map(|_| {
-            extension_tool_call_hook(
-                Arc::clone(&extension_session_cell),
-                ui_dialog_mailbox.clone(),
-            )
-        });
+    let (before_tool_call, after_tool_call) = extension_tool_hooks(
+        &extension_session,
+        Arc::clone(&extension_session_cell),
+        ui_dialog_mailbox.clone(),
+    );
 
     let options = AgentHarnessOptions {
         model: resolved.model.clone(),
@@ -819,17 +811,12 @@ pub async fn build_prepared(
         agent_emitter: Some(emitter),
         // B3b loop hooks. `before_tool_call` dispatches the pi `on("tool_call")`
         // extension event and honors a veto (a permission gate can block a tool
-        // before it runs). `after_tool_call`/`transform_context` remain `None`
-        // (their host-side adapters are not wired yet).
+        // before it runs). Result hooks apply edits before the loop persists output.
         before_tool_call,
-        after_tool_call: None,
+        after_tool_call,
         transform_context: None,
         entry_transforms: Vec::new(),
-        // Extension provider hooks (B4): plugins subscribing to the
-        // BeforeProviderRequest / BeforeProviderHeaders / AfterProviderResponse
-        // events observe every provider call (observer semantics — the handler
-        // ABI has no patch channel in v1). A session without provider-hook
-        // subscribers runs hook-free.
+        // Provider context and operation hooks share the owning session snapshot.
         provider_hooks: rpi_extensions::ExtensionProviderHooks::from_session(&extension_session)
             .map(|h| Arc::new(h) as Arc<dyn rpi_ai::ProviderHooks>),
     };
@@ -956,6 +943,71 @@ fn extension_tool_call_hook(
                 reason: Some(reason),
                 terminate: false,
                 args: None,
+            })
+        })
+    })
+}
+
+fn extension_tool_hooks(
+    session: &rpi_extensions::ExtensionSession,
+    sessions: ExtensionSessionCell,
+    dialogs: rpi_extensions::UiDialogMailbox,
+) -> (
+    Option<rpi_agent::BeforeToolCall>,
+    Option<rpi_agent::AfterToolCall>,
+) {
+    let has = |tag| {
+        session.snapshot().is_some_and(|snapshot| {
+            !snapshot.handlers_for(tag).is_empty() || snapshot.has_result_handlers(tag)
+        })
+    };
+    (
+        has(rpi_plugin_sdk::EventTag::ToolCall)
+            .then(|| extension_tool_call_hook(sessions.clone(), dialogs)),
+        has(rpi_plugin_sdk::EventTag::ToolResult).then(|| extension_tool_result_hook(sessions)),
+    )
+}
+
+fn extension_tool_result_hook(sessions: ExtensionSessionCell) -> rpi_agent::AfterToolCall {
+    Arc::new(move |ctx, signal| {
+        let session = sessions.lock().ok().map(|session| session.clone());
+        let snapshot = session.as_ref().and_then(|session| session.snapshot_arc());
+        if !snapshot.as_ref().is_some_and(|snapshot| {
+            !snapshot
+                .handlers_for(rpi_plugin_sdk::EventTag::ToolResult)
+                .is_empty()
+                || snapshot.has_result_handlers(rpi_plugin_sdk::EventTag::ToolResult)
+        }) {
+            return Box::pin(async { None });
+        }
+        let mut event = serde_json::to_value(ctx.result).unwrap();
+        event["toolCallId"] = ctx.tool_call.id.clone().into();
+        event["toolName"] = ctx.tool_call.name.clone().into();
+        event["input"] = ctx.args.clone();
+        event["isError"] = ctx.is_error.into();
+        let identity = rpi_ai::identity::current();
+        Box::pin(async move {
+            let session = session?;
+            let snapshot = snapshot?;
+            let outcome = rpi_extensions::result_events::dispatch(
+                snapshot,
+                session.keepalive(),
+                rpi_plugin_sdk::EventTag::ToolResult,
+                event,
+                identity,
+                signal,
+            )
+            .await
+            .ok()?;
+            let result: rpi_agent::AgentToolResult =
+                serde_json::from_value(outcome.event.clone()).ok()?;
+            Some(rpi_agent::AfterToolCallResult {
+                content: Some(result.content),
+                details: Some(result.details),
+                structured_content: Some(result.structured_content),
+                usage: result.usage,
+                is_error: outcome.event["isError"].as_bool(),
+                terminate: None,
             })
         })
     })
@@ -1127,7 +1179,17 @@ pub async fn dispatch_session_event_async(
         auth_runtime.shutdown().await;
     }
     match snapshot {
-        Some(snapshot) => rpi_extensions::dispatch_lifecycle_event(&snapshot, tag, keepalive).await,
+        Some(snapshot) => {
+            let identity = rpi_ai::identity::RequestIdentity::operation(
+                reload_context.tool_context.session_id(),
+                format!("{tag:?}"),
+            );
+            rpi_ai::identity::scope(
+                identity,
+                rpi_extensions::dispatch_lifecycle_event(&snapshot, tag, keepalive),
+            )
+            .await
+        }
         None => None,
     }
 }
@@ -1141,15 +1203,27 @@ async fn shutdown_extensions_for_reload(
 ) -> Result<(), String> {
     auth_runtime.shutdown().await;
     if let Some(snapshot) = snapshot {
-        tokio::task::spawn_blocking(move || {
-            let _keepalive = keepalive;
-            rpi_extensions::dispatch_empty_event(
+        if snapshot.has_result_handlers(rpi_plugin_sdk::EventTag::SessionShutdown) {
+            if let Some(error) = rpi_extensions::dispatch_lifecycle_event(
                 &snapshot,
                 rpi_plugin_sdk::EventTag::SessionShutdown,
-            );
-        })
-        .await
-        .map_err(|error| error.to_string())?;
+                keepalive,
+            )
+            .await
+            {
+                return Err(error);
+            }
+        } else {
+            tokio::task::spawn_blocking(move || {
+                let _keepalive = keepalive;
+                rpi_extensions::dispatch_empty_event(
+                    &snapshot,
+                    rpi_plugin_sdk::EventTag::SessionShutdown,
+                );
+            })
+            .await
+            .map_err(|error| error.to_string())?;
+        }
     }
     Ok(())
 }
@@ -1664,6 +1738,12 @@ where
     *ctx.provider_runtime
         .write()
         .unwrap_or_else(|e| e.into_inner()) = provider_runtime;
+    let (before, after) = extension_tool_hooks(
+        &extension_session,
+        ctx.extension_session.clone(),
+        ctx.ui_dialog.clone(),
+    );
+    let _ = harness.set_tool_call_hooks(before, after).await;
     let _ = harness
         .set_provider_hooks(
             rpi_extensions::ExtensionProviderHooks::from_session(&extension_session)
@@ -3144,6 +3224,12 @@ mod tests {
     #[tokio::test]
     async fn tool_call_hook_uses_reloaded_session_and_newly_discovered_gate() {
         let sessions = Arc::new(Mutex::new(ExtensionSession::none()));
+        let empty = extension_tool_hooks(
+            &ExtensionSession::none(),
+            sessions.clone(),
+            rpi_extensions::UiDialogMailbox::new(),
+        );
+        assert!(empty.0.is_none() && empty.1.is_none());
         let hook =
             extension_tool_call_hook(sessions.clone(), rpi_extensions::UiDialogMailbox::new());
         assert!(invoke_test_tool_hook(&hook).await.is_none());
@@ -3168,6 +3254,12 @@ mod tests {
                 }
                 *current = fresh;
             }
+            let installed = extension_tool_hooks(
+                &sessions.lock().unwrap(),
+                sessions.clone(),
+                rpi_extensions::UiDialogMailbox::new(),
+            );
+            assert!(installed.0.is_some() && installed.1.is_none());
             let result = invoke_test_tool_hook(&hook).await.unwrap();
             assert!(result.block);
             assert!(result.reason.unwrap().contains(name));

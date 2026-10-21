@@ -52,6 +52,7 @@ fn assistant_message(
 
 fn tool_result_message(tool_call_id: &str, tool_name: &str) -> AgentMessage {
     AgentMessage::ToolResult(std::boxed::Box::new(rpi_ai::types::ToolResultMessage {
+        structured_content: None,
         role: rpi_ai::types::ToolResultRole,
         tool_call_id: tool_call_id.to_string(),
         tool_name: tool_name.to_string(),

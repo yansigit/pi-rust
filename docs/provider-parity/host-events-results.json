@@ -1,0 +1,90 @@
+{
+  "status": "host-infrastructure-not-package-parity",
+  "platform": "linux",
+  "results": {
+    "workspace": {
+      "log": "/tmp/rpi-events-workspace.log",
+      "sha256": "046cbfa573b56c693b2336c8eb9cfae587c51f02369b5cb5e684f9c047d4ebea",
+      "passed": 2059,
+      "failed": 0,
+      "ignored": 11
+    },
+    "native_loading": {
+      "log": "/tmp/rpi-events-native-tests.log",
+      "sha256": "01d26f1ac2735e31c5af54ecc35be8ed74047a7c6fcf23f71ddb3a6fb649c759",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    },
+    "sdk_provider": {
+      "log": "/tmp/rpi-events-sdk.log",
+      "sha256": "f14b4023a0f49282c2f66c606a272cdfb499ceaa5c81455dc0383f66bedd8946",
+      "passed": 67,
+      "failed": 0,
+      "ignored": 3
+    },
+    "original_compiled_plugin": {
+      "log": "/tmp/rpi-events-old-library.log",
+      "sha256": "5f0fe739e28fe46e0c2c77e009a33c569717a8a61733415dd6cc1dfee991122b",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 1
+    },
+    "rust178_workspace": {
+      "log": "/tmp/rpi-events-msrv-final.log",
+      "sha256": "b3062c5adf38d3d6a1827aa983b8cbb0fa753b3e8f3ce2951d11629a22873cca",
+      "completed": true
+    },
+    "rust178_ai_minimal": {
+      "log": "/tmp/rpi-events-ai-minimal.log",
+      "sha256": "81acaa85ceffa5a47995830e4ffd4ed873889f31dac848bbf1a7358a7bc2e91c",
+      "completed": true
+    },
+    "rust178_sdk_minimal": {
+      "log": "/tmp/rpi-events-sdk-minimal.log",
+      "sha256": "503cb57b6099303e5e364d6d405957470c4508bb0dca2acefb87e0d74b11f538",
+      "completed": true
+    },
+    "rust178_sdk_provider": {
+      "log": "/tmp/rpi-events-sdk-provider-msrv.log",
+      "sha256": "be3059de07f85620b3c263b0cdba740106d9bf0f8a2829b5152d9a788f77873d",
+      "completed": true
+    },
+    "reload_subscriptions": {
+      "log": "/tmp/rpi-events-hook-reload-2.log",
+      "sha256": "e409808662b6b49871911089d2521c465657765c5b362f15713055e4c6e7e6c7",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "structured_content": {
+      "log": "/tmp/rpi-events-structured.log",
+      "sha256": "a8a837bdda4cab54d2c38e798f8ff693d1a58fc0c025dffa6a1de09f552fef1d",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0
+    },
+    "tool_hooks_final": {
+      "log": "/tmp/rpi-events-tool-hooks-final.log",
+      "sha256": "61cbf8e2b9445df9558db5c45c7e3e3afa14ac616ec2ed2a23c8e62cefdb637e",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    },
+    "extensions_final": {
+      "log": "/tmp/rpi-events-extensions-final.log",
+      "sha256": "04a35bfd3f630f7b6e9b254cc37978fb5ba179e6f1bda7051ba5b529d4638884",
+      "passed": 169,
+      "failed": 0,
+      "ignored": 1
+    }
+  },
+  "qualification": "The full workspace run preceded the final small reload, explicit-null and child-scope corrections; targeted tests above cover those corrections. Native loading covers pooled auth, offline catalog login, operation context and response edits. The prior stack-size failure was corrected by boxing async boundaries, without changing thread limits.",
+  "remaining": [
+    "Tree, session-info and model-selection result dispatch",
+    "Cursor private request receipts and stable worker objects",
+    "Complete package differential tests",
+    "macOS and Windows loading",
+    "Live inference"
+  ]
+}

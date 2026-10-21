@@ -62,6 +62,19 @@ impl ProviderRuntime {
                 .register_discovered(owner, id, models)
                 .map_err(|e| e.to_string())?;
         }
+        if let Some(snapshot) = session.snapshot() {
+            for manifest in crate::provider::manifests_from_session(session) {
+                if !catalog.has_provider(&manifest.id) {
+                    catalog
+                        .register_discovered(
+                            snapshot.provider_owner(&manifest.id).cloned(),
+                            manifest.id.clone(),
+                            manifest.models.clone(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+        }
         let chains = Self::chains(session, &catalog);
         let runtime = Arc::new_cyclic(|myself| Self {
             session: session.clone(),

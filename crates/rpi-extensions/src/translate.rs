@@ -227,41 +227,7 @@ fn event_type_name(event: &rpi_ai::types::AssistantMessageEvent) -> &'static str
 /// because the emitter must not depend on adapter internals, and this is the
 /// event-side direction.
 fn agent_tool_result_to_json(result: &rpi_agent::types::AgentToolResult) -> String {
-    let mut txt = String::new();
-    txt.push('{');
-    txt.push_str("\"content\":[");
-    for (i, c) in result.content.iter().enumerate() {
-        if i > 0 {
-            txt.push(',');
-        }
-        match c {
-            rpi_agent::types::TextContentOrImage::Text(t) => {
-                txt.push_str(
-                    &serde_json::to_string(&serde_json::json!({ "type": "text", "text": t.text }))
-                        .unwrap_or_else(|_| "\"\"".into()),
-                );
-            }
-            rpi_agent::types::TextContentOrImage::Image(img) => {
-                txt.push_str(
-                    &serde_json::to_string(&serde_json::json!({
-                        "type": "image",
-                        "data": img.data,
-                        "mimeType": img.mime_type,
-                    }))
-                    .unwrap_or_else(|_| "\"\"".into()),
-                );
-            }
-        }
-    }
-    txt.push(']');
-    txt.push_str(",\"details\":");
-    txt.push_str(&serde_json::to_string(&result.details).unwrap_or_else(|_| "null".into()));
-    txt.push_str(",\"terminate\":");
-    txt.push_str(if result.terminate { "true" } else { "false" });
-    txt.push_str(",\"addedToolNames\":");
-    txt.push_str(&serde_json::to_string(&result.added_tool_names).unwrap_or_else(|_| "[]".into()));
-    txt.push('}');
-    txt
+    serde_json::to_string(result).expect("tool result is JSON serializable")
 }
 
 /// Free every `StbString` owned by a dispatched [[`StablePluginEvent`]] via the
@@ -340,6 +306,11 @@ impl ExtensionEmitter {
 /// dispatcher ([`crate::provider_hooks`]). Handlers MUST NOT free the event
 /// strings; the host frees exactly once after the fan-out.
 pub fn dispatch_to_handlers(snapshot: &RegistrySnapshot, event: &StablePluginEvent) {
+    dispatch_to_handlers_borrowed(snapshot, event);
+    free_dispatched_event(event);
+}
+
+fn dispatch_to_handlers_borrowed(snapshot: &RegistrySnapshot, event: &StablePluginEvent) {
     // Staleness guard: a stale registry (swapped-out session) does nothing.
     if !crate::registry::assert_active(snapshot.active_flag()) {
         return;
@@ -348,7 +319,6 @@ pub fn dispatch_to_handlers(snapshot: &RegistrySnapshot, event: &StablePluginEve
     if handlers.is_empty() {
         // No subscribers — and critically, the event's StbStrings are owned
         // by the host and must still be freed (no handler ran to free them).
-        free_dispatched_event(event);
         return;
     }
     for h in handlers {
@@ -412,8 +382,6 @@ pub fn dispatch_to_handlers(snapshot: &RegistrySnapshot, event: &StablePluginEve
             }
         }
     }
-    // Host frees the event's strings exactly once after the fan-out.
-    free_dispatched_event(event);
 }
 
 /// Build + dispatch a generic `data` event (JSON payload) to the tag's
@@ -425,8 +393,11 @@ pub fn dispatch_data_event(snapshot: &RegistrySnapshot, tag: EventTag, data: &st
     if handlers.is_empty() {
         return false;
     }
-    let event = StablePluginEvent::data(tag, StbString::from_string(data.to_string()));
-    dispatch_to_handlers(snapshot, &event);
+    let event = StablePluginEvent::data(tag, StbString::from_string(data.to_owned()));
+    dispatch_to_handlers_borrowed(snapshot, &event);
+    unsafe {
+        host_free_string(event.payload.data.data);
+    }
     true
 }
 
@@ -487,6 +458,39 @@ async fn dispatch_tool_call_event_with_timeout(
         return Some(format!(
             "tool `{tool_name}` approval session is stale; retry after reload"
         ));
+    }
+    if snapshot.has_result_handlers(EventTag::ToolCall) {
+        let scoped = signal.child_token();
+        let _cancel = scoped.clone().drop_guard();
+        let result = tokio::time::timeout(
+            timeout,
+            crate::result_events::dispatch(
+                session.snapshot_arc().unwrap(),
+                session.keepalive(),
+                EventTag::ToolCall,
+                serde_json::json!({"toolCallId":tool_call_id,"toolName":tool_name,"input":params}),
+                rpi_ai::identity::current(),
+                scoped,
+            ),
+        )
+        .await;
+        let reason = match result {
+            Ok(Ok(result)) if snapshot.is_active() => result.result.and_then(|result| {
+                (result["block"] == true).then(|| {
+                    result["reason"]
+                        .as_str()
+                        .unwrap_or("extension blocked tool call")
+                        .to_owned()
+                })
+            }),
+            Ok(Err(reason)) => Some(reason),
+            Ok(Ok(_)) => Some("tool approval session is stale".into()),
+            Err(_) => Some("tool approval timed out".into()),
+        };
+        if reason.is_some() {
+            ui_dialog.cancel_tool_call(tool_call_id);
+        }
+        return reason;
     }
     for h in snapshot.handlers_for(EventTag::ToolCall).iter().cloned() {
         if !crate::registry::platform_allows(&h.platforms) {
@@ -716,6 +720,28 @@ pub async fn dispatch_lifecycle_event(
     if !crate::registry::assert_active(snapshot.active_flag()) {
         return None;
     }
+    if snapshot.has_result_handlers(tag) {
+        let result = crate::result_events::dispatch_borrowed(
+            snapshot,
+            keepalive,
+            tag,
+            serde_json::json!({}),
+            rpi_ai::identity::current(),
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .await;
+        return match result {
+            Ok(outcome) => outcome.result.and_then(|result| {
+                (result["cancel"] == true).then(|| {
+                    result["reason"]
+                        .as_str()
+                        .unwrap_or("extension vetoed lifecycle event")
+                        .to_owned()
+                })
+            }),
+            Err(error) => Some(error),
+        };
+    }
     let handlers = snapshot.handlers_for(tag).to_vec();
     if handlers.is_empty() {
         return None;
@@ -828,20 +854,119 @@ pub async fn dispatch_lifecycle_event(
 }
 
 impl AgentEmitter for ExtensionEmitter {
+    fn prepare_event(&self, event: AgentEvent) -> BoxFuture<'static, AgentEvent> {
+        let snapshot = self.snapshot.clone();
+        let keepalive = self.keepalive.clone();
+        let identity = rpi_ai::identity::current();
+        let signal = rpi_agent::tool_execution_scope::invocation_signal().unwrap_or_default();
+        Box::pin(async move {
+            if let AgentEvent::MessageEnd { message } = &event {
+                if snapshot.has_result_handlers(EventTag::MessageEnd) {
+                    if let Ok(result) = crate::result_events::dispatch(
+                        snapshot,
+                        keepalive,
+                        EventTag::MessageEnd,
+                        serde_json::json!({"message":message}),
+                        identity,
+                        signal,
+                    )
+                    .await
+                    {
+                        if let Ok(updated) = serde_json::from_value::<rpi_agent::AgentMessage>(
+                            result.event["message"].clone(),
+                        ) {
+                            if updated.role() == message.role() {
+                                return AgentEvent::MessageEnd { message: updated };
+                            }
+                        }
+                    }
+                }
+            }
+            event
+        })
+    }
+    fn emit_prepared(&self, event: AgentEvent) -> BoxFuture<'static, ()> {
+        if matches!(event, AgentEvent::MessageEnd { .. })
+            && self.snapshot.has_result_handlers(EventTag::MessageEnd)
+        {
+            Box::pin(async {})
+        } else {
+            self.emit(event)
+        }
+    }
     fn emit(&self, event: AgentEvent) -> BoxFuture<'static, ()> {
-        // Translate + dispatch synchronously (the emitter's emit is awaited by
-        // the loop in event order; dispatch is non-blocking fn-pointer calls).
-        // If the event maps to no tag, do nothing.
+        let Some(tag) = event_tag_for(&event) else {
+            return Box::pin(async {});
+        };
+        if self.snapshot.has_result_handlers(tag) {
+            let snapshot = self.snapshot.clone();
+            let keepalive = self.keepalive.clone();
+            let identity = rpi_ai::identity::current();
+            let signal = rpi_agent::tool_execution_scope::invocation_signal().unwrap_or_default();
+            return Box::pin(async move {
+                let _ = crate::result_events::dispatch(
+                    snapshot,
+                    keepalive,
+                    tag,
+                    event_json(&event),
+                    identity,
+                    signal,
+                )
+                .await;
+            });
+        }
         if let Some(stable) = translate(&event) {
             self.dispatch(&stable);
         }
         Box::pin(async {})
     }
-
     fn try_emit(&self, event: AgentEvent) {
+        // Progress callbacks are synchronous. Awaited lifecycle callbacks use emit.
         if let Some(stable) = translate(&event) {
             self.dispatch(&stable);
         }
+    }
+}
+fn event_json(event: &AgentEvent) -> serde_json::Value {
+    use serde_json::json;
+    match event {
+        AgentEvent::AgentStart | AgentEvent::TurnStart => json!({}),
+        AgentEvent::AgentEnd { messages } => json!({"messages":messages}),
+        AgentEvent::TurnEnd {
+            message,
+            tool_results,
+        } => json!({"message":message,"toolResults":tool_results}),
+        AgentEvent::MessageStart { message } | AgentEvent::MessageEnd { message } => {
+            json!({"message":message})
+        }
+        AgentEvent::MessageUpdate {
+            message,
+            assistant_message_event,
+        } => {
+            json!({"message":message,"assistantMessageEvent":serde_json::from_str::<serde_json::Value>(&assistant_message_event_to_json(assistant_message_event)).unwrap()})
+        }
+        AgentEvent::ToolExecutionStart {
+            tool_call_id,
+            tool_name,
+            args,
+        } => json!({"toolCallId":tool_call_id,"toolName":tool_name,"input":args}),
+        AgentEvent::ToolExecutionUpdate {
+            tool_call_id,
+            tool_name,
+            args,
+            partial_result,
+        } => {
+            json!({"toolCallId":tool_call_id,"toolName":tool_name,"input":args,"partialResult":serde_json::from_str::<serde_json::Value>(&agent_tool_result_to_json(partial_result)).unwrap()})
+        }
+        AgentEvent::ToolExecutionEnd {
+            tool_call_id,
+            tool_name,
+            result,
+            is_error,
+        } => {
+            json!({"toolCallId":tool_call_id,"toolName":tool_name,"result":serde_json::from_str::<serde_json::Value>(&agent_tool_result_to_json(result)).unwrap(),"isError":is_error})
+        }
+        AgentEvent::RetryScheduled { .. } => json!({}),
     }
 }
 
@@ -878,6 +1003,24 @@ impl TeeEmitter {
 }
 
 impl AgentEmitter for TeeEmitter {
+    fn prepare_event(&self, mut event: AgentEvent) -> BoxFuture<'static, AgentEvent> {
+        let emitters = self.emitters.clone();
+        Box::pin(async move {
+            for emitter in emitters {
+                event = emitter.prepare_event(event).await;
+            }
+            event
+        })
+    }
+
+    fn emit_prepared(&self, event: AgentEvent) -> BoxFuture<'static, ()> {
+        let emitters = self.emitters.clone();
+        Box::pin(async move {
+            for emitter in emitters {
+                emitter.emit_prepared(event.clone()).await;
+            }
+        })
+    }
     fn emit(&self, event: AgentEvent) -> BoxFuture<'static, ()> {
         // We can't hold `&self` across an await boundary into a 'static future
         // cheaply here without cloning the Arcs — so clone them and drive the
@@ -956,7 +1099,8 @@ fn free_dispatched_event(event: &StablePluginEvent) {
         // The B4 provider-hook observer events, and the `Input` /`EditorChange`
         // events dispatched by the TUI, carry a generic data payload (built by
         // `dispatch_data_event`); free the single StbString.
-        T::BeforeProviderRequest
+        T::SessionCompactFailed
+        | T::BeforeProviderRequest
         | T::BeforeProviderHeaders
         | T::AfterProviderResponse
         | T::Input

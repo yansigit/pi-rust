@@ -225,6 +225,7 @@ mod tests {
             Entry::Message(MessageEntry {
                 base: base(3),
                 message: AgentMessage::ToolResult(Box::new(rpi_ai::types::ToolResultMessage {
+                    structured_content: None,
                     role: rpi_ai::types::ToolResultRole,
                     tool_call_id: "c1".into(),
                     tool_name: "read".into(),

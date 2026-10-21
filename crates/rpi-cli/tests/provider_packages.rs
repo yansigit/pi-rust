@@ -1021,6 +1021,19 @@ fn native_catalog_refresh_and_login_commit_through_loaded_library() {
                 .count(),
             1
         );
+        assert_eq!(
+            diagnostics
+                .matches("native operation start fixture passed")
+                .count(),
+            1
+        );
+        assert_eq!(
+            diagnostics
+                .matches("native message result fixture passed")
+                .count(),
+            1
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("native event modified response"));
         let stored: serde_json::Value =
             serde_json::from_slice(&std::fs::read(agent.join("auth.json")).unwrap()).unwrap();
         assert_eq!(stored["stub-auth"]["refresh"], "stub-login-refresh");

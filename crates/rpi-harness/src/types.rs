@@ -307,7 +307,8 @@ impl Default for RetryPolicy {
 /// canonical [`DEFAULT_COMPACTION_SETTINGS`] constant lives here so it is
 /// available before the `compaction` module (M5d) is built; that module
 /// re-exports it.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompactionSettings {
     pub enabled: bool,
     pub reserve_tokens: i64,
