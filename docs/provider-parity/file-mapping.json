@@ -3548,10 +3548,13 @@
       "M01"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/store.rs"
+      "packages/rpi-multiprovider/src/store/mod.rs",
+      "packages/rpi-multiprovider/src/store/records.rs",
+      "packages/rpi-multiprovider/src/store/schema.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/store.rs"
+      "packages/rpi-multiprovider/tests/store.rs",
+      "packages/rpi-multiprovider/tests/store_schema.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3722,10 +3725,13 @@
       "M01"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/store.rs"
+      "packages/rpi-multiprovider/src/store/mod.rs",
+      "packages/rpi-multiprovider/src/store/records.rs",
+      "packages/rpi-multiprovider/src/store/schema.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/store.rs"
+      "packages/rpi-multiprovider/tests/store.rs",
+      "packages/rpi-multiprovider/tests/store_schema.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."

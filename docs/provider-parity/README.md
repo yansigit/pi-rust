@@ -164,6 +164,12 @@ awaited inventory, and inherited/recorded pin decisions. This qualifies the
 implemented portions of M03–M05; native loading, persistence and lifecycle wiring
 remain pending. File mappings now assign `service.ts` to M03/M04 and
 `session-pins.ts` to M05.
+Multiprovider's [account-record evidence](../../../rpi-package/packages/rpi-multiprovider/tests/store-evidence.json)
+adds 160 original/native operations, exact persisted files and Unix permissions,
+eight concurrent writers, cancellation, stale-lock recovery and write-failure
+checks. This qualifies record storage within M01; authentication, malformed-JSON
+presentation and native command integration remain pending. The shared native
+collation data also passes Antigravity's six roster regressions unchanged.
 The agreed exceptions are native rpi presentation, native-only extension
 contracts, isolated import storage, fresh runtime ownership, and the approved
 Antigravity body-read timeout/cancellation and Cursor partial snapshots above; original Pi keeps
