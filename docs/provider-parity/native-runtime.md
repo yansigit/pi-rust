@@ -53,6 +53,27 @@ parent's status and expires with its execution scope. Retired owners cannot
 recreate status after cleanup. No C ABI structure or workspace version changes
 are needed for these versioned port operations.
 
+## Child runtime lifetime
+
+Verified host checks are recorded in [host-scope-lifetime-results.json](host-scope-lifetime-results.json).
+
+`context.scopeLifetime` adds a stable opaque `scopeId` and `closing` state to
+`context/inspect`. Parent callbacks have a null scope ID. A scope ID belongs to
+one execution runtime, independently of persisted session IDs and branch changes.
+
+`Client::scope_lifetime()` uses operation 3 of the existing `native_context` slot.
+Acquire it on a live child callback, before leaving the foreign thread. It permits
+only `context/inspect` and `context/waitClosed`; auth, tools, new session captures
+and mutations are refused. It survives that callback's cancellation. The plugin
+must release it after closing its worker, draining persistence and reaping the
+process. Until then the child's idle barrier includes the native runtime.
+
+A child harness signals closing after its active run finishes, or when the last
+harness owner drops. Closing rejects new runtime leases. This does not change
+legacy in-flight run cancellation or use scope destruction as a shutdown signal.
+The existing restricted session persistence lease remains a separate authority.
+C structure layouts, existing slots and workspace versions are unchanged.
+
 ## Catalog operations
 
 The `providers` port supports `inspect`, `publish`, `register`, `unregister`, and

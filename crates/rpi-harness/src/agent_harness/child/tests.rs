@@ -403,6 +403,37 @@ async fn direct_tool_ports_respect_child_tools_lifetime_and_session_without_new_
 }
 
 #[tokio::test]
+async fn native_child_runtime_closes_after_active_run_and_before_last_scope_drop() {
+    let (parent, _, _) = parent(FauxScript::new()).await;
+    let (child, _) = parent
+        .create_side_question(session("lifetime"), emitter())
+        .await
+        .unwrap();
+    let scope = child.execution_scope.clone();
+    let retained = scope.retain_runtime().unwrap();
+    let (run_id, signal, _) = child.harness.acquire_run(OperationKind::Run).await.unwrap();
+    child.harness.close().await.unwrap();
+    assert!(!signal.is_cancelled());
+    assert!(!scope.runtime_closing().is_cancelled());
+    child.harness.release_run(&run_id);
+    assert!(scope.runtime_closing().is_cancelled());
+    assert!(!scope.stopped().is_cancelled());
+    assert!(scope.retain_runtime().is_none());
+    drop(retained);
+    scope.wait_idle().await;
+    assert!(parent.native_context().is_ok());
+
+    let (other, _) = parent
+        .create_side_question(session("drop"), emitter())
+        .await
+        .unwrap();
+    let scope = other.execution_scope.clone();
+    drop(other);
+    assert!(scope.runtime_closing().is_cancelled());
+    assert!(!scope.stopped().is_cancelled());
+}
+
+#[tokio::test]
 async fn cancelling_a_direct_tool_request_drops_a_noncooperative_hook() {
     for cancel in ["request", "session", "close"] {
         let (parent, _, _) = parent(FauxScript::new()).await;

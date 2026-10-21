@@ -2054,6 +2054,11 @@ impl AgentHarness {
     pub async fn close(&self) -> HarnessResult<()> {
         let mut inner = self.inner.lock().unwrap();
         inner.closed = true;
+        if inner.active_run.is_none() {
+            if let Some(scope) = &inner.execution_scope {
+                scope.close_runtime();
+            }
+        }
         self.child_scope.lock().unwrap().cancel();
         Ok(())
     }
@@ -2314,7 +2319,7 @@ impl AgentHarness {
                 .as_ref()
                 .is_some_and(|run| run.run_id == run_id)
             {
-                inner.active_run.take().map(|a| {
+                let released = inner.active_run.take().map(|a| {
                     // A child's run owns every detached tool task it started,
                     // including when the foreground future unwinds or is dropped.
                     if self.is_child {
@@ -2322,7 +2327,13 @@ impl AgentHarness {
                     }
                     a.children.cancel();
                     a.idle
-                })
+                });
+                if inner.closed {
+                    if let Some(scope) = &inner.execution_scope {
+                        scope.close_runtime();
+                    }
+                }
+                released
             } else {
                 None
             }

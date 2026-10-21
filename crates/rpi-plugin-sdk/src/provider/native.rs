@@ -57,6 +57,12 @@ impl Client {
     pub fn session_persistence(&self) -> Result<Self, String> {
         self.capture(2)
     }
+    /// Watch a child runtime after this callback returns. Negotiate
+    /// `context.scopeLifetime`; only context.inspect/waitClosed are permitted.
+    /// Drop after worker cleanup so the child host's idle barrier can complete.
+    pub fn scope_lifetime(&self) -> Result<Self, String> {
+        self.capture(3)
+    }
     fn capture(&self, operation: u32) -> Result<Self, String> {
         let context = self
             .api

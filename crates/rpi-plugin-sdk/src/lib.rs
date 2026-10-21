@@ -1653,6 +1653,8 @@ pub struct PluginApi {
     /// Acquire (0) / release (1) an invocation context across foreign worker threads.
     /// With `sessions.persistenceLease`, operation 2 retains captured-origin session
     /// access through caller cancellation; it cannot capture origins or use other ports.
+    /// With `context.scopeLifetime`, operation 3 watches/drains a child runtime;
+    /// only context.inspect/waitClosed are permitted until the caller releases it.
     pub native_context: Option<extern "C" fn(u32, *mut c_void) -> *mut c_void>,
     /// Owned asynchronous commands. Manifest: `{version:1,name,description}`.
     /// The callback receives `{version:1,command,args}` and returns `{version:1,result}`.

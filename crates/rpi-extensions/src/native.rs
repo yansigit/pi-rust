@@ -34,6 +34,7 @@ pub trait NativeProviderRuntime: Send + Sync {
 struct Lease {
     bridge: Arc<ActionBridge>,
     session_persistence: bool,
+    scope_lifetime: Option<Arc<rpi_agent::tool_execution_scope::BackgroundToolGuard>>,
 }
 tokio::task_local! { static SESSION_PERSISTENCE: bool; }
 
@@ -54,10 +55,13 @@ pub(crate) fn retire_owner(owner: u64) {
         let ids: Vec<_> = leases
             .iter()
             .filter(|(_, lease)| {
-                lease
-                    .bridge
-                    .native_owner()
-                    .is_some_and(|known| known.id == owner)
+                // A retiring owner revokes authority immediately, but its worker
+                // must still release the child's drain guard after cleanup.
+                lease.scope_lifetime.is_none()
+                    && lease
+                        .bridge
+                        .native_owner()
+                        .is_some_and(|known| known.id == owner)
             })
             .map(|(id, _)| *id)
             .collect();
@@ -71,7 +75,7 @@ pub(crate) fn retire_owner(owner: u64) {
     drop(removed);
 }
 
-/// Acquire (0), release (1), or retain only existing session origins (2).
+/// Acquire (0), release (1), retain existing session origins (2), or watch/drain a child runtime (3).
 pub(crate) extern "C" fn context(operation: u32, handle: *mut c_void) -> *mut c_void {
     rpi_plugin_sdk::guard_or(std::ptr::null_mut(), || {
         if operation == 1 {
@@ -86,14 +90,14 @@ pub(crate) extern "C" fn context(operation: u32, handle: *mut c_void) -> *mut c_
             drop(removed);
             return std::ptr::null_mut();
         }
-        if !matches!(operation, 0 | 2) {
+        if !matches!(operation, 0 | 2 | 3) {
             return std::ptr::null_mut();
         }
         let inherited = leases()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .get(&(handle as usize))
-            .filter(|lease| lease.session_persistence)
+            .filter(|lease| lease.session_persistence || lease.scope_lifetime.is_some())
             .cloned();
         let Some(bridge) = inherited
             .as_ref()
@@ -103,7 +107,13 @@ pub(crate) extern "C" fn context(operation: u32, handle: *mut c_void) -> *mut c_
         else {
             return std::ptr::null_mut();
         };
-        if operation == 2
+        if inherited.as_ref().is_some_and(|lease| {
+            (operation == 2 && !lease.session_persistence)
+                || (operation == 3 && lease.scope_lifetime.is_none())
+        }) {
+            return std::ptr::null_mut();
+        }
+        if matches!(operation, 2 | 3)
             && inherited.is_none()
             && (bridge.native_signal().is_cancelled()
                 || bridge
@@ -113,6 +123,20 @@ pub(crate) extern "C" fn context(operation: u32, handle: *mut c_void) -> *mut c_
         {
             return std::ptr::null_mut();
         }
+        let scope_lifetime = if let Some(lease) = &inherited {
+            lease.scope_lifetime.clone()
+        } else if operation == 3 {
+            let Some(guard) = bridge
+                .tool_scope
+                .as_ref()
+                .and_then(|scope| scope.retain_runtime())
+            else {
+                return std::ptr::null_mut();
+            };
+            Some(Arc::new(guard))
+        } else {
+            None
+        };
         let mut leases = leases().lock().unwrap_or_else(|e| e.into_inner());
         if !bridge.is_active() || leases.len() >= 4096 {
             return std::ptr::null_mut();
@@ -122,7 +146,11 @@ pub(crate) extern "C" fn context(operation: u32, handle: *mut c_void) -> *mut c_
             id,
             Lease {
                 bridge,
-                session_persistence: operation == 2 || inherited.is_some(),
+                session_persistence: operation == 2
+                    || inherited
+                        .as_ref()
+                        .is_some_and(|lease| lease.session_persistence),
+                scope_lifetime,
             },
         );
         id as *mut c_void
@@ -151,13 +179,13 @@ pub(crate) extern "C" fn request(
             {
                 return Err("native runtime request cancelled".into());
             }
-            let persistence = leases()
+            let retained = leases()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .get(&(data as usize))
-                .filter(|lease| lease.session_persistence)
+                .filter(|lease| lease.session_persistence || lease.scope_lifetime.is_some())
                 .cloned();
-            let bridge = persistence
+            let bridge = retained
                 .as_ref()
                 .map(|lease| lease.bridge.clone())
                 .or_else(|| ActionBridge::native_invocation(data as usize))
@@ -173,7 +201,43 @@ pub(crate) extern "C" fn request(
             if args["version"] != 1 {
                 return Err("unsupported native runtime version".into());
             }
-            if persistence.is_some()
+            let session_persistence = retained
+                .as_ref()
+                .is_some_and(|lease| lease.session_persistence);
+            let scope_lifetime = retained
+                .as_ref()
+                .is_some_and(|lease| lease.scope_lifetime.is_some());
+            if scope_lifetime {
+                if args["port"] != "context"
+                    || !matches!(args["action"].as_str(), Some("inspect" | "waitClosed"))
+                {
+                    return Err(
+                        "scope lifetime lease only permits inspection and shutdown observation"
+                            .into(),
+                    );
+                }
+                if args["action"] == "waitClosed" {
+                    let scope = bridge
+                        .tool_scope
+                        .as_ref()
+                        .ok_or("child runtime is unavailable")?;
+                    let closing = scope.runtime_closing();
+                    loop {
+                        if !bridge.is_active()
+                            || unsafe { control.as_ref() }.is_some_and(|control| {
+                                (control.is_cancelled)(control.user_data) != 0
+                            })
+                        {
+                            return Err("native runtime watch cancelled".into());
+                        }
+                        if closing.is_cancelled() {
+                            return Ok(Value::Null);
+                        }
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                }
+            }
+            if session_persistence
                 && (args["port"] != "sessions"
                     || !args["origin"]
                         .as_str()
@@ -205,14 +269,16 @@ pub(crate) extern "C" fn request(
                 {
                     return Err("native runtime request cancelled".into());
                 }
-                if bridge.native_signal().is_cancelled() {
+                if !scope_lifetime && bridge.native_signal().is_cancelled() {
                     return Err("native runtime request cancelled".into());
                 }
                 if args["port"] == "context" {
                     if args["action"] == "bootstrap" {
                         return bridge.host.native_bootstrap();
                     }
-                    return Ok(json!({"owner":owner,"identity":bridge.operation}));
+                    return Ok(json!({"owner":owner,"identity":bridge.operation,
+                        "scopeId":bridge.tool_scope.as_ref().map(|scope|scope.runtime_id()),
+                        "closing":bridge.tool_scope.as_ref().is_some_and(|scope|scope.runtime_closing().is_cancelled())}));
                 }
                 return Ok(json!([
                     "assistant.durationMs",
@@ -232,6 +298,7 @@ pub(crate) extern "C" fn request(
                     "context.snapshot",
                     "context.flags",
                     "context.abort",
+                    "context.scopeLifetime",
                     "tools.provenance",
                     "tools.activation",
                     "sessions.location",
@@ -242,7 +309,6 @@ pub(crate) extern "C" fn request(
                     "ui.status"
                 ]));
             }
-            let session_persistence = persistence.is_some();
             let signal = if session_persistence {
                 CancellationToken::new()
             } else {

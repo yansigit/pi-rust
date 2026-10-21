@@ -1,0 +1,62 @@
+{
+  "status": "Host child runtime identity, closing and drain lease verified",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "platform": "Linux",
+  "checks": {
+    "agent": {
+      "log": "/tmp/rpi-scope-lifetime-agent.log",
+      "sha256": "3c38cc098d5ac6e67d7d204f05e39a4c97ca1b799f88c3e78ec26038ccda4206",
+      "passed": 4,
+      "ignored": 0
+    },
+    "harness": {
+      "log": "/tmp/rpi-scope-lifetime-harness.log",
+      "sha256": "01c922db90e9d911141f66c717505ff97d2a2ed462938e4763b989a280bf0368",
+      "passed": 1,
+      "ignored": 0
+    },
+    "bridge": {
+      "log": "/tmp/rpi-scope-lifetime-bridge.log",
+      "sha256": "8df632b2843abb2a3bdebde8fb76e4505c67bab3492671bd7fb640e2f89b3558",
+      "passed": 1,
+      "ignored": 0
+    },
+    "extensions": {
+      "log": "/tmp/rpi-scope-lifetime-extensions.log",
+      "sha256": "f2960755377ce3ef38b8d83a731cc9200e647b981ebb142b1753e7ac92882437",
+      "passed": 201,
+      "ignored": 3
+    },
+    "sdk": {
+      "log": "/tmp/rpi-scope-lifetime-sdk.log",
+      "sha256": "d30e449233a5159e391f5adc58968ca00470113f83f020e5811b5873f2584e6d",
+      "passed": 73,
+      "ignored": 3
+    },
+    "minimal": {
+      "log": "/tmp/rpi-scope-lifetime-minimal.log",
+      "sha256": "f94862aa0f25cce80c760eefce43ae0e991dc3e4d48360ec483c358235eef422",
+      "passed": true,
+      "ignored": 0
+    },
+    "workspace": {
+      "log": "/tmp/rpi-scope-lifetime-workspace.log",
+      "sha256": "a7297fefdf6b5813479d62aa12a9d39ca49842b83661b4caf4c32df60a25f410",
+      "passed": true,
+      "ignored": 0
+    }
+  },
+  "coverage": [
+    "Stable scope identity independently of session ID",
+    "Child close signals after active run release, without interrupting it",
+    "Last harness drop signals closing despite retained session references",
+    "Lease survives caller cancellation but permits no auth/tool/session mutations",
+    "Closed scope refuses new runtimes; explicit release completes child idle barrier",
+    "Owner retirement revokes requests while preserving cleanup drain ownership"
+  ],
+  "abi": "Existing context operation 3; no C structure or workspace version change",
+  "remaining": [
+    "Actual Cursor child worker integration",
+    "macOS/Windows execution"
+  ]
+}

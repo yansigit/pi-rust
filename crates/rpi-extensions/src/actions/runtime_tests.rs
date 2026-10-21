@@ -1,6 +1,7 @@
 use super::*;
 use serde_json::{json, Value};
 use std::sync::atomic::AtomicUsize;
+use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 #[derive(Default)]
@@ -226,6 +227,110 @@ mod cleanup;
 mod driver;
 mod pacing;
 mod streaming;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn child_runtime_lease_survives_callback_cancellation_and_drains_before_idle() {
+    let root = ActionBridge::new(Handle::current(), Arc::new(Host::default()));
+    let plugin = root.for_plugin("child-runtime");
+    assert!(crate::native::context(3, plugin.user_data()).is_null());
+    let signal = CancellationToken::new();
+    let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    let invocation = scope
+        .run(async { plugin.for_invocation(true, signal.clone()) })
+        .await;
+    let lease = crate::native::context(3, invocation.user_data()) as usize;
+    assert_ne!(lease, 0);
+    signal.cancel();
+    let captured = crate::native::context(0, lease as *mut c_void) as usize;
+    assert_ne!(captured, 0);
+    assert!(crate::native::context(2, captured as *mut c_void).is_null());
+    assert!(crate::native::context(3, invocation.user_data()).is_null());
+    let call = |handle: usize, args: Value| async move {
+        tokio::task::spawn_blocking(move || {
+            let mut out = StbString::empty();
+            let rc = crate::native::request(
+                StbStringRef::from_str(&args.to_string()),
+                std::ptr::null(),
+                &mut out,
+                handle as *mut c_void,
+            );
+            let out = unsafe {
+                rpi_plugin_sdk::callbacks::OwnedString::from_raw(out, Some(crate::host_free_string))
+            };
+            (
+                rc,
+                serde_json::from_str::<Value>(&out.to_string_lossy()).unwrap(),
+            )
+        })
+        .await
+        .unwrap()
+    };
+    let inspection = call(
+        captured,
+        json!({"version":1,"port":"context","action":"inspect"}),
+    )
+    .await;
+    assert_eq!(inspection.0, 0);
+    assert_eq!(inspection.1["result"]["scopeId"], scope.runtime_id());
+    assert_eq!(inspection.1["result"]["owner"]["child"], true);
+    for args in [
+        json!({"version":1,"port":"auth","action":"resolve"}),
+        json!({"version":1,"port":"sessions","action":"append","origin":"captured"}),
+        json!({"version":1,"port":"context","action":"bootstrap"}),
+    ] {
+        assert_eq!(call(captured, args).await.0, 1);
+    }
+    let watch = tokio::spawn(call(
+        captured,
+        json!({"version":1,"port":"context","action":"waitClosed"}),
+    ));
+    tokio::task::yield_now().await;
+    assert!(!watch.is_finished());
+    scope.close_runtime();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), watch)
+            .await
+            .unwrap()
+            .unwrap()
+            .0,
+        0
+    );
+    crate::native::context(1, captured as *mut c_void);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(5), scope.wait_idle())
+            .await
+            .is_err()
+    );
+    crate::native::context(1, lease as *mut c_void);
+    tokio::time::timeout(Duration::from_secs(1), scope.wait_idle())
+        .await
+        .unwrap();
+    let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    let invocation = scope
+        .run(async { plugin.for_invocation(true, CancellationToken::new()) })
+        .await;
+    let lease = crate::native::context(3, invocation.user_data()) as usize;
+    assert_ne!(lease, 0);
+    root.invalidate();
+    assert_eq!(
+        call(
+            lease,
+            json!({"version":1,"port":"context","action":"waitClosed"})
+        )
+        .await
+        .0,
+        1
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(5), scope.wait_idle())
+            .await
+            .is_err()
+    );
+    crate::native::context(1, lease as *mut c_void);
+    tokio::time::timeout(Duration::from_secs(1), scope.wait_idle())
+        .await
+        .unwrap();
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn session_persistence_lease_retains_scope_but_cannot_start_new_work() {

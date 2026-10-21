@@ -28,15 +28,45 @@ pub struct ToolExecutionScope {
     pending: AtomicUsize,
     idle: Notify,
     stopped: tokio_util::sync::CancellationToken,
+    runtime_id: std::sync::OnceLock<String>,
+    runtime_closing: tokio_util::sync::CancellationToken,
+    runtime_admission: std::sync::Mutex<()>,
     context: Option<serde_json::Value>,
     host: std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>,
 }
 impl Drop for ToolExecutionScope {
     fn drop(&mut self) {
         self.stopped.cancel();
+        self.runtime_closing.cancel();
     }
 }
 impl ToolExecutionScope {
+    pub fn runtime_id(&self) -> &str {
+        self.runtime_id.get_or_init(|| {
+            static NEXT: AtomicUsize = AtomicUsize::new(1);
+            let id = NEXT
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .expect("native scope identity space exhausted");
+            format!("scope-{id}")
+        })
+    }
+    /// A native runtime can retain session origins, so scope destruction cannot
+    /// be its shutdown signal. Closing admission also participates in wait_idle.
+    pub fn retain_runtime(self: &Arc<Self>) -> Option<BackgroundToolGuard> {
+        let _gate = self.runtime_admission.lock().unwrap();
+        if self.runtime_closing.is_cancelled() {
+            return None;
+        }
+        self.pending.fetch_add(1, Ordering::AcqRel);
+        Some(BackgroundToolGuard(self.clone()))
+    }
+    pub fn runtime_closing(&self) -> tokio_util::sync::CancellationToken {
+        self.runtime_closing.clone()
+    }
+    pub fn close_runtime(&self) {
+        let _gate = self.runtime_admission.lock().unwrap();
+        self.runtime_closing.cancel();
+    }
     /// A host binds its private, weak execution target without a dependency cycle.
     pub fn bind_host<T: Send + Sync + 'static>(&self, value: T) -> bool {
         self.host.set(Box::new(value)).is_ok()
@@ -49,13 +79,9 @@ impl ToolExecutionScope {
         self.stopped.clone()
     }
     pub fn with_context(context: serde_json::Value) -> Self {
-        Self {
-            context: Some(context),
-            host: std::sync::OnceLock::new(),
-            pending: AtomicUsize::new(0),
-            idle: Notify::new(),
-            stopped: tokio_util::sync::CancellationToken::new(),
-        }
+        let mut scope = Self::default();
+        scope.context = Some(context);
+        scope
     }
     pub async fn run<F: Future>(self: &Arc<Self>, future: F) -> F::Output {
         CURRENT.scope(self.clone(), future).await
@@ -115,6 +141,27 @@ pub fn track_background_tool() -> Option<BackgroundToolGuard> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn runtime_close_is_observable_before_retained_origins_are_dropped() {
+        let scope = Arc::new(ToolExecutionScope::default());
+        let other = ToolExecutionScope::default();
+        assert_ne!(scope.runtime_id(), other.runtime_id());
+        assert_eq!(scope.runtime_id(), scope.runtime_id());
+        let runtime = scope.retain_runtime().unwrap();
+        scope.close_runtime();
+        assert!(scope.runtime_closing().is_cancelled());
+        assert!(!scope.stopped().is_cancelled());
+        assert!(scope.retain_runtime().is_none());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(5), scope.wait_idle())
+                .await
+                .is_err()
+        );
+        drop(runtime);
+        tokio::time::timeout(std::time::Duration::from_secs(1), scope.wait_idle())
+            .await
+            .unwrap();
+    }
     #[tokio::test]
     async fn identity_and_context_are_scoped_and_never_leak_to_the_parent() {
         let scope = Arc::new(ToolExecutionScope::with_context(

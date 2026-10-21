@@ -45,6 +45,9 @@ impl WeakAgentHarness {
 }
 impl Drop for HarnessInner {
     fn drop(&mut self) {
+        if let Some(scope) = &self.execution_scope {
+            scope.close_runtime();
+        }
         self.child_scope
             .lock()
             .unwrap_or_else(|e| e.into_inner())
