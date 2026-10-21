@@ -691,6 +691,9 @@ pub struct AssistantMessage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_turn: Option<bool>,
     pub timestamp: i64,
+    /// Provider-measured response duration, retained for compatibility transcripts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -735,6 +738,7 @@ impl AssistantMessage {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
+            duration_ms: None,
             timestamp,
         }
     }
@@ -762,6 +766,7 @@ impl AssistantMessage {
             error_message: Some(error_message.into()),
             raw_stop_reason: None,
             end_turn: None,
+            duration_ms: None,
             timestamp,
         }
     }

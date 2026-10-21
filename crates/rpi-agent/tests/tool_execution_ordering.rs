@@ -117,6 +117,7 @@ fn two_call_stream_fn(release: Arc<Notify>) -> rpi_agent::StreamFn {
                 error_message: None,
                 raw_stop_reason: None,
                 end_turn: None,
+                duration_ms: None,
                 timestamp: 0,
             },
         ])));
@@ -194,6 +195,7 @@ fn assistant_two_tool_calls() -> AssistantMessage {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     }
 }

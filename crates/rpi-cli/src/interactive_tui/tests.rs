@@ -1768,6 +1768,7 @@ fn test_agent_event_mapping_creates_assistant_and_tool() {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     };
 
@@ -2635,6 +2636,7 @@ fn assistant_error_text_keeps_terminal_provider_diagnostic_visible() {
         error_message: Some("upstream returned 401".into()),
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     };
     assert_eq!(

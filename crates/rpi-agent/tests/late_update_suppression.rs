@@ -112,6 +112,7 @@ fn single_tool_use_stream_fn(calls: Vec<(&str, &str)>) -> rpi_agent::StreamFn {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     };
     rpi_agent::stream_fn(move |_model, _ctx, _opts| {

@@ -142,6 +142,7 @@ async fn prepare_arguments_folds_legacy_oldtext_newtext_into_edits() {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     };
     let done = assistant_text("done", StopReason::Stop);

@@ -262,6 +262,7 @@ async fn loads_real_cdylib_and_drives_echo_tool() {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     }));
     let before = stub_message_end_hits(&stub_path);

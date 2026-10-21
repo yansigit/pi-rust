@@ -170,6 +170,7 @@ pub fn faux_assistant_message(
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: faux_now(),
     }
 }

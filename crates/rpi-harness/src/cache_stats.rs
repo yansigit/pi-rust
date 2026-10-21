@@ -287,6 +287,7 @@ mod tests {
             error_message: None,
             raw_stop_reason: None,
             end_turn: Some(true),
+            duration_ms: None,
             timestamp: ts,
         }
     }

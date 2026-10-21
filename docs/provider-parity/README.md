@@ -1,6 +1,6 @@
 # Provider compatibility work
 
-Status: **not parity complete; the three packages have not been implemented**.
+Status: **not parity complete; Antigravity is under implementation and the other packages remain pending**.
 
 The host baseline is `90093c9e2d71ee9ce8228c1c27dc3262931b4a60`.
 Package work belongs in the separate [rpi-package fork](https://github.com/yansigit/rpi-package),
@@ -80,6 +80,16 @@ session switches. [Storage evidence](host-storage-results.json) covers Linux
 backends, native library acknowledgements, owner-scoped shutdown and failure
 recovery. Cursor's separate provider file journals remain pending, so H10 is not
 complete.
+
+The Antigravity reference revealed two generic transcript requirements:
+`AssistantMessage.duration_ms` retains Pi 1.3.0's provider-measured duration,
+including through cancellation, and JSON decoding preserves exact floating-point
+values across native IPC and persistence. Untimed legacy messages remain untimed.
+The optional duration field is a Rust source change for struct literals and must
+ship through the maintainer's coordinated release; no C ABI field or version is
+changed. The package ledger records request/stream fixture progress separately
+from host acceptance and live inference. [Regression evidence](host-stream-metadata-results.json)
+records the warning-denied workspace suite, Rust 1.78 and SDK feature checks.
 
 [baseline-results.json](baseline-results.json) records upstream results, lock
 hashes and evidence hashes. All three unchanged suites pass in

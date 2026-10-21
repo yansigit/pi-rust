@@ -1,0 +1,52 @@
+{
+  "status": "passed-host-transcript-regressions",
+  "platform": "linux",
+  "changes": [
+    "optional provider-owned durationMs retained through wire compaction and cancellation",
+    "exact IEEE-754 JSON round trips",
+    "legacy messages remain untimed"
+  ],
+  "checks": [
+    {
+      "command": "cargo test --workspace --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-host-stream-metadata-workspace.log",
+      "sha256": "72aeda298163079003e2f6ce0ac994be43793227034544694995cb59285d6324"
+    },
+    {
+      "command": "cargo +1.78.0 check --workspace --all-targets --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-host-stream-metadata-msrv.log",
+      "sha256": "9ede0f1c04a331870442726340a7915b422ae5de977a0566d19c4b338f8948a1"
+    },
+    {
+      "command": "cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-host-stream-sdk-minimal.log",
+      "sha256": "a41051563a4cb5fc1b1bcdd9aa0ba28ca80f7736d629d90cc138218756e8e3a9"
+    },
+    {
+      "command": "cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features --features provider --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-host-stream-sdk-provider.log",
+      "sha256": "183b63d379b48a93ed0ea0036bd95c7b7902e4ec47a0849e59b8fb176111d021"
+    }
+  ],
+  "reportedTestSummary": {
+    "passed": 2109,
+    "failed": 0,
+    "ignored": 13,
+    "note": "summed Cargo summaries include isolated subprocess tests"
+  },
+  "environment": {
+    "RUSTFLAGS": "-D warnings",
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_PROFILE_TEST_DEBUG": "0 (tests)"
+  },
+  "release": "Rust source field addition requires coordinated release; no C ABI or workspace version changes",
+  "notTested": [
+    "new provider native loading",
+    "macOS and Windows",
+    "live inference"
+  ]
+}

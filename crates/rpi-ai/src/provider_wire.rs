@@ -116,6 +116,7 @@ fn reconstructs_text(
         raw_stop_reason,
         end_turn,
         timestamp,
+        duration_ms,
     } = previous;
     if role != &next.role
         || api != &next.api
@@ -130,6 +131,7 @@ fn reconstructs_text(
         || raw_stop_reason != &next.raw_stop_reason
         || end_turn != &next.end_turn
         || timestamp != &next.timestamp
+        || duration_ms != &next.duration_ms
         || content.len() != next.content.len()
     {
         return false;
@@ -349,6 +351,7 @@ mod tests {
             |m| m.response_model = Some("r".into()),
             |m| m.response_id = Some("id".into()),
             |m| m.timestamp += 1,
+            |m| m.duration_ms = Some(12.5),
             |m| m.usage.output += 1,
             |m| m.stop_reason = StopReason::Stop,
             |m| m.error_message = Some("e".into()),

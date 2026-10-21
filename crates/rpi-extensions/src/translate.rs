@@ -1179,6 +1179,7 @@ mod tests {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
+            duration_ms: None,
             timestamp: 0,
         }));
         let events = vec![
@@ -1258,6 +1259,7 @@ mod tests {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
+            duration_ms: None,
             timestamp: 0,
         });
         let translate_delta = |delta: &str| {
@@ -1301,6 +1303,7 @@ mod tests {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
+            duration_ms: None,
             timestamp: 0,
         }));
         let ev = AgentEvent::MessageEnd { message: am };
@@ -1348,6 +1351,7 @@ mod tests {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
+            duration_ms: None,
             timestamp: 0,
         }));
         // Use try_emit (sync) — no runtime needed.
@@ -1370,6 +1374,7 @@ mod tests {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
+            duration_ms: None,
             timestamp: 0,
         }));
         emitter.try_emit(AgentEvent::MessageEnd { message: am2 });
@@ -1421,6 +1426,7 @@ mod tests {
             error_message: None,
             raw_stop_reason: None,
             end_turn: None,
+            duration_ms: None,
             timestamp: 0,
         }));
         // Broadcast path: both collectors receive the event, and the extension

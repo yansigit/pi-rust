@@ -138,6 +138,7 @@ impl AssistantMessageEventStreamProducer {
                 && previous.raw_stop_reason == message.raw_stop_reason
                 && previous.end_turn == message.end_turn
                 && previous.timestamp == message.timestamp
+                && previous.duration_ms == message.duration_ms
             {
                 return;
             }
@@ -160,6 +161,7 @@ impl AssistantMessageEventStreamProducer {
             error_message: message.error_message.clone(),
             raw_stop_reason: message.raw_stop_reason.clone(),
             end_turn: message.end_turn,
+            duration_ms: message.duration_ms,
             timestamp: message.timestamp,
         }));
     }
@@ -186,6 +188,7 @@ impl AssistantMessageEventStreamProducer {
                     )
                 });
                 error.stop_reason = crate::types::StopReason::Aborted;
+                error.duration_ms = source.duration_ms.or(error.duration_ms);
                 error.error_message = Some(match &event {
                     AssistantMessageEvent::Error {
                         reason: crate::types::ErrorReason::Aborted,
@@ -445,6 +448,36 @@ mod tests {
             reason: DoneReason::Stop,
             message: (*empty_partial()).clone(),
         }
+    }
+
+    #[tokio::test]
+    async fn provider_duration_survives_wire_round_trip_and_cancelled_terminal() {
+        let mut message = (*empty_partial()).clone();
+        assert!(serde_json::to_value(&message)
+            .unwrap()
+            .get("durationMs")
+            .is_none());
+        message.duration_ms = Some(12.5);
+        message.usage.cost.input = 2.0 / 1_000_000.0 * 5.0;
+        let round_trip: AssistantMessage =
+            serde_json::from_str(&serde_json::to_string(&message).unwrap()).unwrap();
+        assert_eq!(round_trip, message);
+        let wire = serde_json::to_value(&message).unwrap();
+        assert_eq!(wire["durationMs"], 12.5);
+        let message: AssistantMessage = serde_json::from_value(wire).unwrap();
+        let parent = CancellationToken::new();
+        let (mut producer, stream) =
+            create_assistant_message_event_stream_with_limits(1, DEFAULT_PAYLOAD_BYTES, &parent);
+        parent.cancel();
+        producer
+            .push(AssistantMessageEvent::Done {
+                reason: DoneReason::Stop,
+                message,
+            })
+            .await;
+        let result = stream.result().await.unwrap();
+        assert_eq!(result.duration_ms, Some(12.5));
+        assert_eq!(result.stop_reason, crate::types::StopReason::Aborted);
     }
 
     #[tokio::test]

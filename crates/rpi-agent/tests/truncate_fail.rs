@@ -178,6 +178,7 @@ fn assistant_message_with_tool_call_and_length() -> rpi_ai::types::AssistantMess
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     }
 }

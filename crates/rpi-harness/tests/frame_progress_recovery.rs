@@ -82,6 +82,7 @@ fn crashed_stream() -> Vec<LaneRecord> {
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 1_700_000_000_000,
     };
     let frames = vec![

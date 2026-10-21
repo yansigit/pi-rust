@@ -128,6 +128,7 @@ pub fn assistant_text(text: impl Into<String>, stop: StopReason) -> AssistantMes
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     }
 }
@@ -166,6 +167,7 @@ pub fn assistant_tool_calls(
         error_message: None,
         raw_stop_reason: None,
         end_turn: None,
+        duration_ms: None,
         timestamp: 0,
     }
 }

@@ -326,6 +326,7 @@ mod tests {
                 error_message: None,
                 raw_stop_reason: None,
                 end_turn: None,
+                duration_ms: None,
                 timestamp: 0,
             })),
             terminate: None,
