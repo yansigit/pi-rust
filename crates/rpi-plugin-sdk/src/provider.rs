@@ -103,6 +103,119 @@ fn options(value: &serde_json::Value) -> SimpleStreamOptions {
     options
 }
 
+/// Compare every field without constructing a candidate message or JSON tree.
+fn reconstructs_text(
+    previous: &AssistantMessage,
+    next: &AssistantMessage,
+    index: usize,
+    delta: &str,
+) -> bool {
+    let AssistantMessage {
+        role,
+        content,
+        api,
+        provider,
+        model,
+        response_model,
+        response_id,
+        usage,
+        stop_reason,
+        deferred,
+        error_message,
+        raw_stop_reason,
+        end_turn,
+        timestamp,
+    } = previous;
+    if role != &next.role
+        || api != &next.api
+        || provider != &next.provider
+        || model != &next.model
+        || response_model != &next.response_model
+        || response_id != &next.response_id
+        || usage != &next.usage
+        || stop_reason != &next.stop_reason
+        || deferred != &next.deferred
+        || error_message != &next.error_message
+        || raw_stop_reason != &next.raw_stop_reason
+        || end_turn != &next.end_turn
+        || timestamp != &next.timestamp
+        || content.len() != next.content.len()
+    {
+        return false;
+    }
+    let (Some(rpi_ai::Content::Text(before)), Some(rpi_ai::Content::Text(after))) =
+        (content.get(index), next.content.get(index))
+    else {
+        return false;
+    };
+    let rpi_ai::TextContent {
+        kind,
+        text,
+        text_signature,
+    } = before;
+    kind == &after.kind
+        && text_signature == &after.text_signature
+        && after.text.strip_prefix(text) == Some(delta)
+        && content
+            .iter()
+            .zip(&next.content)
+            .enumerate()
+            .all(|(i, (a, b))| i == index || a == b)
+}
+
+fn event_json(
+    event: &AssistantMessageEvent,
+    previous: &mut Option<(usize, Arc<AssistantMessage>)>,
+) -> serde_json::Value {
+    let compact = match (event, previous.as_ref()) {
+        (
+            AssistantMessageEvent::TextDelta {
+                content_index,
+                delta,
+                partial,
+            },
+            Some((index, before)),
+        ) => index == content_index && reconstructs_text(before, partial, *index, delta),
+        _ => false,
+    };
+    *previous = match event {
+        AssistantMessageEvent::TextDelta {
+            content_index,
+            partial,
+            ..
+        } => Some((*content_index, Arc::clone(partial))),
+        _ => None,
+    };
+    if compact {
+        let AssistantMessageEvent::TextDelta {
+            content_index,
+            delta,
+            ..
+        } = event
+        else {
+            unreachable!()
+        };
+        return serde_json::json!({"type":"text_delta","contentIndex":content_index,"delta":delta});
+    }
+    let mut chunk = serde_json::to_value(event).expect("provider event JSON");
+    // The SDK uses flat tool-call identity fields.
+    let tool = chunk.get("toolCall").cloned().or_else(|| {
+        if event.type_tag() != "toolcall_start" {
+            return None;
+        }
+        let index = chunk["contentIndex"].as_u64()? as usize;
+        chunk.get("partial")?.get("content")?.get(index).cloned()
+    });
+    if let Some(tool) = tool {
+        for field in ["id", "name", "arguments"] {
+            if let Some(value) = tool.get(field) {
+                chunk[field] = value.clone();
+            }
+        }
+    }
+    chunk
+}
+
 /// Drive a synchronous plugin request without retaining any borrowed ABI data.
 ///
 /// # Safety
@@ -134,13 +247,15 @@ pub unsafe fn drive(
         let message = runtime.block_on(async {
             let provider = factory(&request.model, &options);
             let mut stream = provider.stream_simple(&request.model, &request.context, &options).await;
-            let mut partial = AssistantMessage::empty(request.model.api.clone(), request.model.provider.clone(), request.model.id.clone(), 0);
+            let mut partial = Arc::new(AssistantMessage::empty(request.model.api.clone(), request.model.provider.clone(), request.model.id.clone(), 0));
+            let mut previous_text = None;
             let mut poll = tokio::time::interval(Duration::from_millis(10));
             loop {
                 // Check synchronously too: an already-buffered provider can
                 // finish before the interval's initial tick becomes ready.
                 if control.is_some_and(|control| (control.is_cancelled)(control.user_data, 0) != 0) {
                     options.signal.cancel();
+                    let mut partial = (*partial).clone();
                     partial.stop_reason = StopReason::Aborted;
                     partial.error_message = Some("provider request was cancelled".into());
                     break partial;
@@ -158,22 +273,24 @@ pub unsafe fn drive(
                             AssistantMessageEvent::Error { error, .. } => break error.clone(),
                             _ => {},
                         }
-                        partial = event.partial().clone();
+                        partial = match &event {
+                            AssistantMessageEvent::Start { partial }
+                            | AssistantMessageEvent::TextStart { partial, .. }
+                            | AssistantMessageEvent::TextDelta { partial, .. }
+                            | AssistantMessageEvent::TextEnd { partial, .. }
+                            | AssistantMessageEvent::ThinkingStart { partial, .. }
+                            | AssistantMessageEvent::ThinkingDelta { partial, .. }
+                            | AssistantMessageEvent::ThinkingEnd { partial, .. }
+                            | AssistantMessageEvent::ToolCallStart { partial, .. }
+                            | AssistantMessageEvent::ToolCallDelta { partial, .. }
+                            | AssistantMessageEvent::ToolCallEnd { partial, .. } => Arc::clone(partial),
+                            AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. } => unreachable!(),
+                        };
                         let Some(emit) = emit else { continue; };
-                        let mut chunk = serde_json::to_value(&event).expect("provider event JSON");
-                        // The SDK uses flat tool-call identity fields.
-                        let tool = chunk.get("toolCall").cloned().or_else(|| {
-                            if event.type_tag() != "toolcall_start" { return None; }
-                            let index = chunk["contentIndex"].as_u64()? as usize;
-                            chunk.get("partial")?.get("content")?.get(index).cloned()
-                        });
-                        if let Some(tool) = tool {
-                            for field in ["id", "name", "arguments"] {
-                                if let Some(value) = tool.get(field) { chunk[field] = value.clone(); }
-                            }
-                        }
+                        let chunk = event_json(&event, &mut previous_text);
                         if emit(StbString::from_string(chunk.to_string()), emit_data) != 0 {
                             options.signal.cancel();
+                            let mut partial = (*partial).clone();
                             partial.stop_reason = StopReason::Aborted;
                             break partial;
                         }
