@@ -2,7 +2,8 @@
 
 Status: C01 transport foundation implemented. Authoritative session snapshots,
 awaited adapter writes and Rust journal IO have since been added; native provider
-dispatch and packaged installation remain in progress. This is not a claim of
+dispatch now executes through an actual Linux library; packaged installation and
+complete event/tool integration remain in progress. This is not a claim of
 Cursor inference or package parity.
 
 `rpi-package/packages/rpi-cursor-sdk/worker` retains all 461 tracked files from
@@ -51,8 +52,8 @@ Repeated and late cancellation is idempotent. A worker crash preserves already
 received partial events and returns an uncertain-completion error. Final teardown
 cancels admission, waits for admitted host callbacks and explicitly reaps Node.
 The adapter's MCP/SDK/journal shutdown must be awaited before that final teardown;
-the worker now invokes and drains that lifecycle, while native-library ownership
-and shutdown wiring remain pending.
+the worker invokes and drains that lifecycle. Native-library ownership now
+retains root and child workers through callback drain and process reaping.
 
 ## Verification and limits
 
@@ -88,12 +89,18 @@ retained suite passes 1,698 tests with two existing skips; the factory/process
 checks pass six, Node transport checks seven, and Rust worker checks eleven.
 The [host context boundary](host-native-context-results.json) supplies owned paths,
 flags, mode/trust, execution metadata and independent child status. Native DLL
-registration, session/journal routing and complete event/tool integration remain
-required; these counts do not qualify local or cloud SDK behavior.
+registration and session/journal routing have since been added; complete event/tool
+integration remains required. These counts do not qualify local or cloud SDK behavior.
 
-Still required: installed native-library asset resolution and loading; actual
-adapter registration and request ownership; background session leases and
-history-authorized inherited journal reads; stable request headers/signals; tool execution/replay counts;
-all adapter feature groups; imports; SDK resource shutdown; packaged execution on
-Linux, macOS and Windows; and controlled live Cursor acceptance. No Cursor live
-usage or cloud mutation was performed for this transport work.
+The native-registration evidence in the package records real Linux DLL loading,
+API-key continuation, startup catalog reentry, committed command entries,
+harness-dispatched question tools, replacement-auth isolation in both stream
+entries, and independent child-worker cleanup with a usable parent. It also
+records 34 passing Rust checks (including all opt-in process tests), 1,701 retained
+Node checks with two existing skips, types/build/package checks and the
+warning-denied Rust 1.78 host workspace check. No inference is sent by that test.
+
+Still required: lifecycle payload and tool metadata parity; scoped child catalog
+publication; complete inherited-history and fake-SDK feature acceptance;
+tool execution/replay counts; imports; distribution; packaged execution on
+macOS and Windows; and controlled live Cursor local/cloud acceptance.

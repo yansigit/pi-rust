@@ -860,6 +860,8 @@ impl RuntimeActionHost for HarnessActionHost {
 }
 
 #[cfg(test)]
+mod cursor_tests;
+#[cfg(test)]
 mod lifetime_tests;
 
 #[cfg(test)]
