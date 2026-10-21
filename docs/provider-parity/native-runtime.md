@@ -48,7 +48,7 @@ republishing. Existing source-level `ProviderManifest` initializers must include
 ## Provider callbacks
 
 A runtime manifest declares `{version:1,id,actions}` with any of `preflight`,
-`refreshCatalog`, `authMethods`, `credentialStore`, and `initialize`. Each callback receives
+`refreshCatalog`, `authMethods`, `credentialStore`, `initialize`, and `requestAuth`. Each callback receives
 `{version:1,providerId,action,input}` and returns `{version:1,result}` or a public
 `{version:1,error}`. The callback and context remain pinned until foreign code
 returns, including after cancellation.
@@ -77,6 +77,23 @@ This source change requires maintainer release coordination, without a contribut
 version bump or changes to existing C ABI layouts.
 
 ## Authentication operations
+
+Hosts advertising `auth.providerRequest` support an owning provider's private
+`requestAuth` callback before ambient credential resolution. Its input contains
+`modelId`, `api`, the request's `apiKey`, and merged request/environment `env`.
+Returning `null` delegates to the existing credential resolver. Returning a
+`RequestAuth` object supplies the complete request authentication without reading
+or refreshing the dormant credential store. Errors refuse the request. Headers,
+endpoint and environment changes apply only to that request; they never enter
+public model metadata or observer events. Explicit replacement-account attempts
+bypass this ambient callback and retain their independently resolved credentials.
+
+A provider opting into this callback can start with a malformed credential file
+so its recovery controls remain available. Other providers retain store errors
+and cannot run from that session's catalog while the file is unreadable. Unrelated
+credential commands are not evaluated on this path. Cancellation and shutdown
+retain the callback and library until foreign work returns. This capability uses
+the existing sized runtime port and adds no C ABI fields.
 
 The `auth` port supports `methods`, `login`, `continue`, `cancelLogin`, `status`,
 `refresh`, and `logout`. The default destination is the host credential store.

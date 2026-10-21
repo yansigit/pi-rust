@@ -88,6 +88,7 @@ async fn replacement_drops_default_credentials_env_and_endpoint_without_changing
     factories.auth.insert(
         "pool".into(),
         Arc::new(super::super::auth::AuthBinding {
+            operations:None,
             provider: auth.clone(),
             runtime: runtime.clone(),
             store: Ok(fixed_credential("default-secret")),
@@ -206,6 +207,7 @@ async fn provider_owned_auth_is_resolved_per_request_and_unavailable_credentials
     factories.auth.insert(
         "pool".into(),
         Arc::new(super::super::auth::AuthBinding {
+            operations:None,
             provider: auth.clone(),
             runtime: runtime.clone(),
             store: Ok(fixed_credential("account-secret")),
@@ -343,6 +345,7 @@ async fn provider_admission_refuses_before_credential_reads_or_transport() {
         id:"retired".into(), api:model.api.as_str().into(), inner:Arc::new(Refusal),
         binding:Arc::new(ExecutionBinding::new("retired",vec![model.clone()],vec![model.clone()], RequestAuth::None)),
         auth:Some(Arc::new(super::super::auth::AuthBinding {
+            operations:None,
             provider:Arc::new(RecordingAuth{calls:Mutex::new(vec![]),base_url:None}), runtime:Arc::new(AuthRuntime::default()), store:Ok(Arc::new(ForbiddenStore)), context:AuthContext::default(),
         })),
     };

@@ -136,7 +136,8 @@ pub(crate) extern "C" fn request(
                     "json.exactNumbers",
                     "auth.publicErrors",
                     "auth.credentialStoreLock",
-                    "providers.initialize"
+                    "providers.initialize",
+                    "auth.providerRequest"
                 ]));
             }
             let signal = bridge.native_signal();

@@ -134,6 +134,8 @@ impl RuntimeFactories {
                 factories.auth.insert(
                     record.manifest.id.clone(),
                     Arc::new(super::auth::AuthBinding {
+                        operations: rpi_extensions::provider_runtime::NativeProviderOperations::from_session(session,&record.manifest.id)
+                            .filter(|operations| operations.supports("requestAuth")).map(Arc::new),
                         provider,
                         runtime: session.auth_runtime(),
                         store: store.clone(),

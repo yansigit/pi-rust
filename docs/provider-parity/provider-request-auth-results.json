@@ -1,0 +1,34 @@
+{
+  "status": "host-capabilities-not-package-parity",
+  "platform": "linux",
+  "toolchain": "Rust 1.78.0",
+  "flags": "-Dwarnings",
+  "results": [
+    {
+      "log": "/tmp/rpi-provider-request-auth-regression-final.log",
+      "sha256": "97766f1a5b01f75f60942715745c207bc7d66ed06f4701b39ca421f76e80b968",
+      "passed": 72,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-provider-request-auth-loaded-final.log",
+      "sha256": "8659b6c4eb7ef43df26e8143578266c3d7bac442f46fd3cb126c7e1d8dea5e16",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-provider-request-auth-manifest-final.log",
+      "sha256": "dc3431f48a65c55a261803183ba54d9e1cf75c5cecd2fca2e8effe4332824057",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "qualification": "Private provider request authentication across the actual loaded library: malformed dormant store, stored API key and expired OAuth crossed with prepared, ambient, refused and invalid callback results; prepared/refused/invalid leave credential bytes unchanged; ambient refresh persists its rotation; legacy malformed-store error and native provider failure terminate. Request-only environment is isolated and credentials never appear in output. Unit regressions cover replacement credential isolation and provider binding.",
+  "not_tested": [
+    "complete Antigravity custody startup and sends",
+    "macOS and Windows native execution"
+  ]
+}

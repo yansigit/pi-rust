@@ -421,7 +421,20 @@ rpi_plugin_sdk::string_handler! {
     /// We return a canned text message so the round-trip has something concrete to
     /// assert (the model the host routes here is `stub-model` — see the smoke test).
     fn on_provider_request(_req_json, out, _user_data) {
+        if let Ok(mode) = std::env::var("RPI_STUB_REQUEST_AUTH") {
+            let request: serde_json::Value = serde_json::from_str(_req_json).unwrap();
+            let expected = if mode == "prepared" { "provider-prepared-key".to_owned() } else { std::env::var("RPI_STUB_EXPECT_API_KEY").unwrap() };
+            assert_eq!(request["options"]["apiKey"], expected);
+            if mode == "prepared" {
+                assert_eq!(request["options"]["headers"]["X-Provider-Private"], "private-header");
+                assert_eq!(request["options"]["env"]["RPI_PRIVATE_REQUEST_ENV"], "request-only");
+                assert!(std::env::var_os("RPI_PRIVATE_REQUEST_ENV").is_none());
+            }
+        }
         PROVIDER_REQUEST_HITS.fetch_add(1, Ordering::SeqCst);
+        if std::env::var_os("RPI_STUB_PROVIDER_ERROR").is_some() {
+            return 1;
+        }
         let json = r#"{"role":"assistant","content":[{"type":"text","text":"from-stub-provider"}],"api":"faux","provider":"stub-provider","model":"stub-model","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0.0,"output":0.0,"cacheRead":0.0,"cacheWrite":0.0,"total":0.0}},"stopReason":"stop","timestamp":0}"#;
         i32::from(!out.write(json.to_owned()))
     }
@@ -730,9 +743,16 @@ extern "C" fn on_auth_request(
 
 mod catalog;
 mod initialization;
+mod request_auth;
 mod wrapping;
 
 rpi_plugin_sdk::export_plugin!(|api| {
+    if std::env::var_os("RPI_STUB_REQUEST_AUTH").is_some() {
+        if let Err(error) = request_auth::register(api) {
+            eprintln!("stub request auth: {error}");
+            return 1;
+        }
+    }
     if std::env::var_os("RPI_STUB_INITIALIZE").is_some() {
         if let Err(error) = initialization::register(api) {
             eprintln!("stub initialization: {error}");

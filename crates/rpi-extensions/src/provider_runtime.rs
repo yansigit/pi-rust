@@ -27,6 +27,7 @@ impl RuntimeManifest {
                         | "authMethods"
                         | "credentialStore"
                         | "initialize"
+                        | "requestAuth"
                 ) || !seen.insert(action)
             })
         {
@@ -155,6 +156,6 @@ mod tests {
         ] {
             assert!(RuntimeManifest::parse(&input.to_string()).is_err());
         }
-        assert!(RuntimeManifest::parse(&json!({"version":1,"id":"provider","actions":["preflight","refreshCatalog","authMethods","credentialStore","initialize"]}).to_string()).is_ok());
+        assert!(RuntimeManifest::parse(&json!({"version":1,"id":"provider","actions":["preflight","refreshCatalog","authMethods","credentialStore","initialize","requestAuth"]}).to_string()).is_ok());
     }
 }

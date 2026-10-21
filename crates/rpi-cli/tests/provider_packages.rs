@@ -10,6 +10,135 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[test]
+#[ignore = "requires cargo build -p plugin-stub with private request auth"]
+fn native_request_auth_preserves_dormant_credentials_and_legacy_failure() {
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    for credential in [
+        "malformed dormant credential",
+        r#"{"stub-provider":{"type":"api_key","key":"stored-fixture-key"}}"#,
+        r#"{"stub-provider":{"type":"oauth","access":"expired","refresh":"dormant-refresh","expires":1}}"#,
+    ] {
+        for mode in ["prepared", "ambient", "refuse", "invalid"] {
+            let temp = tempfile::tempdir().unwrap();
+            let agent = temp.path().join("agent");
+            std::fs::create_dir_all(&agent).unwrap();
+            let path = agent.join("auth.json");
+            std::fs::write(&path, credential).unwrap();
+            let output = bounded_output(
+                command(&temp, &library)
+                    .env("RPI_STUB_REQUEST_AUTH", mode)
+                    .env(
+                        "RPI_STUB_EXPECT_API_KEY",
+                        if credential.contains("dormant-refresh") {
+                            "stub-auth-key"
+                        } else {
+                            "stored-fixture-key"
+                        },
+                    )
+                    .args([
+                        "--provider",
+                        "stub-provider",
+                        "--model",
+                        "stub-model",
+                        "--print",
+                        "--no-session",
+                        "--no-tools",
+                        "hello",
+                    ]),
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let success =
+                mode == "prepared" || (mode == "ambient" && !credential.starts_with("malformed"));
+            assert_eq!(
+                output.status.success(),
+                success,
+                "{mode}: {stdout}\n{stderr}"
+            );
+            assert_eq!(
+                stdout.contains("from-stub-provider"),
+                success,
+                "{mode}: {stdout}\n{stderr}"
+            );
+            if mode == "refuse" {
+                assert!(format!("{stdout}{stderr}")
+                    .contains("fixture provider refused request authentication"));
+            }
+            // Refresh is never attempted in prepared/refused/invalid mode.
+            if mode != "ambient" || !credential.contains("dormant-refresh") {
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), credential);
+            } else {
+                assert!(std::fs::read_to_string(&path)
+                    .unwrap()
+                    .contains("stub-rotated-refresh"));
+            }
+            for secret in [
+                "provider-prepared-key",
+                "stored-fixture-key",
+                "dormant-refresh",
+                "private-header",
+            ] {
+                assert!(!stdout.contains(secret));
+                assert!(!stderr.contains(secret));
+            }
+        }
+    }
+    let temp = tempfile::tempdir().unwrap();
+    let agent = temp.path().join("agent");
+    std::fs::create_dir_all(&agent).unwrap();
+    std::fs::write(agent.join("auth.json"), "malformed").unwrap();
+    std::fs::write(agent.join("models.json"),r#"{"providers":{"legacy":{"api":"openai-completions","baseUrl":"https://legacy.invalid","apiKey":"fixture-key","models":[{"id":"model"}]}}}"#).unwrap();
+    let output = bounded_output(
+        command(&temp, &library)
+            .env("RPI_STUB_REQUEST_AUTH", "prepared")
+            .args([
+                "--provider",
+                "legacy",
+                "--model",
+                "model",
+                "--print",
+                "--no-session",
+                "--no-tools",
+                "hello",
+            ]),
+    );
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("auth.json"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // The fixture's provider ID makes its error match the existing transient classifier.
+    std::fs::write(
+        agent.join("settings.json"),
+        r#"{"retry":{"enabled":false}}"#,
+    )
+    .unwrap();
+    let output = bounded_output(
+        command(&temp, &library)
+            .env("RPI_STUB_REQUEST_AUTH", "prepared")
+            .env("RPI_STUB_PROVIDER_ERROR", "1")
+            .args([
+                "--provider",
+                "stub-provider",
+                "--model",
+                "stub-model",
+                "--print",
+                "--no-session",
+                "--no-tools",
+                "hello",
+            ]),
+    );
+    assert!(!output.status.success());
+    assert!(format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+    .contains("returned error code 1"));
+}
+
+#[test]
 #[ignore = "requires cargo build -p plugin-stub with provider initialization"]
 fn native_initialization_precedes_auth_and_session_credential_reads() {
     let library = library("plugin_stub").expect("build the current plugin-stub first");
@@ -1235,4 +1364,26 @@ async fn antigravity_native_preflight_and_auth_errors_cross_the_loaded_library()
     assert_eq!(error.to_string(),"Pi holds the Antigravity vault placeholder, not a login. Run /login, or serve Antigravity from the vault.");
     session.auth_runtime().shutdown().await;
     session.begin_shutdown();
+}
+
+fn bounded_output(command: &mut Command) -> std::process::Output {
+    let mut child = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let started = std::time::Instant::now();
+    while child.try_wait().unwrap().is_none() {
+        if started.elapsed() > Duration::from_secs(10) {
+            child.kill().unwrap();
+            let output = child.wait_with_output().unwrap();
+            panic!(
+                "native fixture timed out: {}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    child.wait_with_output().unwrap()
 }

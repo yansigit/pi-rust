@@ -318,11 +318,28 @@ fn resolve_with_factories(
         .map(|requested| canonicalize_cli_provider(requested, &models_cfg))
         .transpose()?;
     let cli_provider = canonical_cli_provider.as_deref();
-    let auth_store = config::read_auth()?;
-    let mut anthropic_credentials =
-        resolve_anthropic_credentials(&models_cfg, &auth_store, &factories.manifests);
-    let mut openai_credentials =
-        resolve_openai_credentials(&models_cfg, &auth_store, &factories.manifests);
+    let owns_request_auth = |id: &str| {
+        factories
+            .auth
+            .get(id)
+            .is_some_and(|auth| auth.operations.is_some())
+    };
+    let (auth_store, auth_error) = match config::read_auth() {
+        Ok(store) => (store, None),
+        Err(error) if factories.auth.keys().any(|id| owns_request_auth(id)) => {
+            (Default::default(), Some(error))
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let (mut anthropic_credentials, mut openai_credentials) = if auth_error.is_none() {
+        (
+            resolve_anthropic_credentials(&models_cfg, &auth_store, &factories.manifests),
+            resolve_openai_credentials(&models_cfg, &auth_store, &factories.manifests),
+        )
+    } else {
+        // A failed store read must not execute unrelated credential commands.
+        (Default::default(), Default::default())
+    };
     for id in factories.auth.keys() {
         // A provider-owned resolver may refresh OAuth or acquire custody auth.
         // Never substitute the legacy resolver's key or fallback for it.
@@ -567,6 +584,14 @@ fn resolve_with_factories(
     // ---- Provider build ----
     let selected_api = model.api.clone();
     let selected_provider = model.provider.clone();
+    if let Some(error) = auth_error {
+        if !owns_request_auth(&selected_provider) {
+            return Err(error.into());
+        }
+        // Only opted-in providers can defer the failed read to their private
+        // resolver. Other providers must not fall back to ambient credentials.
+        full_catalog.retain(|model| owns_request_auth(&model.provider));
+    }
     if let Some(base) = &cli_base_url_override {
         model.base_url = base.clone();
         for candidate in &mut full_catalog {
