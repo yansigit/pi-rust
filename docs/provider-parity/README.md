@@ -170,6 +170,14 @@ eight concurrent writers, cancellation, stale-lock recovery and write-failure
 checks. This qualifies record storage within M01; authentication, malformed-JSON
 presentation and native command integration remain pending. The shared native
 collation data also passes Antigravity's six roster regressions unchanged.
+Multiprovider's [stream-state-machine evidence](../../../rpi-package/packages/rpi-multiprovider/tests/lift-evidence.json)
+adds 96 differential scenarios across both stream entry paths, including retry
+pauses, fatal-error tolerance, thinking/tool output boundaries, terminal precedence,
+response metadata, external failover and affinity handoff. Two native cancellation
+cases check lease cleanup. This qualifies the state-machine portion of M08;
+delegated SDK and actual native-library integration remain pending. The SDK can
+now retain a captured session-owned wrapper factory; its provider suite and
+no-default-feature check pass on Rust 1.78 with warnings denied.
 The agreed exceptions are native rpi presentation, native-only extension
 contracts, isolated import storage, fresh runtime ownership, and the approved
 Antigravity body-read timeout/cancellation and Cursor partial snapshots above; original Pi keeps

@@ -3550,7 +3550,8 @@
     "portFiles": [
       "packages/rpi-multiprovider/src/store/mod.rs",
       "packages/rpi-multiprovider/src/store/records.rs",
-      "packages/rpi-multiprovider/src/store/schema.rs"
+      "packages/rpi-multiprovider/src/store/schema.rs",
+      "packages/rpi-multiprovider/src/store/port.rs"
     ],
     "acceptanceFiles": [
       "packages/rpi-multiprovider/tests/store.rs",
@@ -3593,10 +3594,10 @@
       "M04"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/stream.rs"
+      "packages/rpi-multiprovider/src/lift.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/stream.rs"
+      "packages/rpi-multiprovider/tests/lift.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3727,7 +3728,8 @@
     "portFiles": [
       "packages/rpi-multiprovider/src/store/mod.rs",
       "packages/rpi-multiprovider/src/store/records.rs",
-      "packages/rpi-multiprovider/src/store/schema.rs"
+      "packages/rpi-multiprovider/src/store/schema.rs",
+      "packages/rpi-multiprovider/src/store/port.rs"
     ],
     "acceptanceFiles": [
       "packages/rpi-multiprovider/tests/store.rs",
@@ -3784,10 +3786,10 @@
       "M04"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/stream.rs"
+      "packages/rpi-multiprovider/src/lift.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/stream.rs"
+      "packages/rpi-multiprovider/tests/lift.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
