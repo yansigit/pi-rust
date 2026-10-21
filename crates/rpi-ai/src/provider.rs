@@ -7,11 +7,27 @@ use crate::event_stream::AssistantMessageEventStream;
 use crate::model::Model;
 use crate::types::{AssistantMessage, Context, DeferredHandle, ThinkingBudgets, ThinkingLevel};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
 /// Default deadline for one LLM API request, including its streamed response.
 pub const DEFAULT_LLM_API_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Private response information for the wrapper that owns this attempt.
+/// Headers can carry credentials; this must never be an ordinary agent event.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResponseMetadata {
+    pub status: u16,
+    pub headers: Vec<(String, Vec<u8>)>,
+}
+
+pub type ResponseObserver = Arc<
+    dyn Fn(ResponseMetadata) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// Cache-retention hint passed to a provider. Mirrors TS `CacheRetention`.
 /// `Long` requests 1h ephemeral cache control on Anthropic (subject to compat);
@@ -27,11 +43,16 @@ pub enum CacheRetention {
 /// Options for a "simple" (non-agent) stream call — what compaction / smoke
 /// tests / bare provider usage pass. The agent loop wraps this with its richer
 /// equivalent when it drives a real turn (M2).
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SimpleStreamOptions {
     /// API key. A provider may fall back to an env var when `None` (M3 anthropic
     /// reads `ANTHROPIC_API_KEY`); faux ignores it.
     pub api_key: Option<String>,
+    /// Private per-attempt auth. It is never included in ordinary hook events.
+    pub authentication: crate::auth::AttemptAuth,
+    /// Request-local environment overrides; providers must not change process env.
+    pub env: BTreeMap<String, String>,
+    pub response_observer: Option<ResponseObserver>,
     /// Request timeout. Defaults to 600 seconds; `None` uses the same provider
     /// fallback and can be used by patches to clear a caller override.
     pub timeout: Option<Duration>,
@@ -73,6 +94,9 @@ impl Default for SimpleStreamOptions {
     fn default() -> Self {
         Self {
             api_key: None,
+            authentication: crate::auth::AttemptAuth::Ambient,
+            env: BTreeMap::new(),
+            response_observer: None,
             timeout: Some(DEFAULT_LLM_API_TIMEOUT),
             max_retries: None,
             max_retry_delay: None,
@@ -86,6 +110,26 @@ impl Default for SimpleStreamOptions {
             temperature: None,
             thinking_budgets: None,
         }
+    }
+}
+
+impl std::fmt::Debug for SimpleStreamOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SimpleStreamOptions")
+            .field("api_key", &self.api_key.as_ref().map(|_| "[redacted]"))
+            .field("authentication", &self.authentication)
+            .field("env", &"[redacted]")
+            .field("headers", &self.headers.as_ref().map(|_| "[redacted]"))
+            .field("timeout", &self.timeout)
+            .field("max_retries", &self.max_retries)
+            .field("max_retry_delay", &self.max_retry_delay)
+            .field("cache_retention", &self.cache_retention)
+            .field("session_id", &self.session_id)
+            .field("reasoning", &self.reasoning)
+            .field("max_tokens", &self.max_tokens)
+            .field("temperature", &self.temperature)
+            .field("thinking_budgets", &self.thinking_budgets)
+            .finish_non_exhaustive()
     }
 }
 

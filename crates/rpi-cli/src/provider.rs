@@ -77,6 +77,7 @@ use rpi_ai::{
     AssistantMessageEventStream, Context, Model, Provider, SimpleStreamOptions, ThinkingLevel,
 };
 
+mod auth;
 mod binding;
 mod factories;
 use binding::{ExecutionBinding, RequestAuth};
@@ -317,10 +318,16 @@ fn resolve_with_factories(
         .transpose()?;
     let cli_provider = canonical_cli_provider.as_deref();
     let auth_store = config::read_auth()?;
-    let anthropic_credentials =
+    let mut anthropic_credentials =
         resolve_anthropic_credentials(&models_cfg, &auth_store, &factories.manifests);
-    let openai_credentials =
+    let mut openai_credentials =
         resolve_openai_credentials(&models_cfg, &auth_store, &factories.manifests);
+    for id in factories.auth.keys() {
+        // A provider-owned resolver may refresh OAuth or acquire custody auth.
+        // Never substitute the legacy resolver's key or fallback for it.
+        anthropic_credentials.remove(id);
+        openai_credentials.insert(id.clone(), OpenAiCredential::ProviderOwned);
+    }
     // The CLI override is intentionally not inserted into either provider map:
     // it is applied only after the final model/provider identity is selected.
     let cli_api_key = cli_api_key
@@ -336,6 +343,7 @@ fn resolve_with_factories(
     // ---- Catalog: built-in + ~/.rpi/models.json (merged, reusing the
     // already-loaded config) ----
     let mut catalog = build_catalog(&models_cfg, &factories.manifests);
+    let canonical_catalog = catalog.clone();
 
     // The ambient Anthropic override belongs only to the built-in identity.
     // Apply the CLI override after selection so other providers keep their
@@ -607,6 +615,7 @@ fn resolve_with_factories(
         &selected_provider,
         &selected_api,
         &full_catalog,
+        &canonical_catalog,
         selected_anthropic_credential.as_ref(),
         selected_openai_key.as_deref(),
         &settings,
@@ -668,6 +677,7 @@ fn resolve_with_factories(
                 &candidate.provider,
                 &candidate.api,
                 &full_catalog,
+                &canonical_catalog,
                 anth.as_ref(),
                 openai_key.as_deref(),
                 &settings,
@@ -718,6 +728,7 @@ fn build_runtime(
     provider_id: &str,
     api: &rpi_ai::Api,
     catalog: &[Model],
+    canonical_catalog: &[Model],
     anthropic_credential: Option<&AnthropicCredential>,
     openai_key: Option<&str>,
     settings: &settings::Settings,
@@ -727,7 +738,10 @@ fn build_runtime(
         .manifests
         .iter()
         .any(|manifest| manifest.id == provider_id && !manifest.requires_auth);
-    let provider_has_auth = anthropic_credential.is_some() || openai_key.is_some() || anonymous;
+    let provider_has_auth = anthropic_credential.is_some()
+        || openai_key.is_some()
+        || anonymous
+        || factories.auth.contains_key(provider_id);
     let models = catalog
         .iter()
         .filter(|model| model.api == *api && model.provider == provider_id)
@@ -741,7 +755,7 @@ fn build_runtime(
     };
     let has_provider_key = matches!(auth, RequestAuth::ApiKey(_)) || anonymous;
     let (provider, binding) = factories
-        .configure(provider_id, api, models, auth, settings)
+        .configure(provider_id, api, models, canonical_catalog, auth, settings)
         .expect("supported protocol or registered provider factory");
     (provider, binding, has_provider_key)
 }
@@ -914,6 +928,7 @@ type AnthropicCredentials = BTreeMap<String, AnthropicCredential>;
 enum OpenAiCredential {
     Key(String),
     Anonymous,
+    ProviderOwned,
 }
 type OpenAiCredentials = BTreeMap<String, OpenAiCredential>;
 

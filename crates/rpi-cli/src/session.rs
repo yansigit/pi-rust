@@ -1096,10 +1096,17 @@ pub async fn dispatch_session_event_async(
     // could re-enter a reload path that locks it). Holding the keepalive across
     // the await keeps the cdylibs (owning the handler fn pointers) mapped even
     // if a concurrent `/reload` swaps the session cell out.
-    let (snapshot, keepalive) = {
+    let (snapshot, keepalive, auth_runtime) = {
         let session = reload_context.extension_session.lock().unwrap();
-        (session.snapshot_arc(), session.keepalive())
+        (
+            session.snapshot_arc(),
+            session.keepalive(),
+            session.auth_runtime(),
+        )
     };
+    if tag == rpi_plugin_sdk::EventTag::SessionShutdown {
+        auth_runtime.shutdown().await;
+    }
     match snapshot {
         Some(snapshot) => rpi_extensions::dispatch_lifecycle_event(&snapshot, tag, keepalive).await,
         None => None,
@@ -1111,7 +1118,9 @@ pub async fn dispatch_session_event_async(
 async fn shutdown_extensions_for_reload(
     snapshot: Option<Arc<rpi_extensions::RegistrySnapshot>>,
     keepalive: Arc<rpi_extensions::PluginKeepalive>,
+    auth_runtime: Arc<rpi_ai::auth::AuthRuntime>,
 ) -> Result<(), String> {
+    auth_runtime.shutdown().await;
     if let Some(snapshot) = snapshot {
         tokio::task::spawn_blocking(move || {
             let _keepalive = keepalive;
@@ -1239,23 +1248,6 @@ where
     } = prepared;
     let mut warnings = false;
 
-    // Shutdown callbacks must finish before a replacement can unload old DLLs.
-    // Ordinary lifecycle dispatch can time out or stop on a veto; unload cleanup
-    // instead joins every handler while keeping its module mapped.
-    let (shutdown_snapshot, shutdown_keepalive) = {
-        let session = ctx.extension_session.lock().unwrap();
-        (session.snapshot_arc(), session.keepalive())
-    };
-    if let Err(reason) = shutdown_extensions_for_reload(shutdown_snapshot, shutdown_keepalive).await
-    {
-        return ReloadOutcome {
-            summary: "Reload failed during extension shutdown".into(),
-            had_warnings: true,
-            details: vec![reason],
-            had_errors: true,
-        };
-    }
-
     // ---- 1. Build a fresh ActionBridge + ExtensionSession ----
     // The fresh bridge carries the SAME `HarnessActionHost` (the host's harness
     // cell already points at this harness; the host impl is reusable across
@@ -1378,6 +1370,28 @@ where
     } else {
         None
     };
+
+    // Shutdown callbacks must finish before a replacement can unload old DLLs.
+    // Ordinary lifecycle dispatch can time out or stop on a veto; unload cleanup
+    // instead joins every handler while keeping its module mapped.
+    let (shutdown_snapshot, shutdown_keepalive, auth_runtime) = {
+        let session = ctx.extension_session.lock().unwrap();
+        (
+            session.snapshot_arc(),
+            session.keepalive(),
+            session.auth_runtime(),
+        )
+    };
+    if let Err(reason) =
+        shutdown_extensions_for_reload(shutdown_snapshot, shutdown_keepalive, auth_runtime).await
+    {
+        return ReloadOutcome {
+            summary: "Reload failed during extension shutdown".into(),
+            had_warnings: true,
+            details: vec![reason],
+            had_errors: true,
+        };
+    }
 
     // ---- 2. Invalidate the old session + bridge BEFORE the swap ----
     // The old registry's `active` flag flips false so any in-flight
@@ -4029,6 +4043,7 @@ mod tests {
         super::shutdown_extensions_for_reload(
             Some(Arc::new(registry.snapshot())),
             rpi_extensions::PluginKeepalive::empty(),
+            Arc::new(rpi_ai::auth::AuthRuntime::default()),
         )
         .await
         .unwrap();

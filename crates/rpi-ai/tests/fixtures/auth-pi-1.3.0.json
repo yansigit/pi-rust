@@ -1,0 +1,121 @@
+{
+  "reference": "earendil-works/pi-mono@71023aec1546d6d677a65669c5665c0927ce0dd0",
+  "cases": [
+    {
+      "name": "valid",
+      "expires": 1300001,
+      "refreshedExpiry": 2000000,
+      "requests": 1,
+      "refreshes": 0,
+      "writes": 0,
+      "credential": {
+        "type": "oauth",
+        "access": "old-access",
+        "refresh": "old-refresh",
+        "expires": 1300001
+      },
+      "results": [
+        {
+          "auth": {
+            "apiKey": "old-access"
+          },
+          "source": "OAuth"
+        }
+      ]
+    },
+    {
+      "name": "five-minute-boundary",
+      "expires": 1300000,
+      "refreshedExpiry": 2000000,
+      "requests": 1,
+      "refreshes": 1,
+      "writes": 1,
+      "credential": {
+        "type": "oauth",
+        "access": "new-access",
+        "refresh": "rotated-refresh",
+        "expires": 2000000
+      },
+      "results": [
+        {
+          "auth": {
+            "apiKey": "new-access"
+          },
+          "source": "OAuth"
+        }
+      ]
+    },
+    {
+      "name": "expired",
+      "expires": 0,
+      "refreshedExpiry": 2000000,
+      "requests": 1,
+      "refreshes": 1,
+      "writes": 1,
+      "credential": {
+        "type": "oauth",
+        "access": "new-access",
+        "refresh": "rotated-refresh",
+        "expires": 2000000
+      },
+      "results": [
+        {
+          "auth": {
+            "apiKey": "new-access"
+          },
+          "source": "OAuth"
+        }
+      ]
+    },
+    {
+      "name": "short-refreshed-token",
+      "expires": 1,
+      "refreshedExpiry": 1100000,
+      "requests": 1,
+      "refreshes": 1,
+      "writes": 1,
+      "credential": {
+        "type": "oauth",
+        "access": "new-access",
+        "refresh": "rotated-refresh",
+        "expires": 1100000
+      },
+      "results": [
+        {
+          "auth": {
+            "apiKey": "new-access"
+          },
+          "source": "OAuth"
+        }
+      ]
+    },
+    {
+      "name": "concurrent",
+      "expires": 1,
+      "refreshedExpiry": 2000000,
+      "requests": 2,
+      "refreshes": 1,
+      "writes": 1,
+      "credential": {
+        "type": "oauth",
+        "access": "new-access",
+        "refresh": "rotated-refresh",
+        "expires": 2000000
+      },
+      "results": [
+        {
+          "auth": {
+            "apiKey": "new-access"
+          },
+          "source": "OAuth"
+        },
+        {
+          "auth": {
+            "apiKey": "new-access"
+          },
+          "source": "OAuth"
+        }
+      ]
+    }
+  ]
+}

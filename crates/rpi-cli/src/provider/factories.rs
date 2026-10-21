@@ -64,6 +64,7 @@ pub(super) struct RuntimeFactories {
     providers: BTreeMap<String, Arc<dyn ProviderFactory>>,
     provider_apis: BTreeMap<String, String>,
     pub manifests: Vec<ProviderManifest>,
+    pub auth: BTreeMap<String, Arc<super::auth::AuthBinding>>,
 }
 
 impl Default for RuntimeFactories {
@@ -86,6 +87,7 @@ impl Default for RuntimeFactories {
             providers: BTreeMap::new(),
             provider_apis: BTreeMap::new(),
             manifests: Vec::new(),
+            auth: BTreeMap::new(),
         }
     }
 }
@@ -112,6 +114,33 @@ impl RuntimeFactories {
             })
             .collect();
             factories.manifests = manifests_from_session(session);
+            let store = config::auth_path()
+                .map_err(|_| rpi_ai::auth::AuthError::Store)
+                .and_then(config::auth_store::CompatibilityCredentialStore::new)
+                .map(|store| Arc::new(store) as Arc<dyn rpi_ai::auth::CredentialStore>);
+            let context = rpi_ai::auth::AuthContext {
+                env: std::env::vars_os()
+                    .filter_map(|(key, value)| {
+                        Some((key.into_string().ok()?, value.into_string().ok()?))
+                    })
+                    .collect(),
+            };
+            for record in snapshot.auth_providers() {
+                let provider = rpi_extensions::provider_auth::NativeProviderAuth::from_session(
+                    session,
+                    &record.manifest.id,
+                )
+                .expect("auth provider belongs to this snapshot");
+                factories.auth.insert(
+                    record.manifest.id.clone(),
+                    Arc::new(super::auth::AuthBinding {
+                        provider,
+                        runtime: session.auth_runtime(),
+                        store: store.clone(),
+                        context: context.clone(),
+                    }),
+                );
+            }
         }
         factories
     }
@@ -121,6 +150,7 @@ impl RuntimeFactories {
         provider_id: &str,
         api: &rpi_ai::Api,
         models: Vec<Model>,
+        canonical_models: &[Model],
         auth: RequestAuth,
         settings: &settings::Settings,
     ) -> Option<(Arc<dyn Provider>, Arc<ExecutionBinding>)> {
@@ -133,12 +163,18 @@ impl RuntimeFactories {
                     .map_or(true, |declared| declared == api.as_str())
             })
             .or_else(|| self.protocols.get(api.as_str()))?;
-        let binding = Arc::new(ExecutionBinding::new(provider_id, models, auth));
+        let binding = Arc::new(ExecutionBinding::new(
+            provider_id,
+            models,
+            canonical_models.to_vec(),
+            auth,
+        ));
         let inner = factory.create(provider_id, binding.models().to_vec(), settings);
         let provider = Arc::new(ConfiguredProvider {
             id: provider_id.into(),
             inner,
             binding: binding.clone(),
+            auth: self.auth.get(provider_id).cloned(),
         });
         Some((provider, binding))
     }
@@ -148,6 +184,7 @@ struct ConfiguredProvider {
     id: String,
     inner: Arc<dyn Provider>,
     binding: Arc<ExecutionBinding>,
+    auth: Option<Arc<super::auth::AuthBinding>>,
 }
 
 /// The harness resolves providers by ID. Keep each ID unique even when a
@@ -250,11 +287,45 @@ impl Provider for ConfiguredProvider {
         context: &Context,
         options: &SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        let Some((model, options)) = self.binding.prepare(model, options) else {
+        let Some((mut model, mut options)) = self.binding.prepare(model, options) else {
             return unbound_model_error(model, &self.id).await;
         };
+        if matches!(options.authentication, rpi_ai::auth::AttemptAuth::Ambient) {
+            if let Some(auth) = &self.auth {
+                if let Err(error) = auth.prepare(&mut model, &mut options).await {
+                    return auth_error(&model, error).await;
+                }
+            }
+        }
         self.inner.stream_simple(&model, context, &options).await
     }
+}
+
+async fn auth_error(model: &Model, error: rpi_ai::auth::AuthError) -> AssistantMessageEventStream {
+    let cancelled = error == rpi_ai::auth::AuthError::Cancelled;
+    let (mut producer, stream) = rpi_ai::event_stream::create_assistant_message_event_stream();
+    producer
+        .push(rpi_ai::AssistantMessageEvent::Error {
+            reason: if cancelled {
+                rpi_ai::types::ErrorReason::Aborted
+            } else {
+                rpi_ai::types::ErrorReason::Error
+            },
+            error: rpi_ai::types::AssistantMessage::terminal(
+                model.api.clone(),
+                model.provider.clone(),
+                model.id.clone(),
+                if cancelled {
+                    rpi_ai::types::StopReason::Aborted
+                } else {
+                    rpi_ai::types::StopReason::Error
+                },
+                error.to_string(),
+                0,
+            ),
+        })
+        .await;
+    stream
 }
 
 #[cfg(test)]
@@ -265,6 +336,8 @@ mod tests {
         Api, AssistantMessageEvent,
     };
     use std::sync::Mutex;
+
+    include!("auth_tests.rs");
 
     type Calls = Arc<Mutex<Vec<(Model, SimpleStreamOptions)>>>;
     struct RecordingFactory(Calls);
@@ -342,6 +415,7 @@ mod tests {
                         "deepseek",
                         &api,
                         vec![model],
+                        &[],
                         RequestAuth::ApiKey(token.into()),
                         &settings::Settings::default(),
                     )
@@ -442,6 +516,7 @@ mod tests {
                     "deepseek",
                     &api,
                     vec![model],
+                    &[],
                     RequestAuth::None,
                     &settings::Settings::default(),
                 )
@@ -498,6 +573,7 @@ mod tests {
                     "account",
                     &raw.api.clone(),
                     vec![raw],
+                    &[],
                     RequestAuth::ApiKey("private-credential".into()),
                     &settings::Settings::default(),
                 )
@@ -586,6 +662,7 @@ mod tests {
                 "gateway",
                 &Api::AnthropicMessages,
                 models,
+                &[],
                 RequestAuth::Headers(BTreeMap::from([(
                     "authorization".into(),
                     "Bearer default".into(),

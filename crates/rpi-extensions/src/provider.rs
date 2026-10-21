@@ -430,6 +430,12 @@ fn options_json(opts: &SimpleStreamOptions) -> serde_json::Value {
         "maxRetries": opts.max_retries,
         "maxRetryDelayMs": opts.max_retry_delay.map(|d| d.as_millis() as u64),
         "headers": opts.headers,
+        "env": opts.env,
+        "authMode": match opts.authentication {
+            rpi_ai::auth::AttemptAuth::Ambient => "ambient",
+            rpi_ai::auth::AttemptAuth::Replace(_) => "replace",
+        },
+        "responseMetadata": opts.response_observer.is_some(),
         "metadata": opts.metadata,
         "cacheRetention": format!("{:?}", opts.cache_retention),
         "sessionId": opts.session_id,
@@ -560,6 +566,28 @@ async fn drive_streaming_plugin_provider(
             }
             chunk = rx.recv() => match chunk {
                 Some(chunk) => {
+                    if chunk.get("type").and_then(serde_json::Value::as_str) == Some("response") {
+                        if let Some(observer) = &opts.response_observer {
+                            let receipt = serde_json::from_value::<rpi_ai::provider::ResponseMetadata>(chunk["response"].clone());
+                            let Ok(receipt) = receipt else {
+                                control.cancel();
+                                let mut partial = mapper.output.clone();
+                                partial.stop_reason = rpi_ai::types::StopReason::Error;
+                                partial.error_message = Some("invalid private provider response metadata".into());
+                                return partial;
+                            };
+                            tokio::select! {
+                                biased;
+                                _ = cancel.cancelled() => {
+                                    control.cancel();
+                                    cancelled_mid_stream = true;
+                                    break 'forward;
+                                },
+                                _ = observer(receipt) => {},
+                            }
+                        }
+                        continue;
+                    }
                     let mut next = Some(chunk);
                     while let Some(chunk) = next {
                         let metadata_only = chunk.get("type").and_then(serde_json::Value::as_str) == Some("usage");

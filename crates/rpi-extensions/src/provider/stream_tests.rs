@@ -14,6 +14,101 @@ extern "C" fn unused_request(_: StbStringRef, _: *mut StbString, _: *mut c_void)
     1
 }
 
+extern "C" fn private_response(
+    request: StbStringRef,
+    emit: Option<ProviderStreamEmitFn>,
+    data: *mut c_void,
+    _: *const ProviderStreamControl,
+    _: Option<ProviderStreamCompletionFn>,
+    _: *mut c_void,
+    out: *mut StbString,
+    context: *mut c_void,
+) -> i32 {
+    rpi_plugin_sdk::guard_or(1, || {
+        let state = unsafe { Arc::from_raw(context.cast::<PausedRequest>()) };
+        let request: serde_json::Value = serde_json::from_str(unsafe { request.as_str() }).unwrap();
+        assert_eq!(request["options"]["responseMetadata"], true);
+        let receipt = rpi_ai::provider::ResponseMetadata {
+            status: 429,
+            headers: vec![("set-cookie".into(), b"private-cookie".to_vec())],
+        };
+        emit.unwrap()(
+            StbString::from_string(
+                serde_json::json!({"type":"response","response":receipt}).to_string(),
+            ),
+            data,
+        );
+        let guard = state.released.lock().unwrap();
+        let _wait = state
+            .wake
+            .wait_timeout_while(guard, Duration::from_secs(3), |released| !*released)
+            .unwrap();
+        let message = AssistantMessage::empty(Api::Faux, "probe", "m", 0);
+        unsafe {
+            *out = StbString::from_string(serde_json::to_string(&message).unwrap());
+        }
+        0
+    })
+}
+
+#[tokio::test]
+async fn private_response_frames_reach_only_the_invoking_observer_and_do_not_start_output() {
+    let state = Arc::new(PausedRequest::default());
+    let record = RegisteredProvider {
+        provider_id: "probe".into(),
+        base_url: "https://example".into(),
+        api_style: "faux".into(),
+        request_fn: unused_request,
+        stream_fn: Some(private_response),
+        plugin_free_string: rpi_plugin_sdk::callbacks::free_string,
+        user_data: Arc::into_raw(state.clone()) as *mut c_void,
+    };
+    let provider = PluggableProvider::new(
+        record,
+        Arc::new(ExtensionRegistry::new().snapshot()),
+        PluginKeepalive::empty(),
+        Handle::current(),
+    );
+    let receipts = Arc::new(Mutex::new(vec![]));
+    let options = SimpleStreamOptions {
+        response_observer: Some(Arc::new({
+            let receipts = receipts.clone();
+            move |receipt| {
+                let receipts = receipts.clone();
+                Box::pin(async move {
+                    receipts.lock().unwrap().push(receipt);
+                })
+            }
+        })),
+        ..Default::default()
+    };
+    let model = Model::new("m", "M", Api::Faux, "probe", "https://example");
+    let mut stream = provider
+        .stream_simple(&model, &Context::new(vec![]), &options)
+        .await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while receipts.lock().unwrap().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let premature_output = tokio::time::timeout(Duration::from_millis(25), stream.next()).await;
+    *state.released.lock().unwrap() = true;
+    state.wake.notify_all();
+    assert!(
+        premature_output.is_err(),
+        "private headers must not open the agent stream"
+    );
+    assert_eq!(receipts.lock().unwrap().len(), 1);
+    assert_eq!(receipts.lock().unwrap()[0].status, 429);
+    while let Some(event) = stream.next().await {
+        assert!(!serde_json::to_string(&event)
+            .unwrap()
+            .contains("private-cookie"));
+    }
+}
+
 // Ignores the control surface and returns success only when the test releases
 // it. The timeout bounds runtime shutdown even if an assertion fails.
 extern "C" fn paused_success(

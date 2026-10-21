@@ -89,6 +89,37 @@ fn find_cdylib(dir: &std::path::Path) -> Option<PathBuf> {
     }
 }
 
+#[tokio::test]
+#[ignore = "requires cargo build -p plugin-stub with the current SDK"]
+async fn native_auth_registration_preserves_millisecond_expiry() {
+    use rpi_ai::auth::{OAuthCredential, ProviderAuth};
+    let (source, _) =
+        locate_stub().expect("build plugin-stub before running native auth acceptance");
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::copy(source, directory.path().join(cdylib_filename())).unwrap();
+    let diagnostics = Arc::new(RecordingDiag::default());
+    let session = load_session(&[directory.path().to_path_buf()], diagnostics.clone(), None);
+    let auth =
+        rpi_extensions::provider_auth::NativeProviderAuth::from_session(&session, "stub-auth")
+            .expect("current plugin must register the auth capability");
+    assert!(diagnostics.warnings.lock().unwrap().is_empty());
+    assert_eq!(auth.manifest().methods[0].id, "browser");
+    let credential = OAuthCredential {
+        access: "old".into(),
+        refresh: "old-refresh".into(),
+        expires_ms: 0,
+        extra: Default::default(),
+    };
+    let refreshed = auth
+        .refresh(credential, CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(refreshed.expires_ms, 1234567890123);
+    assert_eq!(refreshed.refresh, "stub-rotated-refresh");
+    let request = auth.to_auth(refreshed).await.unwrap();
+    assert_eq!(request.api_key.as_deref(), Some("stub-auth-key"));
+}
+
 /// A diagnostics sink that records warnings so the test can assert e.g. "no
 /// ABI-mismatch skip happened".
 #[derive(Default)]

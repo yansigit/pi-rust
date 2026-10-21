@@ -12,6 +12,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod auth;
 pub mod constrained;
 pub mod error;
 pub mod event_stream;

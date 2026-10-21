@@ -83,7 +83,7 @@ struct Request {
     options: serde_json::Value,
 }
 
-fn options(value: &serde_json::Value) -> SimpleStreamOptions {
+fn options(value: &serde_json::Value, model: &Model) -> Result<SimpleStreamOptions, ()> {
     let mut options = SimpleStreamOptions::default();
     options.api_key = value["apiKey"].as_str().map(str::to_string);
     options.timeout = value["timeoutMs"].as_u64().map(Duration::from_millis);
@@ -93,6 +93,11 @@ fn options(value: &serde_json::Value) -> SimpleStreamOptions {
     options.temperature = value["temperature"].as_f64();
     options.session_id = value["sessionId"].as_str().map(str::to_string);
     options.headers = serde_json::from_value(value["headers"].clone()).ok();
+    options.env = if value["env"].is_null() {
+        Default::default()
+    } else {
+        serde_json::from_value(value["env"].clone()).map_err(|_| ())?
+    };
     options.metadata = serde_json::from_value(value["metadata"].clone()).ok();
     options.reasoning = value["reasoning"]
         .as_str()
@@ -103,7 +108,24 @@ fn options(value: &serde_json::Value) -> SimpleStreamOptions {
         Some("Long") => rpi_ai::CacheRetention::Long,
         _ => rpi_ai::CacheRetention::Short,
     };
-    options
+    match value.get("authMode") {
+        None => {}
+        Some(serde_json::Value::String(mode)) if mode == "ambient" => {}
+        Some(serde_json::Value::String(mode)) if mode == "replace" => {
+            options.authentication = rpi_ai::auth::ReplacementAuth::from_private_request(
+                model.provider.clone(),
+                rpi_ai::auth::RequestAuth {
+                    api_key: options.api_key.clone(),
+                    headers: options.headers.clone().unwrap_or_default(),
+                    base_url: Some(model.base_url.clone()),
+                    env: options.env.clone(),
+                    source: None,
+                },
+            );
+        }
+        _ => return Err(()),
+    }
+    Ok(options)
 }
 
 /// Compare every field without constructing a candidate message or JSON tree.
@@ -227,9 +249,63 @@ async fn drive_stream(
     emit_data: *mut c_void,
     control: Option<&ProviderStreamControl>,
 ) -> AssistantMessage {
-    let mut stream = provider
-        .stream_simple(&request.model, &request.context, options)
-        .await;
+    let mut receipts = None;
+    let mut private_options = None;
+    if request.options["responseMetadata"].as_bool() == Some(true) {
+        if emit.is_none() {
+            return AssistantMessage::terminal(
+                request.model.api.clone(),
+                request.model.provider.clone(),
+                request.model.id.clone(),
+                StopReason::Error,
+                "private response metadata requires streaming callbacks",
+                0,
+            );
+        }
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        receipts = Some(receiver);
+        let mut derived = options.clone();
+        let signal = options.signal.clone();
+        derived.response_observer = Some(Arc::new(move |receipt| {
+            let sender = sender.clone();
+            let signal = signal.clone();
+            Box::pin(async move {
+                tokio::select! {
+                    biased;
+                    _ = signal.cancelled() => {},
+                    _ = sender.send(receipt) => {},
+                }
+            })
+        }));
+        private_options = Some(derived);
+    }
+    let options = private_options.as_ref().unwrap_or(options);
+    let mut poll = tokio::time::interval(Duration::from_millis(10));
+    // Some adapters wait for HTTP headers before returning their stream. Keep
+    // draining the receipt port during that wait, including delegated retries.
+    let pending_stream = provider.stream_simple(&request.model, &request.context, options);
+    tokio::pin!(pending_stream);
+    let mut stream = loop {
+        if options.signal.is_cancelled()
+            || control.is_some_and(|control| (control.is_cancelled)(control.user_data, 0) != 0)
+        {
+            options.signal.cancel();
+            return AssistantMessage::terminal(
+                request.model.api.clone(),
+                request.model.provider.clone(),
+                request.model.id.clone(),
+                StopReason::Aborted,
+                "provider request was cancelled",
+                0,
+            );
+        }
+        tokio::select! {
+            biased;
+            _ = poll.tick() => {},
+            receipt = next_receipt(&mut receipts) => emit_receipt(receipt, emit, emit_data, options),
+            stream = &mut pending_stream => break stream,
+        }
+    };
     let mut partial = Arc::new(AssistantMessage::empty(
         request.model.api.clone(),
         request.model.provider.clone(),
@@ -237,7 +313,6 @@ async fn drive_stream(
         0,
     ));
     let mut previous_text = None;
-    let mut poll = tokio::time::interval(Duration::from_millis(10));
     loop {
         // Check synchronously too: an already-buffered provider can
         // finish before the interval's initial tick becomes ready.
@@ -253,6 +328,7 @@ async fn drive_stream(
         tokio::select! {
             biased;
             _ = poll.tick() => {}
+            receipt = next_receipt(&mut receipts) => emit_receipt(receipt, emit, emit_data, options),
             event = stream.next() => {
                 let Some(event) = event else {
                     break stream.result().await.unwrap_or_else(|error| AssistantMessage::terminal(
@@ -289,6 +365,31 @@ async fn drive_stream(
     }
 }
 
+async fn next_receipt(
+    receiver: &mut Option<tokio::sync::mpsc::Receiver<rpi_ai::provider::ResponseMetadata>>,
+) -> rpi_ai::provider::ResponseMetadata {
+    if let Some(receiver) = receiver {
+        if let Some(receipt) = receiver.recv().await {
+            return receipt;
+        }
+    }
+    std::future::pending().await
+}
+
+fn emit_receipt(
+    receipt: rpi_ai::provider::ResponseMetadata,
+    emit: Option<ProviderStreamEmitFn>,
+    data: *mut c_void,
+    options: &SimpleStreamOptions,
+) {
+    if let Some(emit) = emit {
+        let frame = serde_json::json!({"type":"response","response":receipt}).to_string();
+        if emit(StbString::from_string(frame), data) != 0 {
+            options.signal.cancel();
+        }
+    }
+}
+
 /// Drive a synchronous plugin request without retaining any borrowed ABI data.
 ///
 /// # Safety
@@ -309,7 +410,9 @@ pub unsafe fn drive(
         let Ok(request) = serde_json::from_str::<Request>(unsafe { request.as_str() }) else {
             return 2;
         };
-        let options = options(&request.options);
+        let Ok(options) = options(&request.options, &request.model) else {
+            return 2;
+        };
         let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -521,9 +624,13 @@ mod tests {
     }
     #[test]
     fn options_preserve_provider_controls() {
-        let options = options(&serde_json::json!({"apiKey":"key","timeoutMs":42,
+        let options = options(
+            &serde_json::json!({"apiKey":"key","timeoutMs":42,
             "maxRetries":3,"maxRetryDelayMs":17,"reasoning":"Xhigh","maxTokens":80,
-            "headers":{"x-custom":"value"},"cacheRetention":"Long","sessionId":"s"}));
+            "headers":{"x-custom":"value"},"cacheRetention":"Long","sessionId":"s"}),
+            &Model::new("m", "M", rpi_ai::Api::Faux, "probe", "http://localhost"),
+        )
+        .unwrap();
         assert_eq!(options.api_key.as_deref(), Some("key"));
         assert_eq!(options.timeout, Some(Duration::from_millis(42)));
         assert_eq!(options.max_retries, Some(3));
@@ -532,5 +639,27 @@ mod tests {
         assert_eq!(options.max_tokens, Some(80));
         assert_eq!(options.session_id.as_deref(), Some("s"));
         assert_eq!(options.headers.unwrap()["x-custom"], "value");
+    }
+
+    #[test]
+    fn private_request_options_fail_closed_and_preserve_replacement_isolation() {
+        let model = Model::new("m", "M", rpi_ai::Api::Faux, "probe", "http://localhost");
+        for value in [
+            serde_json::json!({"env":{"KEY":42}}),
+            serde_json::json!({"authMode":"unknown"}),
+            serde_json::json!({"authMode":null}),
+        ] {
+            assert!(options(&value, &model).is_err());
+        }
+        let options = options(&serde_json::json!({"authMode":"replace","env":{"ACCOUNT":"private-env"},"headers":{"Authorization":"private-header"}}), &model).unwrap();
+        let rpi_ai::auth::AttemptAuth::Replace(replacement) = &options.authentication else {
+            panic!("replacement mode lost")
+        };
+        let auth = replacement.for_provider("probe").unwrap();
+        assert!(auth.api_key.is_none());
+        assert_eq!(auth.headers["Authorization"], "private-header");
+        assert_eq!(auth.env["ACCOUNT"], "private-env");
+        assert!(replacement.for_provider("other").is_none());
+        assert!(!format!("{options:?}").contains("private-"));
     }
 }

@@ -1,0 +1,338 @@
+{
+  "host": {
+    "repository": "yansigit/pi-rust",
+    "commit": "90093c9e2d71ee9ce8228c1c27dc3262931b4a60"
+  },
+  "referenceHost": {
+    "package": "@earendil-works/pi-coding-agent",
+    "version": "1.3.0",
+    "repository": "earendil-works/pi-mono",
+    "commit": "71023aec1546d6d677a65669c5665c0927ce0dd0"
+  },
+  "toolchain": {
+    "nodeInitial": "26.10.0",
+    "nodeTargetedAndIntegration": "24.22.0",
+    "bun": "1.4.2",
+    "rust": "1.95.0"
+  },
+  "upstream": {
+    "antigravity": {
+      "commit": "a97f9055017f3c1546afbfe61a19d50b428be3d8",
+      "unchangedLockSha256": {
+        "bun.lock": "c1516a1df0bdc59ade67884bf39520f29366a6810781a799c1b60defd2e7e932",
+        "tools/common-auth-build/bun.lock": "70e5e197a0fc42c63d2490641506005d825742c8a43d8f766d3f86358c409cd0"
+      },
+      "logs": [
+        {
+          "file": "antigravity-baseline.log",
+          "sha256": "b4422937901a7110065e9eaafff5b10f63416e42235d296b4de73f00b5ca849b"
+        },
+        {
+          "file": "antigravity-pi-tests.log",
+          "sha256": "0ae7abb56de851cc2bab9f26c447c775ba76afb59504be61ac2d8d25c379af63"
+        },
+        {
+          "file": "antigravity-git-guard.log",
+          "sha256": "7f7bb39ddee77c08843f415d67ed75dd6ec099a7fe42a746b4a18fd0ef5b0d28"
+        },
+        {
+          "file": "antigravity-isolated-baseline.log",
+          "sha256": "8e5a5b4eb2a359c361bf9130631bb969d63fbaaadbb47ab4ba5e5ca5bb7da9ed"
+        },
+        {
+          "file": "antigravity-private-tmp-baseline.log",
+          "sha256": "4b24cea875c8549eeb4ce269b7fea3d0dcaf3a373f8e05ca0a918811d5ca8edd"
+        },
+        {
+          "file": "antigravity-pi-build-final.log",
+          "sha256": "9ab234331f6b3615efbb361cc6ec292ec33bf76b6abff60da865fae5c4dde852"
+        }
+      ],
+      "result": {
+        "piSuite": {
+          "passed": 163,
+          "failed": 0
+        },
+        "gitGuardAfterCheckoutMetadataRestored": {
+          "passed": 2,
+          "failed": 0
+        },
+        "notes": [
+          "Initial archive run lacked Git metadata; real checkout metadata was restored and its Git guard passed.",
+          "A separate Pi adapter run passed 163 tests outside the user namespace.",
+          "Namespace trials hid unrelated processes without stopping them, but Claustrum rejects unmapped ancestor owners. A private mounted /tmp did not fix the unmapped / owner.",
+          "The full suite also reports OpenCode GA build guard and subsequent packed-server failures. These remain unqualified baseline failures, not port regressions or accepted exceptions.",
+          "Original tracked source and lockfiles remained unchanged; the full baseline is not passing."
+        ],
+        "initialArchiveSuite": {
+          "passed": 3932,
+          "failed": 53,
+          "total": 3985
+        },
+        "fullSuite": {
+          "passed": 3906,
+          "failed": 79,
+          "total": 3985,
+          "files": 203,
+          "elapsedSeconds": 489.89,
+          "exitCode": 1
+        },
+        "processNamespaceTrial": {
+          "passed": 3910,
+          "failed": 75,
+          "total": 3985,
+          "exitCode": 1
+        },
+        "piBuild": "passed"
+      }
+    },
+    "multiprovider": {
+      "commit": "bd97d65a36f541935dc91e33ba15d7910a30f9d7",
+      "unchangedLockSha256": {
+        "bun.lock": "bb80034fcd474b579f024e6775c406f058d0b78c734dfea8f7ed210364087888"
+      },
+      "logs": [
+        {
+          "file": "multiprovider-baseline.log",
+          "sha256": "9a2ddc90704dfbf9f651293f6f9196b8cce470b43e36e848a3888200ee3ac3dd"
+        },
+        {
+          "file": "multiprovider-pi.log",
+          "sha256": "f315719161d29ef18d8456da4c6d2e570da29696f7633451759ac33cca0f7425"
+        }
+      ],
+      "result": {
+        "unitSuite": {
+          "passed": 107,
+          "failed": 0
+        },
+        "typecheck": "passed",
+        "build": "passed",
+        "pi130LoadStartupShutdown": "passed"
+      }
+    },
+    "cursor": {
+      "commit": "f337dc4bb7cea936c52e69a7fe08e7e376c8467b",
+      "unchangedLockSha256": {
+        "package-lock.json": "31bd04b3f9a9fc2c2010a46f92f65e45e604a909b17aeffa176a8afd6f7c7d72"
+      },
+      "logs": [
+        {
+          "file": "cursor-baseline.log",
+          "sha256": "6211d33e49ccb30164719ff68f59b76516896bfef917f5648d3685d8f14846f0"
+        },
+        {
+          "file": "cursor-node24-targeted.log",
+          "sha256": "ca9f05ecc778bc8ee24130211e25ababdc7c60432dba03f12cbff6b7dda5e002"
+        },
+        {
+          "file": "cursor-isolated-tmp.log",
+          "sha256": "1f1ecfc8ecbae32ef83f845bce4d87773c6d8f67bec1cde3b0bea5642ccc5487"
+        },
+        {
+          "file": "cursor-fixture-auth.log",
+          "sha256": "7c0e867be2c60c89b21e3a67ed2c994df529bf137017839beec9db450ee5582e"
+        },
+        {
+          "file": "cursor-private-tmp-baseline.log",
+          "sha256": "cb41031bbb6211b3f2ca01b287ae72fda60cc7402a9041449fc55f1c22a0cbd5"
+        },
+        {
+          "file": "cursor-pack-final.log",
+          "sha256": "ffe2347c8fccc933335595cf3377bcd84e57b62072764cef013ba9d5557f876d"
+        }
+      ],
+      "result": {
+        "unitSuite": {
+          "passed": 1634,
+          "failed": 0,
+          "skipped": 2,
+          "total": 1636
+        },
+        "build": "passed",
+        "typechecks": "passed",
+        "targetedNode24": {
+          "passed": 57,
+          "failed": 3
+        },
+        "failures": [],
+        "nativeNodeTestChecks": {
+          "passed": 53,
+          "failed": 0
+        },
+        "targetedCorrections": {
+          "isolatedTemporaryDirectory": {
+            "passed": 40,
+            "failed": 0,
+            "cause": "An unrelated /tmp/.git makes ancestor Git metadata detection return unknown."
+          },
+          "offlineFixtureApiKey": {
+            "passed": 13,
+            "failed": 0,
+            "cause": "The native binding fixture needs an auth source after replacing its original provider; CURSOR_API_KEY=offline-fixture suffices with streamCursor mocked."
+          },
+          "colorFraming": "passed with TERM=xterm-256color; TERM=dumb takes precedence over FORCE_COLOR inside SDK 1.0.37"
+        },
+        "environment": {
+          "node": "24.22.0",
+          "TERM": "xterm-256color",
+          "CURSOR_API_KEY": "offline-fixture",
+          "TMPDIR": "private directory under home with no ancestor .git or writable non-sticky ancestor"
+        },
+        "notes": [
+          "Original locks and source unchanged. check:compat passed after environment corrections. Initial failed executions remain recorded in earlier logs."
+        ],
+        "packageDryRun": "passed"
+      }
+    }
+  },
+  "combinedReference": {
+    "result": {
+      "host": "1.3.0",
+      "packages": [
+        "@cortexkit/pi-antigravity-auth",
+        "pi-cursor-sdk",
+        "pi-multiprovider"
+      ],
+      "extensions": 3,
+      "errors": [],
+      "qualification": "offline load/startup/shutdown only; inference parity not tested"
+    },
+    "logSha256": "9902da059584e95d577a140f3a917cb32e959e1390da970eac83182bd72fa146",
+    "installLockSha256": "72a0e5eb204b17155a41dfb5c99d8e45caaa98af39d8f2acf92394aae0a39bc8"
+  },
+  "candidate": {
+    "status": "not parity complete",
+    "liveAcceptance": "not tested",
+    "macOS": "not tested",
+    "Windows": "not tested",
+    "checks": {
+      "warningDeniedWorkspaceTests": {
+        "passed": 1996,
+        "failed": 0,
+        "ignored": 7,
+        "note": "Final source state. The ignored native auth acceptance test passed when explicitly invoked after building its cdylib."
+      },
+      "warningDeniedWorkspaceAllTargets": "passed",
+      "sdkProviderFeature": {
+        "passed": 64,
+        "failed": 0,
+        "ignored": 3
+      },
+      "sdkNoDefaultFeatures": "passed after appended auth slot",
+      "linuxNativePluginLoad": {
+        "passed": 2,
+        "failed": 0
+      },
+      "authRuntime": {
+        "passed": 11,
+        "failed": 0
+      },
+      "configuration": {
+        "passed": 39,
+        "failed": 0,
+        "note": "Included in final workspace run; contains failed-publication regression."
+      },
+      "baselineScriptSelfTests": {
+        "passed": 5,
+        "failed": 0
+      },
+      "nativeAuthBridge": {
+        "passed": 5,
+        "failed": 0
+      },
+      "linuxNativeAuthCallback": {
+        "passed": 1,
+        "failed": 0
+      },
+      "oldCompiledPluginLoad": {
+        "passed": 2,
+        "failed": 0,
+        "librarySha256": "f0edd4d53f3c0308fd8017dda3d8d6a9bdf8ae8e9597bc02611892ed3b8203ea"
+      },
+      "providerPerformance": {
+        "passed": 19,
+        "failed": 0,
+        "ignored": 1
+      },
+      "providerPerformanceNativeLoad": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 1
+      },
+      "format": "passed",
+      "embeddedDocumentationSync": "passed"
+    },
+    "compilerCompatibility": {
+      "rust178SdkNoDefaults": "passed after appended auth slot",
+      "rust178AiProviders": "blocked by pre-existing locked idna_adapter 1.2.2 Edition 2024 manifest",
+      "hostLockfileModified": false,
+      "declaredRustVersionModified": false
+    },
+    "logs": [
+      {
+        "file": "/tmp/rpi-provider-verified-workspace-tests.log",
+        "sha256": "99731dc47b6f665af1aa8f1178557ab48f3c1ee58d32857a05844d2f2d40e28d"
+      },
+      {
+        "file": "/tmp/rpi-provider-verified-workspace-check.log",
+        "sha256": "f34549aeec4ffe3a3bb7b2546dbe0f2937688d687b5f298d633c3e88a76ab97f"
+      },
+      {
+        "file": "/tmp/rpi-auth-native-load.log",
+        "sha256": "aae59fa5e4a9191ba75e9618ef087e97f2767f5ba2515e9572248d1c64e8c811"
+      },
+      {
+        "file": "/tmp/rpi-auth-bridge-final-tests.log",
+        "sha256": "ed755a42b675b646a00718d428cb83cd0cedbff68cdf8a1114d16b1769287368"
+      },
+      {
+        "file": "/tmp/rpi-provider-old-abi-load.log",
+        "sha256": "705d692c9df84ae9716c2087d21a5b51426bab5bed3328fe1a4fb9cc58e25015"
+      },
+      {
+        "file": "/tmp/rpi-provider-sdk-latest.log",
+        "sha256": "caa2fdccfa93cb3b9ca2c48d557eb6005ac06d14c72683c1f0c5a5969d17c56c"
+      },
+      {
+        "file": "/tmp/rpi-provider-sdk-no-defaults-latest.log",
+        "sha256": "b60b7cf802c1bf1e9d0bd024720aed1a261e3d1fcf526f0407aad55e6c119e73"
+      },
+      {
+        "file": "/tmp/rpi-provider-performance-native-load.log",
+        "sha256": "3a2834ccb6d51d4682da63941c77d1669074c1ec9c9131d5ec57cbbc5c219f7b"
+      },
+      {
+        "file": "/tmp/rpi-provider-performance-tests.log",
+        "sha256": "8046b0d85a6860e29a688936a9834d23e355e2cfb5b951893cead6f25beeba2b"
+      },
+      {
+        "file": "/tmp/rpi-provider-script-tests.log",
+        "sha256": "72d983fb6155de3b4bc661cd357a222ef264285e79c73716f273d4f5bbc9fbb9"
+      },
+      {
+        "file": "/tmp/rpi-provider-msrv-sdk-latest.log",
+        "sha256": "9cf8659254edacdf9d6b1f7bd03ca8467d0fe578ef0ce6179cc253f8740b7034"
+      }
+    ]
+  },
+  "liveReference": {
+    "cursorCatalog": {
+      "status": "passed",
+      "sdk": "1.0.37",
+      "account": "first enabled existing Cursor pool account; no key or account identity recorded",
+      "requestedModels": [
+        "composer-2.5",
+        "grok-4.7"
+      ],
+      "fastParameterFalseAvailable": true,
+      "log": {
+        "file": "cursor-live-catalog.log",
+        "sha256": "0e77002afe5ffca600b979c7d2909aa60157b4df3396048d99ca4218228e9c0e"
+      }
+    },
+    "inference": "not tested",
+    "antigravity": "not tested; existing credentials use older antigravity provider identity",
+    "cloud": "not tested; no resources created, archived or deleted"
+  }
+}

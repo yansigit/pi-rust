@@ -9,6 +9,130 @@ use std::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[tokio::test]
+#[ignore = "requires cargo build -p plugin-stub with native auth capability"]
+async fn native_auth_login_refresh_send_and_logout_use_the_same_durable_slot() {
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    let temp = tempfile::tempdir().unwrap();
+    let agent = temp.path().join("agent");
+    std::fs::create_dir_all(&agent).unwrap();
+    std::fs::write(
+        agent.join("auth.json"),
+        r#"{"other":{"type":"api_key","key":"unrelated"}}"#,
+    )
+    .unwrap();
+    let mut login = command_base(&temp)
+        .args(["auth", "login", "--provider", "stub-auth", "--extension"])
+        .arg(&library)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::io::Write::write_all(&mut login.stdin.take().unwrap(), b"stub-code\n").unwrap();
+    let output = tokio::task::spawn_blocking(move || login.wait_with_output().unwrap())
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(agent.join("auth.json")).unwrap()).unwrap();
+    assert_eq!(stored["stub-auth"]["expires"], 1234567890_i64);
+    assert_eq!(stored["stub-auth"]["refresh"], "stub-login-refresh");
+    assert_eq!(stored["other"]["key"], "unrelated");
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    std::fs::write(
+        agent.join("models.json"),
+        serde_json::json!({"providers":{"stub-auth":{
+            "api":"openai-completions","baseUrl":base,"models":[{"id":"auth-model"}]
+        }}})
+        .to_string(),
+    )
+    .unwrap();
+    let server = tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0; 4096];
+        loop {
+            let n = socket.read(&mut buffer).await.unwrap();
+            assert!(n > 0 && request.len() < 1_048_576);
+            request.extend_from_slice(&buffer[..n]);
+            if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                let headers = std::str::from_utf8(&request[..end])
+                    .unwrap()
+                    .to_ascii_lowercase();
+                let length: usize = headers
+                    .lines()
+                    .find_map(|line| line.strip_prefix("content-length:"))
+                    .unwrap()
+                    .trim()
+                    .parse()
+                    .unwrap();
+                if request.len() < end + 4 + length {
+                    continue;
+                }
+                assert!(headers.contains("authorization: bearer stub-auth-key"));
+                assert!(!headers.contains("stub-login-access"));
+                break;
+            }
+        }
+        let body = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"native auth works\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+        let response = format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        socket.write_all(response.as_bytes()).await.unwrap();
+    });
+    let mut cmd = command(&temp, &library);
+    cmd.args([
+        "--provider",
+        "stub-auth",
+        "--model",
+        "auth-model",
+        "--print",
+        "--no-session",
+        "--no-tools",
+        "hello",
+    ]);
+    let output = tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio::task::spawn_blocking(move || cmd.output().unwrap()),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("native auth works"));
+    tokio::time::timeout(Duration::from_secs(2), server)
+        .await
+        .unwrap()
+        .unwrap();
+    let stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(agent.join("auth.json")).unwrap()).unwrap();
+    assert_eq!(stored["stub-auth"]["refresh"], "stub-rotated-refresh");
+    assert_eq!(stored["stub-auth"]["expires"], 1234567890_i64);
+    let output = command_base(&temp)
+        .args(["auth", "logout", "--provider", "stub-auth", "--extension"])
+        .arg(library)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stored: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(agent.join("auth.json")).unwrap()).unwrap();
+    assert!(stored.get("stub-auth").is_none());
+    assert_eq!(stored["other"]["key"], "unrelated");
+}
+
 fn library(name: &str) -> Option<PathBuf> {
     if name == "rpi_providers" {
         let path = PathBuf::from(std::env::var_os("RPI_TEST_PROVIDER_LIBRARY")?);

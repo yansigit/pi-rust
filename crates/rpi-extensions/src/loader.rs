@@ -416,6 +416,7 @@ impl PluginKeepalive {
 /// in — without a borrow spanning the store.
 #[derive(Clone)]
 pub struct ExtensionSession {
+    auth_runtime: Arc<rpi_ai::auth::AuthRuntime>,
     keepalive: Arc<PluginKeepalive>,
     snapshot: Option<Arc<RegistrySnapshot>>,
     loaded_paths: Vec<PathBuf>,
@@ -440,6 +441,7 @@ impl ExtensionSession {
     ) -> Self {
         Self {
             keepalive,
+            auth_runtime: Arc::new(rpi_ai::auth::AuthRuntime::default()),
             snapshot: Some(snapshot),
             loaded_paths,
             action_bridge,
@@ -450,6 +452,7 @@ impl ExtensionSession {
     pub fn none() -> Self {
         Self {
             keepalive: Arc::new(PluginKeepalive::new(Vec::new(), None)),
+            auth_runtime: Arc::new(rpi_ai::auth::AuthRuntime::default()),
             snapshot: None,
             loaded_paths: Vec::new(),
             action_bridge: None,
@@ -458,7 +461,14 @@ impl ExtensionSession {
 
     /// Cancel plugin background work. Call outside host/session locks.
     pub fn begin_shutdown(&self) {
+        self.auth_runtime.begin_shutdown();
         self.keepalive.begin_shutdown();
+    }
+
+    /// Drain refresh persistence before dispatching shutdown callbacks or
+    /// cancelling the plugin's own runtime. Session clones share this owner.
+    pub fn auth_runtime(&self) -> Arc<rpi_ai::auth::AuthRuntime> {
+        self.auth_runtime.clone()
     }
 
     /// The shared keepalive — clone one per adapter/emitter you build from this
@@ -589,6 +599,7 @@ pub fn load_session_mixed(
     keepalive.plugins = loaded;
     let snapshot = Arc::new(session_registry.snapshot());
     ExtensionSession {
+        auth_runtime: Arc::new(rpi_ai::auth::AuthRuntime::default()),
         keepalive: Arc::new(keepalive),
         snapshot: Some(snapshot),
         loaded_paths,

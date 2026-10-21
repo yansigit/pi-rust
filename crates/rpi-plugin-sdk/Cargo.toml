@@ -42,3 +42,6 @@ json = ["dep:serde_json"]
 provider = ["json", "dep:rpi-ai", "dep:tokio", "dep:serde", "dep:reqwest"]
 process = ["dep:windows-sys", "dep:libc"]
 stdio = ["dep:windows-sys", "dep:libc"]
+
+[dev-dependencies]
+async-trait = { workspace = true }

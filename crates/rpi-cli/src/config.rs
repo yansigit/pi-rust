@@ -19,11 +19,9 @@
 //!
 //! # Concurrency
 //!
-//! v1 is a single-process CLI, so we use **atomic rename** instead of upstream's
-//! `proper-lockfile`: write a sibling temp file, `fs::rename` over the target,
-//! then `chmod 0o600` on Unix (Windows chmod is a no-op, matching Node).
-//! Concurrent `rpi auth login` from two shells could lose one update — that's
-//! accepted and documented; adding a file lock is deferred.
+//! Credential mutations share a cross-process lock and publish by atomic rename.
+//! Login/logout serialize with compatibility OAuth refresh, so a rotated token
+//! and a concurrent update to another provider cannot overwrite each other.
 //!
 //! # Config-value expansion
 //!
@@ -38,6 +36,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use rpi_ai::{Api, InputModality, Model, ModelCost, StreamingProtocolCompat, ThinkingLevelMap};
+
+pub mod auth_store;
 
 /// The config directory name under the home dir.
 pub const CONFIG_DIR_NAME: &str = ".rpi";
@@ -272,20 +272,12 @@ pub fn read_auth() -> Result<AuthStore, ConfigError> {
 /// Atomically write the whole auth store (ensures the dir exists, writes a
 /// temp sibling, `rename`s over the target, then `chmod 0o600` on Unix).
 pub fn write_auth(store: &AuthStore) -> Result<(), ConfigError> {
-    let path = auth_path()?;
-    let dir = agent_dir()?;
-    ensure_dir(&dir)?;
-    let json = serde_json::to_string_pretty(store).unwrap();
-    atomic_write(&path, json.as_bytes())?;
-    set_owner_only(&path);
-    Ok(())
+    auth_store::write(auth_path()?, store)
 }
 
 /// Read-modify-write: upsert a credential for `provider_id`.
 pub fn upsert_credential(provider_id: &str, cred: Credential) -> Result<(), ConfigError> {
-    let mut store = read_auth()?;
-    store.insert(provider_id.to_string(), cred);
-    write_auth(&store)
+    auth_store::upsert(auth_path()?, provider_id, &cred)
 }
 
 /// Store an OAuth token under exactly one provider id using the atomic auth
@@ -327,13 +319,7 @@ pub fn read_oauth_token(provider_id: &str) -> Result<Option<Credential>, ConfigE
 /// the file when the provider existed (so `auth logout` reflects the new state
 /// on disk even if the map isn't empty).
 pub fn delete_credential(provider_id: &str) -> Result<bool, ConfigError> {
-    let mut store = read_auth()?;
-    if store.remove(provider_id).is_some() {
-        write_auth(&store)?;
-        Ok(true)
-    } else {
-        Ok(false)
-    }
+    auth_store::delete(auth_path()?, provider_id)
 }
 
 // ---------------------------------------------------------------------------

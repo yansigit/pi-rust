@@ -26,6 +26,19 @@ use crate::config::{
     self, delete_credential, read_auth, upsert_credential, Credential, DEFAULT_PROVIDER_ID,
 };
 use crate::credentials::CredentialSource;
+mod native;
+
+pub async fn run_with_session(args: &[String], session: &rpi_extensions::ExtensionSession) -> i32 {
+    let provider = parse_provider(args).unwrap_or(DEFAULT_PROVIDER_ID);
+    if let Some(auth) =
+        rpi_extensions::provider_auth::NativeProviderAuth::from_session(session, provider)
+    {
+        if let Some(result) = native::run(args, session, auth).await {
+            return result;
+        }
+    }
+    run_with_extensions(args, session.snapshot_arc()).await
+}
 /// Exit code for a missing-credential `auth check` (mirrors upstream's
 /// non-zero `auth check` when not ready).
 const EXIT_NOT_READY: i32 = 1;

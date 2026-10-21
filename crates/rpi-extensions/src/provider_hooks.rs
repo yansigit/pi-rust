@@ -167,9 +167,9 @@ impl ProviderHooks for ExtensionProviderHooks {
             "baseUrl": model.base_url,
             "reasoning": model.reasoning,
             "pricingAvailable": model.has_pricing(),
-            "apiKey": opts.api_key,
+            "apiKey": null,
             "timeoutMs": opts.timeout.map(|d| d.as_millis() as u64),
-            "headers": opts.headers,
+            "headers": null,
             "metadata": opts.metadata,
             "maxTokens": opts.max_tokens,
             "temperature": opts.temperature,
@@ -184,7 +184,7 @@ impl ProviderHooks for ExtensionProviderHooks {
             EventTag::BeforeProviderRequest,
             &request.to_string(),
         );
-        let headers = serde_json::json!({ "headers": opts.headers });
+        let headers = serde_json::json!({ "headers": null });
         dispatch_data_event(
             &self.snapshot,
             EventTag::BeforeProviderHeaders,
@@ -367,7 +367,12 @@ mod tests {
                 42,
             ),
         )]);
-        let opts = rpi_ai::SimpleStreamOptions::default();
+        let opts = rpi_ai::SimpleStreamOptions {
+            api_key: Some("private-api-secret".into()),
+            headers: Some([("x-custom-credential".into(), "private-header-secret".into())].into()),
+            env: [("ACCOUNT_TOKEN".into(), "private-env-secret".into())].into(),
+            ..Default::default()
+        };
 
         // Two provider calls in the same run (same prompt) → one
         // before_agent_start, two before_provider_request observations.
@@ -375,6 +380,9 @@ mod tests {
         hooks.before_request(&model, &ctx, &opts);
 
         let captured = CAPTURED.lock().unwrap().clone();
+        assert!(captured
+            .iter()
+            .all(|(_, payload)| !payload.contains("private-")));
         let agent_starts: Vec<_> = captured
             .iter()
             .filter(|(tag, _)| matches!(tag, EventTag::BeforeAgentStart))

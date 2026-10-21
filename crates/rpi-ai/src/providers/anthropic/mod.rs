@@ -260,6 +260,7 @@ async fn run_anthropic_stream(
     let url = format!("{}/v1/messages", model.base_url.trim_end_matches('/'));
     let timeout = opts.request_timeout();
     let signal = opts.signal.clone();
+    let response_observer = opts.response_observer.clone();
 
     // ---- POST with retry (retryProviderRequest) ----
     // The TS hands the SDK `.create({...params, stream:true}, {signal, timeout,
@@ -275,6 +276,7 @@ async fn run_anthropic_stream(
             let url = url.clone();
             let headers = headers.clone();
             let signal = signal.clone();
+            let response_observer = response_observer.clone();
             async move {
                 let mut req = http.post(&url).timeout(timeout);
                 for (k, v) in &headers {
@@ -290,6 +292,7 @@ async fn run_anthropic_stream(
                         message: "Request aborted".to_string(),
                     }),
                 };
+                crate::http::observe_response(&response_observer, &resp, &signal).await;
                 let status = resp.status();
                 if !status.is_success() {
                     let code = status.as_u16();
@@ -511,8 +514,11 @@ fn resolve_api_key(
     allow_env_api_key: bool,
 ) -> Option<String> {
     resolve_api_key_with_env(provider_key, opts, allow_env_api_key, || {
-        std::env::var("ANTHROPIC_API_KEY")
-            .ok()
+        opts.env
+            .get("ANTHROPIC_API_KEY")
+            .filter(|value| !value.is_empty())
+            .cloned()
+            .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
             .filter(|s| !s.is_empty())
     })
 }
@@ -523,6 +529,9 @@ fn resolve_api_key_with_env(
     allow_env_api_key: bool,
     read_env_api_key: impl FnOnce() -> Option<String>,
 ) -> Option<String> {
+    if matches!(opts.authentication, crate::auth::AttemptAuth::Replace(_)) {
+        return opts.api_key.clone();
+    }
     opts.api_key
         .clone()
         .or_else(|| provider_key.clone())
@@ -646,6 +655,33 @@ fn now_ms() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn replacement_auth_never_restores_provider_or_process_credentials() {
+        let mut options = crate::SimpleStreamOptions::default();
+        options.authentication = crate::auth::ReplacementAuth::from_private_request(
+            "test".into(),
+            crate::auth::RequestAuth::default(),
+        );
+        assert!(super::resolve_api_key_with_env(
+            &Some("default-key".into()),
+            &options,
+            true,
+            || panic!("replacement must not read process credentials")
+        )
+        .is_none());
+        options.api_key = Some("replacement-key".into());
+        assert_eq!(
+            super::resolve_api_key_with_env(
+                &Some("default-key".into()),
+                &options,
+                true,
+                || panic!("replacement must not read process credentials")
+            )
+            .as_deref(),
+            Some("replacement-key")
+        );
+    }
+
     use super::*;
     use crate::providers::anthropic::models::claude_haiku_4_5;
     use crate::types::{Api, InputModality, ModelCost};

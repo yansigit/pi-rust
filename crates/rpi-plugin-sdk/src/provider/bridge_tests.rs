@@ -1,6 +1,80 @@
 use super::*;
 use rpi_ai::providers::faux::{FauxProvider, FauxScript, FauxStep};
 
+struct ReceiptProvider;
+#[async_trait::async_trait]
+impl Provider for ReceiptProvider {
+    fn id(&self) -> &str {
+        "faux"
+    }
+    fn models(&self) -> &[Model] {
+        &[]
+    }
+    async fn stream_simple(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &SimpleStreamOptions,
+    ) -> rpi_ai::AssistantMessageEventStream {
+        for status in [429, 503, 200] {
+            options.response_observer.as_ref().unwrap()(rpi_ai::provider::ResponseMetadata {
+                status,
+                headers: vec![("retry-after".into(), b"1".to_vec())],
+            })
+            .await;
+        }
+        fixture(model, options)
+            .stream_simple(model, context, options)
+            .await
+    }
+}
+
+#[test]
+fn receipt_port_is_drained_even_before_a_provider_returns_its_stream() {
+    fn provider(_: &Model, _: &SimpleStreamOptions) -> Arc<dyn Provider> {
+        Arc::new(ReceiptProvider)
+    }
+    let mut request: serde_json::Value = serde_json::from_str(&request()).unwrap();
+    request["options"]["responseMetadata"] = true.into();
+    let request = request.to_string();
+    let mut collector = Collector {
+        frames: vec![],
+        limit: usize::MAX,
+        reject: false,
+    };
+    let mut out = StbString::empty();
+    assert_eq!(
+        unsafe {
+            drive(
+                provider,
+                StbStringRef::from_str(&request),
+                Some(collect),
+                (&mut collector as *mut Collector).cast(),
+                std::ptr::null(),
+                &mut out,
+            )
+        },
+        0
+    );
+    let _output = unsafe {
+        crate::callbacks::OwnedString::from_raw(out, Some(crate::callbacks::free_string))
+    };
+    let frames: Vec<serde_json::Value> = collector
+        .frames
+        .iter()
+        .map(|frame| serde_json::from_str(frame).unwrap())
+        .collect();
+    assert_eq!(
+        frames
+            .iter()
+            .take(3)
+            .map(|frame| frame["response"]["status"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        [429, 503, 200]
+    );
+    assert_eq!(frames[3]["type"], "start");
+}
+
 fn fixture(_: &Model, _: &SimpleStreamOptions) -> Arc<dyn Provider> {
     let mut message = AssistantMessage::empty(rpi_ai::Api::Faux, "faux", "m", 42);
     message.content = vec![

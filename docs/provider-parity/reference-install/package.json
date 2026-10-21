@@ -1,0 +1,14 @@
+{
+  "name": "rpi-provider-reference-combination",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.3.0",
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-tui": "1.3.0",
+    "@cortexkit/antigravity-auth-core": "file:../cortexkit-antigravity-auth-core-3.0.9.tgz",
+    "@cortexkit/pi-antigravity-auth": "file:../cortexkit-pi-antigravity-auth-3.0.9.tgz",
+    "pi-cursor-sdk": "file:../pi-cursor-sdk-0.5.3.tgz",
+    "pi-multiprovider": "file:../pi-multiprovider-0.11.3.tgz"
+  }
+}

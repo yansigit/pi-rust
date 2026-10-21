@@ -360,6 +360,7 @@ pub struct ExtensionRegistry {
     /// Provider-owned OAuth implementations. First-registration-wins on the
     /// manifest `id` field.
     oauth_providers: Vec<RegisteredOAuthProvider>,
+    auth_providers: Vec<crate::provider_auth::RegisteredAuthProvider>,
     /// Registered renderers (B5c), split by kind at registration. First-wins on
     /// `(kind, name)`. The host records these now; TUI consumption is B5e.
     renderers: Vec<RegisteredRenderer>,
@@ -402,6 +403,7 @@ impl ExtensionRegistry {
             providers: Vec::new(),
             provider_manifests: std::collections::BTreeMap::new(),
             oauth_providers: Vec::new(),
+            auth_providers: Vec::new(),
             renderers: Vec::new(),
             priority: DEFAULT_PRIORITY,
             platforms: Vec::new(),
@@ -702,6 +704,22 @@ impl ExtensionRegistry {
         false
     }
 
+    /// First registration wins for an authentication provider identity.
+    pub fn register_provider_auth(
+        &mut self,
+        provider: crate::provider_auth::RegisteredAuthProvider,
+    ) -> bool {
+        if self
+            .auth_providers
+            .iter()
+            .any(|existing| existing.manifest.id == provider.manifest.id)
+        {
+            return true;
+        }
+        self.auth_providers.push(provider);
+        false
+    }
+
     /// Register a renderer (B5c — message/markdown/entry). First-wins on
     /// `(kind, name)`. Returns `true` if a prior renderer of the same kind+name
     /// was kept.
@@ -747,6 +765,7 @@ impl ExtensionRegistry {
             providers: self.providers.clone(),
             provider_manifests: self.provider_manifests.clone(),
             oauth_providers: self.oauth_providers.clone(),
+            auth_providers: self.auth_providers.clone(),
             renderers: self.renderers.clone(),
             owns_stdio: self.owns_stdio,
             active: Arc::clone(&self.active),
@@ -863,6 +882,9 @@ impl ExtensionRegistry {
             }
             self.oauth_providers.push(oauth);
         }
+        for provider in other.auth_providers.drain(..) {
+            self.register_provider_auth(provider);
+        }
         for r in other.renderers.drain(..) {
             if self
                 .renderers
@@ -902,6 +924,7 @@ pub struct RegistrySnapshot {
     providers: Vec<RegisteredProvider>,
     provider_manifests: std::collections::BTreeMap<String, ProviderManifest>,
     oauth_providers: Vec<RegisteredOAuthProvider>,
+    auth_providers: Vec<crate::provider_auth::RegisteredAuthProvider>,
     renderers: Vec<RegisteredRenderer>,
     /// A plugin's `{"ownsStdio":true}` claim (merged OR across plugins). The
     /// host reads this after `load_session` to defer `read_piped_stdin` and run
@@ -911,6 +934,11 @@ pub struct RegistrySnapshot {
 }
 
 impl RegistrySnapshot {
+    /// Provider-owned authentication registrations, in registration order.
+    pub fn auth_providers(&self) -> &[crate::provider_auth::RegisteredAuthProvider] {
+        &self.auth_providers
+    }
+
     /// The extension tools (schema + handle), insertion order.
     pub fn tools(&self) -> &[ExtensionTool] {
         &self.tools

@@ -583,7 +583,58 @@ rpi_plugin_sdk::string_handler! {
 // The SDK macro exports the unified `rpi_plugin_register` symbol and applies
 // the version/null checks before running our registration body. Return 0 on
 // success; nonzero means the host logs and skips this plugin.
+extern "C" fn on_auth_request(
+    request: StbStringRef,
+    control: *const rpi_plugin_sdk::AuthRequestControl,
+    out: *mut StbString,
+    _: *mut c_void,
+) -> i32 {
+    rpi_plugin_sdk::guard_or(70, || {
+        // SAFETY: the host lends all three arguments until this callback returns.
+        let control = unsafe { &*control };
+        if (control.is_cancelled)(control.user_data) != 0 {
+            return 1;
+        }
+        let request: serde_json::Value = serde_json::from_str(unsafe { request.as_str() }).unwrap();
+        let response = match request["action"].as_str() {
+            Some("refresh") => serde_json::json!({"version":1,"kind":"credential","payload":{
+                "access":"stub-rotated-access","refresh":"stub-rotated-refresh","expires":1234567890123_i64
+            }}),
+            Some("toAuth" | "resolveApiKey") => {
+                serde_json::json!({"version":1,"kind":"auth","payload":{"apiKey":"stub-auth-key"}})
+            }
+            Some("continue") => {
+                if request["input"]["continuation"] != "stub-continuation"
+                    || request["input"]["value"] != "stub-code"
+                {
+                    return 1;
+                }
+                serde_json::json!({"version":1,"kind":"credential","payload":{"type":"oauth","access":"stub-login-access","refresh":"stub-login-refresh","expires":1234567890123_i64}})
+            }
+            Some("revoke") => serde_json::json!({"version":1,"kind":"success","payload":{}}),
+            _ => {
+                serde_json::json!({"version":1,"kind":"interaction","payload":{"kind":"input","title":"Stub login","continuation":"stub-continuation"}})
+            }
+        };
+        let mut out = unsafe { rpi_plugin_sdk::callbacks::Output::from_raw(out) };
+        i32::from(!out.write(response.to_string()))
+    })
+}
+
 rpi_plugin_sdk::export_plugin!(|api| {
+    if let Some(register) = api.register_provider_auth {
+        let status = register(
+            StbStringRef::from_str(
+                r#"{"version":1,"id":"stub-auth","displayName":"Stub auth","apiKey":true,"oauth":true,"methods":[{"id":"browser","name":"Browser","kind":"oauth"}]}"#,
+            ),
+            on_auth_request,
+            plugin_free_string,
+            std::ptr::null_mut(),
+        );
+        if status != 0 {
+            return status;
+        }
+    }
     // Register the echo tool. Build an owning StableToolSchema (name +
     // description + parameters-as-JSON); the host frees the schema's strings
     // via our `plugin_free_string` after copying them out.

@@ -147,8 +147,10 @@ async fn run_inner() -> i32 {
             }
             let trusted = crate::session::resolve_project_trust(&args, &cwd);
             let extension_session = crate::session::load_extensions(&args, &cwd, trusted, None);
-            return crate::auth::run_with_extensions(&argv[1..], extension_session.snapshot_arc())
-                .await;
+            let result = crate::auth::run_with_session(&argv[1..], &extension_session).await;
+            extension_session.auth_runtime().shutdown().await;
+            extension_session.begin_shutdown();
+            return result;
         }
         Some("events") => return crate::events::run(&argv[1..]).await,
         Some("update") => return crate::updates::run_self_update(&argv[1..]),

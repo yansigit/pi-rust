@@ -42,3 +42,6 @@ default = []
 providers = ["dep:reqwest", "dep:bytes", "dep:eventsource-stream"]
 # Live network smoke test, gated further by the ANTHROPIC_API_KEY env var at runtime.
 smoke = ["providers"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

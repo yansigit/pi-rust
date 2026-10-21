@@ -2425,6 +2425,7 @@ dependencies = [
 name = "rpi-plugin-sdk"
 version = "0.7.0"
 dependencies = [
+ "async-trait",
  "libc",
  "reqwest",
  "rpi-ai",

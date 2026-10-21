@@ -17,6 +17,30 @@ use std::collections::HashMap;
 
 pub use reqwest::Url;
 
+/// Notify the invoking wrapper before reading any response body or emitting
+/// stream events, including unsuccessful responses and delegated retries.
+pub async fn observe_response(
+    observer: &Option<crate::provider::ResponseObserver>,
+    response: &reqwest::Response,
+    signal: &tokio_util::sync::CancellationToken,
+) {
+    if let Some(observer) = observer {
+        let receipt = crate::provider::ResponseMetadata {
+            status: response.status().as_u16(),
+            headers: response
+                .headers()
+                .iter()
+                .map(|(name, value)| (name.as_str().to_string(), value.as_bytes().to_vec()))
+                .collect(),
+        };
+        tokio::select! {
+            biased;
+            _ = signal.cancelled() => {},
+            _ = observer(receipt) => {},
+        }
+    }
+}
+
 /// Native `DEFAULT_HTTP_IDLE_TIMEOUT_MS`.
 pub const DEFAULT_HTTP_IDLE_TIMEOUT_MS: i64 = 300_000;
 

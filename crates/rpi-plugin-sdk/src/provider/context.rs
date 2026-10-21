@@ -263,7 +263,9 @@ pub unsafe fn drive_with_context(
         else {
             return 2;
         };
-        let options = super::options(&request.options);
+        let Ok(options) = super::options(&request.options, &request.model) else {
+            return 2;
+        };
         let control = unsafe { control.as_ref() };
         let scoped = ProviderContext::new();
         let context = unsafe { context.cast::<ProviderContext>().as_ref() };

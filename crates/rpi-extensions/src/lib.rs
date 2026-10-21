@@ -113,6 +113,7 @@ mod loader;
 mod oauth;
 mod prompt_transform;
 mod provider;
+pub mod provider_auth;
 mod provider_hooks;
 mod registry;
 mod resources;
@@ -308,6 +309,7 @@ impl HostApi {
             register_tool: Some(trampoline_register_tool),
             register_tool_with_wake: Some(trampoline_register_tool_with_wake),
             register_plugin_lifecycle: Some(trampoline_register_plugin_lifecycle),
+            register_provider_auth: Some(trampoline_register_provider_auth),
             register_command: Some(trampoline_register_command),
             register_shortcut: Some(trampoline_register_shortcut),
             register_flag: Some(trampoline_register_flag),
@@ -789,6 +791,34 @@ extern "C" fn trampoline_register_oauth_provider(
     match with_current_api(|api| api.with_registry(|reg| reg.register_oauth_provider(record))) {
         Some(Some(true)) => 1,
         Some(Some(false)) => 0,
+        _ => -1,
+    }
+}
+
+extern "C" fn trampoline_register_provider_auth(
+    manifest: StbStringRef,
+    request_fn: rpi_plugin_sdk::AuthRequestFn,
+    plugin_free_string: FreeStringFn,
+    user_data: *mut c_void,
+) -> i32 {
+    let Some(plugin) = with_current_api(|api| api.name.clone()) else {
+        return -1;
+    };
+    // SAFETY: registration borrows the manifest for this call only.
+    let Ok(manifest) = provider_auth::AuthManifest::parse(unsafe { manifest.as_str() }) else {
+        return -2;
+    };
+    let record = provider_auth::RegisteredAuthProvider {
+        plugin,
+        manifest,
+        request_fn,
+        plugin_free_string,
+        user_data,
+    };
+    match with_current_api(|api| {
+        api.with_registry(|registry| registry.register_provider_auth(record))
+    }) {
+        Some(Some(duplicate)) => i32::from(duplicate),
         _ => -1,
     }
 }

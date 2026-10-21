@@ -13,6 +13,7 @@ pub(super) enum RequestAuth {
 pub(super) struct ExecutionBinding {
     provider_id: String,
     models: Vec<Model>,
+    canonical_models: Vec<Model>,
     descriptors: Vec<Model>,
     auth: RequestAuth,
 }
@@ -34,11 +35,17 @@ pub(super) fn descriptor(model: &Model) -> Model {
 }
 
 impl ExecutionBinding {
-    pub fn new(provider_id: &str, models: Vec<Model>, auth: RequestAuth) -> Self {
+    pub fn new(
+        provider_id: &str,
+        models: Vec<Model>,
+        canonical_models: Vec<Model>,
+        auth: RequestAuth,
+    ) -> Self {
         Self {
             provider_id: provider_id.into(),
             descriptors: models.iter().map(descriptor).collect(),
             models,
+            canonical_models,
             auth,
         }
     }
@@ -54,7 +61,7 @@ impl ExecutionBinding {
     ) -> Option<(Model, SimpleStreamOptions)> {
         // The caller may select a published model, but cannot substitute an
         // endpoint or headers to redirect an already-bound credential.
-        let model = self
+        let mut model = self
             .models
             .iter()
             .find(|model| {
@@ -65,6 +72,46 @@ impl ExecutionBinding {
             })?
             .clone();
         let mut options = options.clone();
+        if let rpi_ai::auth::AttemptAuth::Replace(replacement) = &options.authentication {
+            let auth = replacement.for_provider(&self.provider_id)?;
+            let canonical = self.canonical_models.iter().find(|candidate| {
+                candidate.provider == model.provider
+                    && candidate.api == model.api
+                    && candidate.id.eq_ignore_ascii_case(&model.id)
+            })?;
+            model.base_url = auth
+                .base_url
+                .clone()
+                .unwrap_or_else(|| canonical.base_url.clone());
+            // Bound headers may contain provider-specific credential names.
+            // Strip every bound name as well as standard credential headers.
+            let mut headers = options.headers.take().unwrap_or_default();
+            headers.retain(|name, _| {
+                ![
+                    "authorization",
+                    "proxy-authorization",
+                    "x-api-key",
+                    "api-key",
+                    "cookie",
+                ]
+                .iter()
+                .any(|credential| name.eq_ignore_ascii_case(credential))
+                    && !model.headers.as_ref().is_some_and(|bound| {
+                        bound.keys().any(|known| known.eq_ignore_ascii_case(name))
+                    })
+                    && !matches!(&self.auth, RequestAuth::Headers(bound)
+                        if bound.keys().any(|known| known.eq_ignore_ascii_case(name)))
+            });
+            for (name, value) in &auth.headers {
+                headers.retain(|known, _| !known.eq_ignore_ascii_case(name));
+                headers.insert(name.clone(), value.clone());
+            }
+            model.headers = None;
+            options.api_key = auth.api_key.clone();
+            options.headers = (!headers.is_empty()).then_some(headers);
+            options.env = auth.env.clone();
+            return Some((model, options));
+        }
         if options.api_key.is_none() {
             match &self.auth {
                 RequestAuth::None => {}

@@ -1,0 +1,46 @@
+{
+  "status": "partial-host-capabilities-not-package-parity",
+  "platform": "linux",
+  "results": {
+    "workspace_tests": {
+      "log": "/tmp/rpi-auth-wired-workspace-tests.log",
+      "sha256": "0d6f081bba6f10e1c76cb29c4a09f41da1e3a489dd720639e4242fcd7724a4d0",
+      "passed": 2007,
+      "failed": 0,
+      "ignored": 8
+    },
+    "workspace_all_targets": {
+      "log": "/tmp/rpi-auth-wired-workspace-check.log",
+      "sha256": "e2c41fcff7daefcd7fa2d257ec43c3e80636c111d68285561392e21e09b90add",
+      "completed": true
+    },
+    "sdk_provider_tests": {
+      "log": "/tmp/rpi-private-provider-sdk-tests.log",
+      "sha256": "94a94f8d0d3ee15809637bc1f8e0bc9f03c4161f9afe8f790a25b0175f03e741",
+      "passed": 55,
+      "failed": 0,
+      "ignored": 1
+    },
+    "native_auth_acceptance": {
+      "log": "/tmp/rpi-native-auth-acceptance.log",
+      "sha256": "1a62870f3830f3d9d828afef18a4201fcd78059d2582ca208311b336aedd13e5",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    "auth_regressions": {
+      "log": "/tmp/rpi-native-auth-regressions.log",
+      "sha256": "1d9c187e0ccff0b373d582d510105a8acef1cd677e90a44b91f372aeadc894a7",
+      "passed": 90,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "not_tested": [
+    "macOS and Windows native execution",
+    "complete native delegation and TUI auth callers",
+    "Antigravity local/vault inference and refresh",
+    "Cursor local/cloud inference and lifecycle"
+  ],
+  "msrv_note": "Full rpi-ai Rust 1.78 verification remains blocked by pre-existing locked idna_adapter 1.2.2 using Edition 2024; no compiler requirement was raised."
+}
