@@ -415,3 +415,49 @@ async fn installed_cursor_reload_starts_the_new_binding_and_reaps_the_old_worker
     context.extension_session.lock().unwrap().begin_shutdown();
     harness.close().await.unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires staged Cursor DLL/runtime and isolated configuration; run installed_cursor tests with --test-threads=1"]
+async fn installed_cursor_shutdown_reaps_when_session_context_is_unavailable() {
+    let directory = PathBuf::from(std::env::var_os("RPI_TEST_CURSOR_EXTENSION_DIR").unwrap());
+    let agent_dir = PathBuf::from(std::env::var_os("RPI_CODING_AGENT_DIR").unwrap());
+    assert!(agent_dir.join("native-fixture-marker").is_file());
+    let cwd = tempfile::tempdir().unwrap();
+    let (host, _cell) = HarnessActionHost::new_empty(
+        vec![],
+        cwd.path().into(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    // Startup failed before the application could bind a harness or run mode.
+    let bridge = rpi_extensions::ActionBridge::new(Handle::current(), Arc::new(host));
+    #[cfg(target_os = "linux")]
+    let before = node_children();
+    let extensions = rpi_extensions::load_session(
+        &[directory],
+        Arc::new(rpi_extensions::NullDiagnostics),
+        Some(bridge.clone()),
+    );
+    assert_eq!(extensions.loaded_paths().len(), 1);
+    let snapshot = extensions.snapshot_arc().unwrap();
+    #[cfg(target_os = "linux")]
+    assert_eq!(node_children().difference(&before).count(), 1);
+    for _ in 0..2 {
+        rpi_extensions::dispatch_lifecycle_event_with_data(
+            &snapshot,
+            rpi_plugin_sdk::EventTag::SessionShutdown,
+            extensions.keepalive(),
+            json!({"reason":"quit"}),
+        )
+        .await;
+    }
+    #[cfg(target_os = "linux")]
+    assert_eq!(
+        node_children(),
+        before,
+        "shutdown must reap even while the library stays loaded"
+    );
+    bridge.finish_native_writes().await;
+    extensions.begin_shutdown();
+}
