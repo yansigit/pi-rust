@@ -22,6 +22,14 @@ providers must require `assistant.durationMs` and `json.exactNumbers` before
 registration; an older host must not silently drop timing or round usage values.
 This probe uses the existing private port and leaves all C ABI layouts unchanged.
 
+The private `context.inspect` capability adds `{port:"context",action:"inspect"}`.
+It returns the host-captured `owner` (including generation and child status) and
+operation `identity`, or null when there is no active operation. Supplied owner
+fields are ignored. Captured context leases retain the invocation's scope;
+cancelled or invalidated invocations are refused. Like capability discovery,
+this query is safe during synchronous registration and schedules no host work.
+It lets inherited handlers avoid mutating their parent's provider state.
+
 ## Catalog operations
 
 The `providers` port supports `inspect`, `publish`, `register`, `unregister`, and

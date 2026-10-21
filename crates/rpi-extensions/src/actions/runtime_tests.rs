@@ -283,3 +283,49 @@ async fn capability_discovery_is_available_during_synchronous_registration() {
         ));
     }
 }
+
+#[tokio::test]
+async fn native_context_reports_the_captured_invocation_and_rejects_expired_handles() {
+    let root = ActionBridge::new(Handle::current(), Arc::new(Host::default()));
+    let plugin = root.for_plugin("owner");
+    let child = plugin.for_invocation(true, CancellationToken::new());
+    let invoke = |handle| {
+        let mut output = StbString::empty();
+        let status = crate::native::request(
+            StbStringRef::from_str(
+                r#"{"version":1,"port":"context","action":"inspect","owner":{"child":false}}"#,
+            ),
+            std::ptr::null(),
+            &mut output,
+            handle,
+        );
+        let output = unsafe {
+            rpi_plugin_sdk::callbacks::OwnedString::from_raw(output, Some(crate::host_free_string))
+        };
+        (
+            status,
+            serde_json::from_str::<Value>(&output.to_string_lossy()).unwrap(),
+        )
+    };
+    let parent_result = invoke(plugin.user_data());
+    assert_eq!(parent_result.0, 0);
+    assert_eq!(parent_result.1["result"]["owner"]["child"], false);
+    let handle = crate::native::context(0, child.user_data());
+    assert!(!handle.is_null());
+    let result = invoke(handle);
+    assert_eq!(result.0, 0);
+    assert_eq!(result.1["result"]["owner"]["child"], true);
+    assert_eq!(
+        result.1["result"]["owner"]["id"],
+        parent_result.1["result"]["owner"]["id"]
+    );
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    assert_eq!(
+        invoke(plugin.for_invocation(false, cancelled).user_data()).0,
+        1
+    );
+    plugin.invalidate();
+    assert_eq!(invoke(handle).0, 1);
+    crate::native::context(1, handle);
+}

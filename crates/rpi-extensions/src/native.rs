@@ -125,11 +125,19 @@ pub(crate) extern "C" fn request(
                 return Err("unsupported native runtime version".into());
             }
             // Registration can run on a current-thread host runtime that cannot service queued work.
-            if args["port"] == "capabilities" && args["action"] == "inspect" {
+            if matches!(args["port"].as_str(), Some("capabilities" | "context"))
+                && args["action"] == "inspect"
+            {
                 if unsafe { control.as_ref() }
                     .is_some_and(|control| (control.is_cancelled)(control.user_data) != 0)
                 {
                     return Err("native runtime request cancelled".into());
+                }
+                if bridge.native_signal().is_cancelled() {
+                    return Err("native runtime request cancelled".into());
+                }
+                if args["port"] == "context" {
+                    return Ok(json!({"owner":owner,"identity":bridge.operation}));
                 }
                 return Ok(json!([
                     "assistant.durationMs",
@@ -138,7 +146,8 @@ pub(crate) extern "C" fn request(
                     "auth.credentialStoreLock",
                     "providers.initialize",
                     "auth.providerRequest",
-                    "auth.dynamicMethods"
+                    "auth.dynamicMethods",
+                    "context.inspect"
                 ]));
             }
             let signal = bridge.native_signal();

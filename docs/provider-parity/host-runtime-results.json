@@ -80,5 +80,21 @@
     "complete package differential suites",
     "live inference and remote mutations"
   ],
-  "msrv_note": "Minimal SDK passes Rust 1.78. Full host remains blocked by baseline locked dependency manifests; supported Rust version was not raised."
+  "msrv_note": "Minimal SDK passes Rust 1.78. Full host remains blocked by baseline locked dependency manifests; supported Rust version was not raised.",
+  "contextInspection": {
+    "status": "passed",
+    "contract": "Private owner/operation inspection preserves captured child scope and rejects cancelled or stale handles. No ABI layout changes.",
+    "tests": {
+      "command": "RUSTFLAGS=-Dwarnings cargo +1.78.0 test -p rpi-extensions --lib actions::runtime_tests --locked",
+      "passed": 12,
+      "failed": 0,
+      "log": "/tmp/rpi-native-context.log",
+      "sha256": "cd39f1059d0cf62497540a441bd98641b6584fe535a6fbce3680d78965145db0"
+    },
+    "cliBuild": {
+      "command": "RUSTFLAGS=-Dwarnings cargo +1.78.0 build -p rpi-cli --bin rpi --locked",
+      "status": "passed"
+    },
+    "platform": "Linux; macOS and Windows execution not tested"
+  }
 }
