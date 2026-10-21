@@ -7,7 +7,7 @@ streams, delayed readers, and result-only consumption. No network or credentials
 are used. Fixed model, timestamp, text, usage and identifiers make results
 repeatable through the real SDK driver and host provider adapter.
 
-The benchmark-only commit can be applied to baseline `534d316`. Use the same
+The benchmark-only baseline commit is `0a035bd` (`bench/provider-baseline`), directly on `534d316`. Use the same
 harness on subsequent revisions; after the async stream API migration, pass
 `--features provider-performance,bounded-provider-stream`. The conditional push
 adapter accommodates the intentional Rust API break without changing workloads.
@@ -19,6 +19,4 @@ instrumentation includes runtime and host overhead and may perturb execution;
 peak live bytes are whole-process allocations, not queue payload accounting.
 Use repeated samples and compare distributions; CI must not assert speedups.
 
-Run correctness tests separately. This harness initially measures conversion
-and streaming work; tool polls, resource reuse and bounded queue diagnostics
-need the later features and their targeted tests.
+Run correctness tests separately. [The measured report](provider-pipeline-results.md) includes pipeline allocation/byte/queue measurements, pending-tool worker and poll counts, resource creation counts, raw distributions and their limitations.
