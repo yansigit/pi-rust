@@ -57,6 +57,8 @@ use crate::PluginKeepalive;
 mod lifetime_tests;
 #[cfg(test)]
 mod stream_tests;
+#[cfg(all(test, feature = "provider-performance"))]
+mod performance;
 
 /// Reserve child capacity before spawning the producer; move this ownership
 /// into the foreign driver so runtime shutdown cannot unload executing code.
