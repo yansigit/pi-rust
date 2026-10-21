@@ -49,23 +49,28 @@ pub struct AuthManifest {
 impl AuthManifest {
     pub fn parse(value: &str) -> Result<Self, AuthError> {
         let manifest: Self = serde_json::from_str(value).map_err(|_| AuthError::Resolve)?;
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    pub fn validate(&self) -> Result<(), AuthError> {
         let mut ids = std::collections::BTreeSet::new();
-        if manifest.version != 1
-            || manifest.id.trim().is_empty()
-            || manifest.display_name.trim().is_empty()
-            || manifest.methods.iter().any(|method| {
+        if self.version != 1
+            || self.id.trim().is_empty()
+            || self.display_name.trim().is_empty()
+            || self.methods.iter().any(|method| {
                 method.id.trim().is_empty()
                     || method.name.trim().is_empty()
                     || !ids.insert(&method.id)
                     || match method.kind {
-                        AuthMethodKind::ApiKey => !manifest.api_key,
-                        AuthMethodKind::Oauth => !manifest.oauth,
+                        AuthMethodKind::ApiKey => !self.api_key,
+                        AuthMethodKind::Oauth => !self.oauth,
                     }
             })
         {
             return Err(AuthError::Resolve);
         }
-        Ok(manifest)
+        Ok(())
     }
 }
 
@@ -139,6 +144,35 @@ impl NativeProviderAuth {
         &self.record.manifest
     }
 
+    /// Discovery and login consult the same current methods, including custody refusals.
+    pub async fn methods(&self, signal: CancellationToken) -> Result<Vec<AuthMethod>, AuthError> {
+        if !self.snapshot.is_active() || signal.is_cancelled() {
+            return Err(AuthError::Cancelled);
+        }
+        let mut manifest = self.manifest().clone();
+        if let Some(operations) = crate::provider_runtime::NativeProviderOperations::from_parts(
+            self.snapshot.clone(),
+            self.keepalive.clone(),
+            &manifest.id,
+        )
+        .filter(|operations| operations.supports("authMethods"))
+        {
+            let value = operations
+                .request("authMethods", json!({}), signal.clone())
+                .await
+                .map_err(|error| {
+                    if signal.is_cancelled() {
+                        AuthError::Cancelled
+                    } else {
+                        AuthError::Provider(error)
+                    }
+                })?;
+            manifest.methods = serde_json::from_value(value).map_err(|_| AuthError::Resolve)?;
+            manifest.validate()?;
+        }
+        Ok(manifest.methods)
+    }
+
     /// Drive the provider's flow through an awaited host presentation port.
     /// Only an acknowledged store commit completes login successfully.
     pub async fn login<F, Fut>(
@@ -153,8 +187,8 @@ impl NativeProviderAuth {
         Fut: std::future::Future<Output = Result<Value, AuthError>>,
     {
         if !self
-            .manifest()
-            .methods
+            .methods(signal.clone())
+            .await?
             .iter()
             .any(|method| method.id == method_id)
         {

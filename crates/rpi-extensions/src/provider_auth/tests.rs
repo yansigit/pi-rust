@@ -198,6 +198,28 @@ fn manifest_rejects_versions_duplicate_methods_and_secret_fields() {
 }
 
 #[tokio::test]
+async fn static_methods_reject_cancelled_and_invalidated_sessions() {
+    let fixture = Fixture::default();
+    let (registry, auth) = setup(&fixture);
+    assert_eq!(
+        auth.methods(CancellationToken::new()).await.unwrap()[0].id,
+        "browser"
+    );
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    assert!(matches!(
+        auth.methods(cancelled).await,
+        Err(AuthError::Cancelled)
+    ));
+    registry.invalidate();
+    assert!(matches!(
+        auth.methods(CancellationToken::new()).await,
+        Err(AuthError::Cancelled)
+    ));
+    assert_eq!(fixture.completed.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
 async fn private_callbacks_preserve_login_refresh_and_request_overrides() {
     let fixture = Fixture::default();
     let (_registry, auth) = setup(&fixture);

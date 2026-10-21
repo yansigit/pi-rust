@@ -59,6 +59,14 @@ impl ProviderRuntime {
         }
     }
     async fn auth_methods(&self, id: &str, signal: CancellationToken) -> Result<Value, String> {
+        let auth = self.registered_auth(id).await?;
+        if let ProviderAuthentication::Native(auth) = auth.as_ref() {
+            return auth
+                .methods(signal)
+                .await
+                .map(|methods| json!(methods))
+                .map_err(|e| e.to_string());
+        }
         if let Some(operations) =
             rpi_extensions::provider_runtime::NativeProviderOperations::from_session(
                 &self.session,
@@ -67,18 +75,15 @@ impl ProviderRuntime {
         {
             if operations.supports("authMethods") {
                 let result = operations.request("authMethods", json!({}), signal).await?;
-                let methods: Vec<AuthMethod> = serde_json::from_value(result)
+                let mut manifest = auth.manifest().clone();
+                manifest.methods = serde_json::from_value(result)
                     .map_err(|_| "invalid provider authentication methods")?;
-                let mut ids = std::collections::HashSet::new();
-                if methods.iter().any(|method| {
-                    method.id.is_empty() || method.name.is_empty() || !ids.insert(&method.id)
-                }) {
-                    return Err("invalid provider authentication methods".into());
-                }
-                return Ok(json!(methods));
+                manifest
+                    .validate()
+                    .map_err(|_| "invalid provider authentication methods")?;
+                return Ok(json!(manifest.methods));
             }
         }
-        let auth = self.registered_auth(id).await?;
         Ok(json!(auth.manifest().methods))
     }
     pub(super) async fn auth_request(

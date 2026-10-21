@@ -10,6 +10,85 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[test]
+#[ignore = "requires cargo build -p plugin-stub with dynamic auth methods"]
+fn native_dynamic_auth_methods_gate_discovery_and_login() {
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    for mode in [
+        "available",
+        "empty",
+        "invalid",
+        "duplicate",
+        "blank",
+        "extra",
+        "unsupported",
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let agent = temp.path().join("agent");
+        std::fs::create_dir_all(&agent).unwrap();
+        let path = agent.join("auth.json");
+        let original = r#"{"other":{"type":"api_key","key":"unrelated-fixture"}}"#;
+        std::fs::write(&path, original).unwrap();
+        let command = |action: &str| {
+            let mut cmd = command_base(&temp);
+            cmd.env("RPI_STUB_REQUEST_AUTH", "prepared")
+                .env("RPI_STUB_AUTH_METHODS", mode)
+                .args(["auth", action, "--provider", "stub-provider", "--extension"])
+                .arg(&library);
+            cmd
+        };
+        let output = bounded_output(&mut command("methods"));
+        assert_eq!(
+            output.status.success(),
+            matches!(mode, "available" | "empty"),
+            "{mode}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if output.status.success() {
+            let methods: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            assert_eq!(
+                methods,
+                if mode == "empty" {
+                    serde_json::json!([])
+                } else {
+                    serde_json::json!([{"id":"device","name":"Current login","kind":"oauth"}])
+                }
+            );
+        }
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("private-method-data"));
+        for method in ["browser", "device"] {
+            let mut child = command("login")
+                .args(["--method", method])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            std::io::Write::write_all(&mut child.stdin.take().unwrap(), b"stub-code\n").unwrap();
+            let output = bounded_wait(child);
+            let success = mode == "available" && method == "device";
+            assert_eq!(
+                output.status.success(),
+                success,
+                "{mode}/{method}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                String::from_utf8_lossy(&output.stdout).contains("Stub login"),
+                success
+            );
+            if success {
+                let stored: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+                assert_eq!(stored["stub-provider"]["refresh"], "stub-login-refresh");
+                assert_eq!(stored["other"]["key"], "unrelated-fixture");
+            } else {
+                assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "requires cargo build -p plugin-stub with private request auth"]
 fn native_request_auth_preserves_dormant_credentials_and_legacy_failure() {
     let library = library("plugin_stub").expect("build the current plugin-stub first");
@@ -1367,11 +1446,15 @@ async fn antigravity_native_preflight_and_auth_errors_cross_the_loaded_library()
 }
 
 fn bounded_output(command: &mut Command) -> std::process::Output {
-    let mut child = command
+    let child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    bounded_wait(child)
+}
+
+fn bounded_wait(mut child: std::process::Child) -> std::process::Output {
     let started = std::time::Instant::now();
     while child.try_wait().unwrap().is_none() {
         if started.elapsed() > Duration::from_secs(10) {

@@ -59,6 +59,13 @@ receives `allowNetwork` (default false) and `force` (default false), and returns
 `{models}`. `authMethods` returns the provider's currently available auth methods.
 Catalog replacement is explicit via `ProviderManifest.replaceCatalog`.
 
+With `auth.dynamicMethods`, both the native auth port and standalone `rpi auth`
+discover current methods before login; an empty list disables new login flows.
+The host validates unique nonblank IDs/names and kinds supported by the registered
+auth manifest. Dynamic methods cannot expand its credential capabilities. Existing
+registrations without this callback retain their static methods. The callback is
+private, cancellation-aware and generation-scoped.
+
 Hosts advertising `providers.initialize` await each owning provider's `initialize`
 callback, in registration order, before model resolution or standalone `rpi auth`
 reads credentials. The input contains the host-selected `agentDir`. The private

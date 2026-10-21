@@ -1,0 +1,34 @@
+{
+  "status": "host-capabilities-not-package-parity",
+  "platform": "linux",
+  "toolchain": "Rust 1.78.0",
+  "flags": "-Dwarnings",
+  "results": [
+    {
+      "log": "/tmp/rpi-dynamic-auth-loaded-final.log",
+      "sha256": "295c01ed8e11b62d1d9b65fe9041869e654281c846baa857810aeacfb47e071e",
+      "passed": 8,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-dynamic-auth-unit.log",
+      "sha256": "0d6985b3970655ffed142e151163643bf66e899ae42c7c722a5af5314aaf6657",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "log": "/tmp/rpi-dynamic-auth-runtime.log",
+      "sha256": "fee9d7dc0029c0776e95c60a6491588a483a9064a3638ead2caa10bab54bdac3",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0
+    }
+  ],
+  "qualification": "Eight actual library tests include new dynamic auth discovery/login and existing Antigravity preflight/auth, pooled delegation, initialization, private request auth, catalog and login persistence. Seven method configurations cover new method IDs, removed static methods, empty lists, invalid payloads, duplicates, blank IDs, unknown fields and unsupported credential kinds. Native auth and provider runtime unit regressions pass.",
+  "not_tested": [
+    "complete Antigravity vault menus and native mode changes",
+    "macOS and Windows native execution"
+  ]
+}

@@ -11,6 +11,27 @@ extern "C" fn request(
 ) -> i32 {
     guard_or(1, || {
         let input: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+        if input["action"] == "authMethods" {
+            let method = json!({"id":"device","name":"Current login","kind":"oauth"});
+            let result = match std::env::var("RPI_STUB_AUTH_METHODS")
+                .unwrap_or_default()
+                .as_str()
+            {
+                "empty" => json!([]),
+                "invalid" => json!(42),
+                "duplicate" => json!([method, method]),
+                "blank" => json!([{"id":" ","name":"Current login","kind":"oauth"}]),
+                "extra" => {
+                    json!([{"id":"device","name":"Current login","kind":"oauth","secret":"private-method-data"}])
+                }
+                "unsupported" => json!([{"id":"key","name":"Key","kind":"api_key"}]),
+                _ => json!([method]),
+            };
+            unsafe {
+                *out = StbString::from_string(json!({"version":1,"result":result}).to_string());
+            }
+            return 0;
+        }
         assert_eq!(input["action"], "requestAuth");
         assert_eq!(input["input"]["modelId"], "stub-model");
         let result = match std::env::var("RPI_STUB_REQUEST_AUTH").unwrap().as_str() {
@@ -43,7 +64,7 @@ pub fn register(api: &PluginApi) -> Result<(), String> {
     }
     if api.register_provider_auth.ok_or("missing auth")?(
         StbStringRef::from_str(
-            r#"{"version":1,"id":"stub-provider","displayName":"Stub","apiKey":true,"oauth":true,"methods":[]}"#,
+            &json!({"version":1,"id":"stub-provider","displayName":"Stub","apiKey":std::env::var("RPI_STUB_AUTH_METHODS").as_deref()!=Ok("unsupported"),"oauth":true,"methods":[{"id":"browser","name":"Original login","kind":"oauth"}]}).to_string(),
         ),
         super::on_auth_request,
         callbacks::free_string,
@@ -53,7 +74,9 @@ pub fn register(api: &PluginApi) -> Result<(), String> {
         return Err("auth registration failed".into());
     }
     if api.register_provider_runtime.ok_or("missing runtime")?(
-        StbStringRef::from_str(r#"{"version":1,"id":"stub-provider","actions":["requestAuth"]}"#),
+        StbStringRef::from_str(
+            r#"{"version":1,"id":"stub-provider","actions":["requestAuth","authMethods"]}"#,
+        ),
         request,
         callbacks::free_string,
         std::ptr::null_mut(),

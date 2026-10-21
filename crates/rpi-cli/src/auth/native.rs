@@ -52,7 +52,7 @@ async fn execute(
     if sub == "methods" {
         println!(
             "{}",
-            serde_json::to_string(&auth.manifest().methods).map_err(|_| AuthError::Resolve)?
+            serde_json::to_string(&auth.methods(signal).await?).map_err(|_| AuthError::Resolve)?
         );
         return Ok(0);
     }
@@ -62,8 +62,8 @@ async fn execute(
     match sub {
         "login" => {
             let choices: Vec<_> = auth
-                .manifest()
-                .methods
+                .methods(signal.clone())
+                .await?
                 .iter()
                 .map(|method| AuthChoice {
                     id: method.id.clone(),
