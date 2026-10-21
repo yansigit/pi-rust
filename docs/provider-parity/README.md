@@ -1,6 +1,6 @@
 # Provider compatibility work
 
-Status: **not parity complete; Antigravity is under implementation and the other packages remain pending**.
+Status: **not parity complete; Antigravity and Cursor are under implementation; Multiprovider remains pending**.
 
 The host baseline is `90093c9e2d71ee9ce8228c1c27dc3262931b4a60`.
 Package work belongs in the separate [rpi-package fork](https://github.com/yansigit/rpi-package),
@@ -12,6 +12,11 @@ No workspace version bump is authorized by this work.
 Pi 1.3.0, Cursor SDK 1.0.37, and unchanged baseline commands. Source behavior is
 authoritative. Baseline failures are evidence about the reference, never a
 passing candidate test or an automatically approved exception.
+
+The [Cursor worker foundation](cursor-worker.md) retains the complete pinned
+adapter and implements private, bounded Rust/Node transport with cancellation,
+concurrent request ownership and shutdown draining. Its actual native provider,
+host ports and packaged execution remain in progress.
 
 The initial host foundation adds `rpi_ai::auth` and
 `rpi_cli::config::auth_store::CompatibilityCredentialStore`. Existing login and
