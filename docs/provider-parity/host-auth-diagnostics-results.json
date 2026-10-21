@@ -1,0 +1,40 @@
+{
+  "status": "host-foundation-only",
+  "platform": "linux",
+  "environment": {
+    "RUSTFLAGS": "-D warnings",
+    "CARGO_BUILD_JOBS": "2"
+  },
+  "checks": [
+    {
+      "command": "cargo +1.78.0 test -p rpi-extensions --lib --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-auth-public-errors-final.log",
+      "sha256": "62f03e974132419b7791e414c368142d83a8b1b97388682ff19e7f93b0be118b"
+    },
+    {
+      "command": "cargo +1.78.0 test -p rpi-ai --locked auth::",
+      "status": "passed",
+      "log": "/tmp/rpi-auth-diagnostics-ai.log",
+      "sha256": "8466e7e17082f84058c2ff443dbdb3342d0e8a8bbb3cf2f1340f1b667d75b286"
+    },
+    {
+      "command": "cargo +1.78.0 check --workspace --all-targets --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-auth-diagnostics-workspace.log",
+      "sha256": "1772f32ae9ed031df7b542dcc04c2d9bd96a20fb57e233b88e1d6e8a36ee28ea"
+    }
+  ],
+  "coverage": [
+    "explicit public auth errors survive login, refresh and conversion",
+    "invalid or failed callbacks retain generic errors",
+    "synchronous capability discovery during registration",
+    "inactive plugin handles rejected"
+  ],
+  "notTested": [
+    "package authentication acceptance",
+    "macOS",
+    "Windows"
+  ],
+  "sourceCompatibility": "AuthError is Clone rather than Copy; maintainer release coordination required. No ABI or version change."
+}

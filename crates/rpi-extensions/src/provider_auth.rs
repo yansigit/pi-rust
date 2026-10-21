@@ -102,6 +102,7 @@ pub enum AuthResponseKind {
     Auth,
     Success,
     Unavailable,
+    Error,
 }
 
 // No Debug: login continuations and payloads can contain credentials.
@@ -219,6 +220,16 @@ impl NativeProviderAuth {
         if response.version != 1 {
             return Err(AuthError::Resolve);
         }
+        if response.kind == AuthResponseKind::Error {
+            #[derive(Deserialize)]
+            #[serde(deny_unknown_fields)]
+            struct PublicError {
+                message: String,
+            }
+            let error: PublicError =
+                serde_json::from_value(response.payload).map_err(|_| AuthError::Resolve)?;
+            return Err(AuthError::Provider(error.message));
+        }
         Ok(response)
     }
 }
@@ -266,7 +277,10 @@ impl ProviderAuth for NativeProviderAuth {
                 signal,
             )
             .await
-            .map_err(|_| AuthError::Refresh)?;
+            .map_err(|error| match error {
+                AuthError::Provider(_) => error,
+                _ => AuthError::Refresh,
+            })?;
         if response.kind != AuthResponseKind::Credential {
             return Err(AuthError::Refresh);
         }
@@ -281,7 +295,10 @@ impl ProviderAuth for NativeProviderAuth {
                 CancellationToken::new(),
             )
             .await
-            .map_err(|_| AuthError::Derive)?;
+            .map_err(|error| match error {
+                AuthError::Provider(_) => error,
+                _ => AuthError::Derive,
+            })?;
         if response.kind != AuthResponseKind::Auth {
             return Err(AuthError::Derive);
         }

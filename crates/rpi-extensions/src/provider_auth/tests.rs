@@ -11,6 +11,7 @@ struct Fixture {
     completed: AtomicUsize,
     wait_for_cancel: bool,
     status: i32,
+    public_error: Option<Value>,
 }
 
 extern "C" fn request(
@@ -46,7 +47,10 @@ extern "C" fn request(
             ),
             _ => ("auth", json!({"apiKey":"private-key"})),
         };
-        let response = json!({"version":1,"kind":kind,"payload":payload});
+        let response = match &fixture.public_error {
+            Some(payload) => json!({"version":1,"kind":"error","payload":payload}),
+            None => json!({"version":1,"kind":kind,"payload":payload}),
+        };
         unsafe {
             *out = StbString::from_string(response.to_string());
         }
@@ -292,4 +296,55 @@ async fn cancellation_reaches_foreign_callback_and_keeps_library_alive() {
     .await
     .unwrap();
     assert_eq!(fixture.completed.load(Ordering::Acquire), 1);
+}
+
+#[tokio::test]
+async fn explicit_public_diagnostics_survive_login_refresh_and_derivation() {
+    let message = "Pi holds the vault placeholder, not a login.";
+    let fixture = Fixture {
+        public_error: Some(json!({"message":message})),
+        ..Default::default()
+    };
+    let (_registry, auth) = setup(&fixture);
+    let credential = OAuthCredential {
+        access: "secret".into(),
+        refresh: "private-refresh".into(),
+        expires_ms: 0,
+        extra: Default::default(),
+    };
+    let expected = AuthError::Provider(message.into());
+    assert_eq!(
+        auth.request(
+            AuthAction::Login,
+            json!({"methodId":"browser"}),
+            CancellationToken::new()
+        )
+        .await
+        .err(),
+        Some(expected.clone())
+    );
+    assert_eq!(
+        auth.refresh(credential.clone(), CancellationToken::new())
+            .await
+            .err(),
+        Some(expected.clone())
+    );
+    assert_eq!(auth.to_auth(credential).await.err(), Some(expected));
+    for payload in [
+        json!({"message":null}),
+        json!({"message":"public","refresh":"private"}),
+        json!("public"),
+    ] {
+        let fixture = Fixture {
+            public_error: Some(payload),
+            ..Default::default()
+        };
+        let (_registry, auth) = setup(&fixture);
+        assert_eq!(
+            auth.request(AuthAction::Login, json!({}), CancellationToken::new())
+                .await
+                .err(),
+            Some(AuthError::Resolve)
+        );
+    }
 }

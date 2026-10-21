@@ -94,3 +94,16 @@ Normal request observer events contain null keys/headers and omit environment.
 
 Native runtime/delegation, TUI presentation and package-level differential coverage
 remain required before claiming the full authentication ledger complete.
+
+Hosts advertising `auth.publicErrors` accept a successful callback response with
+`kind: "error"` and `payload: {message: "..."}`. This is an explicitly public,
+provider-redacted diagnostic, preserved through login, refresh and request-auth
+conversion. Malformed envelopes and nonzero callback statuses retain their generic
+errors. Provider packages must require the capability before depending on it.
+`AuthError` now carries this diagnostic and is `Clone` rather than `Copy`; this is
+a Rust source change for maintainer release coordination, with no C ABI change or
+workspace version bump. Legacy providers keep their existing fallback behavior.
+
+Capability discovery is synchronous and requires an active owning plugin. It is
+safe during registration even when the loader uses a current-thread runtime;
+it does not queue work onto that blocked runtime.

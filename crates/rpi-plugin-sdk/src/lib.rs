@@ -1414,7 +1414,9 @@ pub struct AuthRequestControl {
 /// Request: `{version:1, providerId, action, input}`. Actions are `login`,
 /// `continue`, `refresh`, `resolveApiKey`, `toAuth`, and `revoke`.
 /// Response: `{version:1, kind, payload}`; kinds are `interaction`,
-/// `credential`, `auth`, `success`, and `unavailable`. OAuth `expires` is Unix
+/// `credential`, `auth`, `success`, and `unavailable`. Hosts advertising
+/// `auth.publicErrors` also accept `error` with `{message}`: an explicitly public,
+/// provider-redacted diagnostic. OAuth `expires` is Unix
 /// milliseconds. Neither request nor response is an ordinary extension event.
 /// The callback must poll cancellation and return promptly when cancelled.
 /// Return zero on success and transfer `out` to the registered deallocator;

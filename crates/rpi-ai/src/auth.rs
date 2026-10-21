@@ -86,7 +86,7 @@ impl std::fmt::Debug for AttemptAuth {
 }
 
 // Debug is deliberately unavailable on token-bearing types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AuthError {
     #[error("authentication cancelled")]
     Cancelled,
@@ -104,6 +104,9 @@ pub enum AuthError {
     Derive,
     #[error("authentication task failed")]
     Task,
+    /// An explicitly public diagnostic already redacted by the registered provider.
+    #[error("{0}")]
+    Provider(String),
 }
 
 #[derive(Clone, Default)]

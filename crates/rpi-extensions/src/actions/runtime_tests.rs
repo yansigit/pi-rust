@@ -243,3 +243,43 @@ async fn side_questions_use_plugin_owner_and_stale_sinks_cannot_resurrect_panels
     assert!(sink(json!({"op":"register","id":"btw-test","type":"text"})).is_err());
     assert!(root.extension_status_mailbox().panels().is_empty());
 }
+
+#[tokio::test]
+async fn capability_discovery_is_available_during_synchronous_registration() {
+    let root = ActionBridge::new(Handle::current(), Arc::new(Host::default()));
+    let plugin = root.for_plugin("registering");
+    let mut output = StbString::empty();
+    // This runs directly on a current-thread runtime: scheduling and then blocking would deadlock.
+    let status = crate::native::request(
+        StbStringRef::from_str(r#"{"version":1,"port":"capabilities","action":"inspect"}"#),
+        std::ptr::null(),
+        &mut output,
+        plugin.user_data(),
+    );
+    let output = unsafe {
+        rpi_plugin_sdk::callbacks::OwnedString::from_raw(output, Some(crate::host_free_string))
+    };
+    assert_eq!(status, 0);
+    let response: Value = serde_json::from_str(&output.to_string_lossy()).unwrap();
+    assert!(response["result"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("auth.publicErrors")));
+    plugin.invalidate();
+    let mut output = StbString::empty();
+    assert_ne!(
+        crate::native::request(
+            StbStringRef::from_str(r#"{"version":1,"port":"capabilities","action":"inspect"}"#),
+            std::ptr::null(),
+            &mut output,
+            plugin.user_data()
+        ),
+        0
+    );
+    unsafe {
+        drop(rpi_plugin_sdk::callbacks::OwnedString::from_raw(
+            output,
+            Some(crate::host_free_string),
+        ));
+    }
+}

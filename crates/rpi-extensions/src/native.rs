@@ -124,6 +124,19 @@ pub(crate) extern "C" fn request(
             if args["version"] != 1 {
                 return Err("unsupported native runtime version".into());
             }
+            // Registration can run on a current-thread host runtime that cannot service queued work.
+            if args["port"] == "capabilities" && args["action"] == "inspect" {
+                if unsafe { control.as_ref() }
+                    .is_some_and(|control| (control.is_cancelled)(control.user_data) != 0)
+                {
+                    return Err("native runtime request cancelled".into());
+                }
+                return Ok(json!([
+                    "assistant.durationMs",
+                    "json.exactNumbers",
+                    "auth.publicErrors"
+                ]));
+            }
             let signal = bridge.native_signal();
             let _cancel = signal.clone().drop_guard();
             let (sender, receiver) = mpsc::sync_channel(1);
@@ -135,9 +148,7 @@ pub(crate) extern "C" fn request(
             let tool_scope = bridge.tool_scope.clone();
             bridge.runtime.spawn(async move {
                 let work = async move {
-                    if args["port"] == "capabilities" && args["action"] == "inspect" {
-                        Ok(json!(["assistant.durationMs", "json.exactNumbers"]))
-                    } else if args["port"] == "services" {
+                    if args["port"] == "services" {
                         services.request(owner, args, work_signal).await
                     } else if args["port"] == "dialogs" {
                         dialogs.request(owner, args, work_signal).await
