@@ -152,6 +152,7 @@ pub(crate) extern "C" fn request(
                     "auth.dynamicMethods",
                     "auth.resolveOwned",
                     "context.inspect",
+                    "tools.provenance",
                     "sessions.location",
                     "sessions.view",
                     "commands.owned",

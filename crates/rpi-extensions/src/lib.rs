@@ -544,7 +544,7 @@ fn register_tool(
             .action_bridge
             .as_ref()
             .map(|bridge| bridge.user_data() as usize);
-        api.with_registry(|reg| reg.register_tool(tool, handle))
+        api.with_registry(|reg| reg.register_tool_from(tool, handle, Some(api.name.clone())))
             .is_some()
     });
     if ok == Some(true) {

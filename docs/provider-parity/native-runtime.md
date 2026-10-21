@@ -210,3 +210,13 @@ The worker's publication call must await any admitted commit even after the
 requesting consumer cancels, and finish its private update after an acknowledged
 commit. The native Cursor dispatcher must use its owning runtime lease for this
 bounded completion. Neither change adds C ABI fields or changes workspace versions.
+
+Tool inspection now includes `sourceInfo` alongside the schema, activity and
+execution-mode fields (`tools.provenance`). CLI built-ins are marked `builtin`;
+native extension registrations retain their host-stamped plugin identity through
+registry snapshots and merges. Programmatic harness tools default to `inline`.
+This metadata stays out of model-facing schemas.
+
+`HarnessTool.source_info` and `ExtensionTool.plugin` are Rust source additions
+for the maintainer's coordinated release; existing constructors remain valid.
+No C ABI field, signature or workspace version changed.

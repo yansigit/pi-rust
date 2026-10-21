@@ -23,6 +23,9 @@ impl AgentHarness {
                 let schema = tool.tool.schema();
                 let mut info = serde_json::to_value(schema).expect("tool schema serializes");
                 info["label"] = json!(tool.tool.label());
+                info["sourceInfo"] = tool.source_info.clone().unwrap_or_else(|| {
+                    json!({"source":"inline","path":schema.name,"scope":"temporary","origin":"top-level"})
+                });
                 info["active"] = json!(
                     snapshot.active_tool_names.is_empty()
                         || snapshot.active_tool_names.contains(&schema.name)

@@ -182,6 +182,19 @@ async fn loads_real_cdylib_and_drives_echo_tool() {
     assert_eq!(tools.len(), 1, "echo should be the only registered tool");
     let echo = &tools[0];
     assert_eq!(echo.tool.name, "echo");
+    assert_eq!(
+        echo.plugin.as_deref(),
+        stub_path.file_stem().and_then(|name| name.to_str())
+    );
+    let entry = snapshot
+        .entries()
+        .into_iter()
+        .find_map(|entry| match entry {
+            rpi_extensions::RegistryEntry::Tool(tool) => Some(tool),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(entry.plugin, echo.plugin);
 
     // One event handler registered on MessageEnd (B2 minimum on() proof).
     let handlers = snapshot.handlers_for(EventTag::MessageEnd);

@@ -250,3 +250,32 @@ async fn harness_tool_replay_flag_round_trips() {
     assert_eq!(got[0].replay, ToolReplay::Never);
     assert!(Arc::ptr_eq(&got[0].tool, &alpha));
 }
+
+#[tokio::test]
+async fn native_tool_provenance_survives_registry_updates_without_becoming_model_input() {
+    let source = serde_json::json!({"source":"extension","path":"native-fixture","scope":"temporary","origin":"top-level"});
+    let harness = AgentHarness::create(options_with(vec![
+        HarnessTool::new(DummyTool::new("alpha")).with_source_info(source.clone()),
+        HarnessTool::new(DummyTool::new("beta")),
+    ]))
+    .await
+    .unwrap();
+    let mut inspected = harness.inspect_tools().unwrap();
+    assert_eq!(inspected[0]["sourceInfo"], source);
+    assert_eq!(inspected[1]["sourceInfo"]["source"], "inline");
+    inspected[0]["sourceInfo"]["source"] = "builtin".into();
+    assert_eq!(harness.inspect_tools().unwrap()[0]["sourceInfo"], source);
+    let tools = harness.get_tools().await.unwrap();
+    assert!(serde_json::to_value(tools[0].tool.schema())
+        .unwrap()
+        .get("sourceInfo")
+        .is_none());
+    harness
+        .set_tools(tools, Some(vec!["beta".into()]))
+        .await
+        .unwrap();
+    let inspected = harness.inspect_tools().unwrap();
+    assert_eq!(inspected[0]["sourceInfo"], source);
+    assert_eq!(inspected[0]["active"], false);
+    assert_eq!(inspected[1]["active"], true);
+}

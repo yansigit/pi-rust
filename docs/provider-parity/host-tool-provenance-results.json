@@ -1,0 +1,37 @@
+{
+  "status": "Native tool provenance implemented and checked",
+  "rust": "1.78.0",
+  "warnings": "denied",
+  "checks": {
+    "harnessDefensiveCopy": 7,
+    "realNativeStub": 2,
+    "realNativeStubIgnoredUnrelatedAuth": 1,
+    "cliBuiltins": 1,
+    "workspaceAllTargets": "passed"
+  },
+  "limitations": [
+    "Cursor native tool catalog publication and worker dispatch remain separate integration work."
+  ],
+  "logs": [
+    {
+      "path": "/tmp/rpi-native-tool-provenance-harness.log",
+      "sha256": "d7f635108fa04d354014b766973d8d14e7c30a61473a26a6b4ffa5b6a4d2a0d5"
+    },
+    {
+      "path": "/tmp/rpi-native-tool-provenance-stub-build.log",
+      "sha256": "5796b9080b6217115d8341bb620691b9709e0fde2ad6155fed279225f5435c64"
+    },
+    {
+      "path": "/tmp/rpi-native-tool-provenance-stub.log",
+      "sha256": "d1618ec806bbf20fb999d45a971da18cd4aa39742862db452a81701f5b8f591b"
+    },
+    {
+      "path": "/tmp/rpi-native-tool-provenance-cli.log",
+      "sha256": "85df90bdcfa0cc9d5ae1fa1c55f4cf28db646525ec768ec2a213035da9f62e5b"
+    },
+    {
+      "path": "/tmp/rpi-native-tool-provenance-workspace.log",
+      "sha256": "bc53f0a3f289cd3b2bf98007d31abbfe291d56cd645bdbb145a8e75b71e4608b"
+    }
+  ]
+}

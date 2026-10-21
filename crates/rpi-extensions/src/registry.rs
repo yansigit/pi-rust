@@ -55,12 +55,18 @@ fn requires_auth_default() -> bool {
 pub struct ExtensionTool {
     /// The provider-facing tool definition (name/description/parameters).
     pub tool: Tool,
+    /// Host-stamped registration source, retained across snapshots and merges.
+    pub plugin: Option<String>,
     pub(crate) handle: PluginToolHandle,
 }
 
 impl ExtensionTool {
     pub fn new(tool: Tool, handle: PluginToolHandle) -> Self {
-        Self { tool, handle }
+        Self {
+            tool,
+            handle,
+            plugin: None,
+        }
     }
 
     /// The plugin-side function handles backing this tool. `Copy` (fn pointers
@@ -431,6 +437,14 @@ impl ExtensionRegistry {
     /// Register a tool. Returns `true` if a **prior** tool of the same name was
     /// kept (first-wins: the new one is dropped). Returns `false` on insert.
     pub fn register_tool(&mut self, tool: Tool, handle: PluginToolHandle) -> bool {
+        self.register_tool_from(tool, handle, None)
+    }
+    pub(crate) fn register_tool_from(
+        &mut self,
+        tool: Tool,
+        handle: PluginToolHandle,
+        plugin: Option<String>,
+    ) -> bool {
         if self.tools.iter().any(|t| t.tool.name == tool.name) {
             // First-wins: keep the prior, drop the new handle. We must destroy
             // the dropped handle's allocation? No — `handle` is just fn pointers
@@ -440,7 +454,11 @@ impl ExtensionRegistry {
             // registration, so nothing to free.
             return true;
         }
-        self.tools.push(ExtensionTool::new(tool, handle));
+        self.tools.push(ExtensionTool {
+            tool,
+            handle,
+            plugin,
+        });
         false
     }
 
@@ -898,14 +916,7 @@ impl ExtensionRegistry {
             group.sort_by_key(|listener| listener.priority());
         }
         RegistrySnapshot {
-            tools: self
-                .tools
-                .iter()
-                .map(|t| ExtensionTool {
-                    tool: t.tool.clone(),
-                    handle: t.handle,
-                })
-                .collect(),
+            tools: self.tools.clone(),
             commands: self.commands.clone(),
             flags: self.flags.clone(),
             shortcuts: self.shortcuts.clone(),
@@ -1263,10 +1274,7 @@ impl RegistrySnapshot {
     pub fn entries(&self) -> Vec<RegistryEntry> {
         let mut v: Vec<RegistryEntry> = Vec::new();
         for t in &self.tools {
-            v.push(RegistryEntry::Tool(ExtensionTool {
-                tool: t.tool.clone(),
-                handle: t.handle,
-            }));
+            v.push(RegistryEntry::Tool(t.clone()));
         }
         for c in &self.commands {
             v.push(RegistryEntry::Command(c.clone()));

@@ -130,6 +130,8 @@ pub enum ToolReplay {
 pub struct HarnessTool {
     pub tool: Arc<dyn AgentTool>,
     pub replay: ToolReplay,
+    /// Host-owned provenance for native tool inspection; never provider input.
+    pub source_info: Option<serde_json::Value>,
 }
 
 impl HarnessTool {
@@ -137,10 +139,15 @@ impl HarnessTool {
         Self {
             tool,
             replay: ToolReplay::default(),
+            source_info: None,
         }
     }
     pub fn with_replay(mut self, replay: ToolReplay) -> Self {
         self.replay = replay;
+        self
+    }
+    pub fn with_source_info(mut self, source: serde_json::Value) -> Self {
+        self.source_info = Some(source);
         self
     }
 }

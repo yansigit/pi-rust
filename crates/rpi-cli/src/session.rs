@@ -2112,7 +2112,11 @@ fn merge_extension_tools(
         }
         let adapter = PluginToolAdapter::new(et.tool.clone(), et.handle(), session.keepalive())
             .with_context(tool_context.clone());
-        let harness_tool = HarnessTool::new(Arc::new(adapter));
+        let harness_tool =
+            HarnessTool::new(Arc::new(adapter)).with_source_info(serde_json::json!({
+                "source":"extension", "path":et.plugin.as_deref().unwrap_or(name),
+                "scope":"temporary", "origin":"top-level"
+            }));
         match tools.iter_mut().find(|t| t.tool.schema().name == *name) {
             Some(slot) => *slot = harness_tool,
             None => tools.push(harness_tool),
@@ -2212,7 +2216,13 @@ fn build_tools(ctx: &ExecutionToolContext, args: &Args) -> Vec<HarnessTool> {
         all.retain(|(name, _)| !deny.iter().any(|d| d == name));
     }
 
-    all.into_iter().map(|(_, t)| t).collect()
+    all.into_iter()
+        .map(|(name, tool)| {
+            tool.with_source_info(serde_json::json!({
+                "source":"builtin", "path":name, "scope":"temporary", "origin":"top-level"
+            }))
+        })
+        .collect()
 }
 
 /// Resolve the active tool names from the constructed tools when no explicit
@@ -3630,6 +3640,10 @@ mod tests {
         let mut_env: Arc<dyn rpi_tools::MutatingEnv> = env.clone();
         let context = ExecutionToolContext::new(env_dyn, Some(mut_env));
         let tools = build_tools(&context, &Args::default());
+
+        for tool in &tools {
+            assert_eq!(tool.source_info.as_ref().unwrap()["source"], "builtin");
+        }
 
         let replay_of = |name: &str| {
             tools
