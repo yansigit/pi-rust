@@ -78,7 +78,7 @@ pub struct HarnessActionHost {
     /// Parsed unknown long flags retained for extension consumption.
     cli_flags: BTreeMap<String, serde_json::Value>,
     native_mode: RwLock<Option<&'static str>>,
-    project_trusted: std::sync::atomic::AtomicBool,
+    project_trust: std::sync::atomic::AtomicU8,
     /// The session's plugin-tool context (`cwd` + session id). The session
     /// runtime actions (`new_session`/`fork`/`switch_session`) swap the session
     /// the harness serves, and must republish the id here too — a plugin whose
@@ -115,7 +115,7 @@ impl HarnessActionHost {
                 cwd,
                 cli_flags,
                 native_mode: RwLock::new(None),
-                project_trusted: std::sync::atomic::AtomicBool::new(false),
+                project_trust: std::sync::atomic::AtomicU8::new(0),
                 tool_context,
                 children: crate::child_agents::ChildAgents::default(),
                 side_questions: crate::side_questions::SideQuestions::default(),
@@ -370,9 +370,11 @@ impl RuntimeActionHost for HarnessActionHost {
     fn set_native_mode(&self, mode: &'static str) {
         *self.native_mode.write().unwrap_or_else(|e| e.into_inner()) = Some(mode);
     }
-    fn set_native_project_trust(&self, trusted: bool) {
-        self.project_trusted
-            .store(trusted, std::sync::atomic::Ordering::Release);
+    fn set_native_project_trust(&self, trusted: bool, resolved: bool) {
+        self.project_trust.store(
+            u8::from(trusted) | (u8::from(resolved) << 1),
+            std::sync::atomic::Ordering::Release,
+        );
     }
     fn native_bootstrap(&self) -> Result<serde_json::Value, String> {
         Ok(serde_json::json!({
@@ -446,10 +448,11 @@ impl RuntimeActionHost for HarnessActionHost {
                     let mut snapshot = target.native_context().map_err(|e| e.to_string())?;
                     snapshot["cwd"] = serde_json::json!(self.cwd);
                     snapshot["mode"] = mode.into();
-                    snapshot["projectTrusted"] = self
-                        .project_trusted
-                        .load(std::sync::atomic::Ordering::Acquire)
-                        .into();
+                    let trust = self
+                        .project_trust
+                        .load(std::sync::atomic::Ordering::Acquire);
+                    snapshot["projectTrusted"] = (trust & 1 != 0).into();
+                    snapshot["projectTrustResolved"] = (trust & 2 != 0).into();
                     snapshot["systemPrompt"] = target
                         .get_system_prompt()
                         .await

@@ -1,0 +1,36 @@
+{
+  "status": "Explicit native trust provenance verified",
+  "platform": "Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "context": {
+      "log": "/tmp/rpi-native-trust-context.log",
+      "sha256": "479ec52757d014a288c505d82d35adf79d0a17031a045e95a084a558aef851f4",
+      "passed": 4,
+      "ignored": 1
+    },
+    "default": {
+      "log": "/tmp/rpi-native-trust-default.log",
+      "sha256": "135d5e6ae30a4149d308b8090d3d417669d5abc5ed7d295c004463f3f39d65a3",
+      "passed": 1,
+      "ignored": 0
+    },
+    "workspace": {
+      "log": "/tmp/rpi-native-trust-workspace.log",
+      "sha256": "18fc69eda182440ecc30280bd9f13118499f8ed4737186e77292e9548086fa14",
+      "passed": true,
+      "ignored": 0
+    }
+  },
+  "coverage": [
+    "Default project resource loading is distinct from explicit trust",
+    "Matching CLI or stored trust decision retains provenance",
+    "Atomic trust/provenance snapshot prevents mixed decisions",
+    "Child inherits host-selected trust state; JSON cannot forge it"
+  ],
+  "compatibility": "No C layout or workspace version change; internal RuntimeActionHost Rust method gains resolved argument",
+  "remaining": [
+    "Native Cursor full integration",
+    "macOS/Windows execution"
+  ]
+}

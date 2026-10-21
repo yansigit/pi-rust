@@ -70,11 +70,20 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
         .unwrap();
     assert_eq!(snapshot["mode"], "rpc");
     assert_eq!(snapshot["projectTrusted"], false);
+    assert_eq!(snapshot["projectTrustResolved"], false);
     assert_eq!(snapshot["isIdle"], true);
     assert_eq!(snapshot["hasPendingMessages"], false);
     assert!(snapshot["model"].get("headers").is_none());
     assert!(snapshot["model"].get("baseUrl").is_none());
-    host.set_native_project_trust(true);
+    for (trusted, resolved) in [(true, false), (false, true), (true, true)] {
+        host.set_native_project_trust(trusted, resolved);
+        let snapshot = host
+            .native_request(owner.clone(), snapshot_request.clone(), Default::default())
+            .await
+            .unwrap();
+        assert_eq!(snapshot["projectTrusted"], trusted);
+        assert_eq!(snapshot["projectTrustResolved"], resolved);
+    }
     let abort = json!({"port":"context","action":"abort"});
     assert!(host
         .native_request(owner.clone(), abort.clone(), Default::default())
@@ -113,6 +122,7 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
                 .unwrap();
             assert_eq!(snapshot["sessionId"], "native-child");
             assert_eq!(snapshot["projectTrusted"], true);
+            assert_eq!(snapshot["projectTrustResolved"], true);
             host.native_request(
                 owner.clone(),
                 json!({"port":"tools","action":"setActive","tools":["read"]}),

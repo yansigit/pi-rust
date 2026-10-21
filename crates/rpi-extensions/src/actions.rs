@@ -492,7 +492,7 @@ pub trait RuntimeActionHost: Send + Sync {
     }
     /// Host-selected presentation and trust, never supplied by extension request JSON.
     fn set_native_mode(&self, _mode: &'static str) {}
-    fn set_native_project_trust(&self, _trusted: bool) {}
+    fn set_native_project_trust(&self, _trusted: bool, _resolved: bool) {}
     /// Revoke side questions when their plugin bridge is retired.
     fn cancel_side_questions(&self, _owner: u64) {}
     /// Host-internal TUI snapshots; never exposed as a cross-owner plugin action.

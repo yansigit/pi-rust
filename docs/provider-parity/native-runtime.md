@@ -42,6 +42,10 @@ effective system prompt, host-selected mode and project trust. Credential
 headers and endpoints are excluded. The bridge adds the authoritative owner,
 request identity and current dialog attachment (`hasUI`). The CLI sets mode
 after all stdin/TUI/stdio overrides and updates trust only after reload commits.
+`context.trustProvenance` also requires `projectTrustResolved`: a separate boolean
+which is true only for a matching explicit CLI or stored project decision. Default
+resource loading is not approval. Trust and its provenance are published atomically,
+so a snapshot cannot combine the old decision with a new provenance value.
 Before startup selects a mode, snapshots fail explicitly. `context.abort`
 requires a captured operation/session identity and cannot abort a subsequent run.
 

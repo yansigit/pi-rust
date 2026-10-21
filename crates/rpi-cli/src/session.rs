@@ -255,7 +255,10 @@ pub async fn prepare_extensions(
     );
     let action_host = Arc::new(action_host);
     let host_arc: Arc<dyn rpi_extensions::RuntimeActionHost> = action_host.clone();
-    host_arc.set_native_project_trust(project_trusted);
+    host_arc.set_native_project_trust(
+        project_trusted,
+        project_trust_decision(args, cwd) == Some(project_trusted),
+    );
     // `runtime` is reused below (B5c: `PluggableProvider` needs a captured
     // `Handle` to `spawn_blocking` the sync `ProviderRequestFn`), so clone here.
     //
@@ -1589,9 +1592,10 @@ where
 
     // The session was swapped atomically above; expose its matching bridge.
     *ctx.action_bridge.lock().unwrap() = Some(Arc::clone(&fresh_bridge));
-    fresh_bridge
-        .clone_host()
-        .set_native_project_trust(project_trusted);
+    fresh_bridge.clone_host().set_native_project_trust(
+        project_trusted,
+        project_trust_decision(&effective_args, &ctx.cwd) == Some(project_trusted),
+    );
 
     // ---- 3. resources_discover ("reload") over the fresh snapshot ----
     let discovered = extension_session
@@ -2042,13 +2046,14 @@ pub enum BuildError {
 /// Resolve project resource loading without prompting. Explicit CLI overrides
 /// win, then a stored decision; projects with no decision load by default.
 pub(crate) fn resolve_project_trust(args: &Args, cwd: &Path) -> bool {
+    project_trust_decision(args, cwd).unwrap_or(true)
+}
+
+fn project_trust_decision(args: &Args, cwd: &Path) -> Option<bool> {
     if let Some(override_value) = args.trust_override {
-        return override_value;
+        return Some(override_value);
     }
-    crate::config::project_trust_decision(cwd)
-        .ok()
-        .flatten()
-        .unwrap_or(true)
+    crate::config::project_trust_decision(cwd).ok().flatten()
 }
 
 /// Resolve the extension dirs to scan and load the cdylib plugins, returning
@@ -4047,6 +4052,10 @@ mod tests {
     #[test]
     fn project_resources_load_by_default_and_allow_explicit_opt_out() {
         let defaults = Args::default();
+        assert_eq!(
+            project_trust_decision(&defaults, Path::new("C:/definitely-not-a-project")),
+            None
+        );
         assert!(resolve_project_trust(
             &defaults,
             Path::new("C:/definitely-not-a-project")
@@ -4056,6 +4065,18 @@ mod tests {
             trust_override: Some(false),
             ..Args::default()
         };
+        assert_eq!(
+            project_trust_decision(&denied, Path::new("C:/definitely-not-a-project")),
+            Some(false)
+        );
+        let approved = Args {
+            trust_override: Some(true),
+            ..Args::default()
+        };
+        assert_eq!(
+            project_trust_decision(&approved, Path::new("C:/definitely-not-a-project")),
+            Some(true)
+        );
         assert!(!resolve_project_trust(
             &denied,
             Path::new("C:/definitely-not-a-project")
