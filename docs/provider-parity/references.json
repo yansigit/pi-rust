@@ -1,148 +1,41 @@
 {
   "schemaVersion": 1,
-  "host": {
-    "repository": "yansigit/pi-rust",
-    "commit": "90093c9e2d71ee9ce8228c1c27dc3262931b4a60"
-  },
-  "packages": {
-    "repository": "yansigit/rpi-package",
-    "upstream": "pi-rust/rpi-package",
-    "branch": "feature-1014",
-    "commit": "88d305803dd58434c9a36059d28b0a2328d6d927"
-  },
-  "referenceHost": {
-    "package": "@earendil-works/pi-coding-agent",
-    "version": "1.3.0",
-    "repository": "earendil-works/pi-mono",
-    "commit": "71023aec1546d6d677a65669c5665c0927ce0dd0"
-  },
+  "host": {"repository": "yansigit/pi-rust", "commit": "90093c9e2d71ee9ce8228c1c27dc3262931b4a60"},
+  "packages": {"repository": "yansigit/rpi-package", "upstream": "pi-rust/rpi-package", "branch": "feature-1014", "commit": "88d305803dd58434c9a36059d28b0a2328d6d927"},
+  "referenceHost": {"package": "@earendil-works/pi-coding-agent", "version": "1.3.0", "repository": "earendil-works/pi-mono", "commit": "71023aec1546d6d677a65669c5665c0927ce0dd0"},
   "providers": {
     "antigravity": {
       "repository": "cortexkit/antigravity-auth",
+      "checkoutDirectory": "agy-reference",
       "commit": "a97f9055017f3c1546afbfe61a19d50b428be3d8",
       "destination": "rpi-antigravity-auth",
       "bunVersion": "1.4.2",
-      "locks": [
-        "bun.lock",
-        "tools/common-auth-build/bun.lock"
-      ],
-      "sourceRoots": [
-        "packages/pi/src",
-        "packages/core/src"
-      ],
-      "testRoots": [
-        "packages/pi/src",
-        "packages/core/src",
-        "test"
-      ],
-      "install": [
-        [
-          "bun",
-          "install",
-          "--frozen-lockfile"
-        ],
-        [
-          "bun",
-          "install",
-          "--frozen-lockfile",
-          "--cwd",
-          "tools/common-auth-build"
-        ]
-      ],
-      "checks": [
-        [
-          "bun",
-          "run",
-          "build"
-        ],
-        [
-          "bun",
-          "run",
-          "test"
-        ],
-        [
-          "bun",
-          "run",
-          "--cwd",
-          "packages/pi",
-          "build"
-        ]
-      ]
+      "locks": ["bun.lock", "tools/common-auth-build/bun.lock"],
+      "sourceRoots": ["packages/pi/src", "packages/core/src"],
+      "testRoots": ["packages/pi/src", "packages/core/src", "test"],
+      "install": [["bun", "install", "--frozen-lockfile"], ["bun", "install", "--frozen-lockfile", "--cwd", "tools/common-auth-build"]],
+      "checks": [["bun", "run", "build"], ["bun", "run", "test"], ["bun", "run", "--cwd", "packages/pi", "build"]]
     },
     "multiprovider": {
       "repository": "monotykamary/pi-multiprovider",
       "commit": "bd97d65a36f541935dc91e33ba15d7910a30f9d7",
       "destination": "rpi-multiprovider",
-      "locks": [
-        "bun.lock"
-      ],
-      "sourceRoots": [
-        "src",
-        "extensions"
-      ],
-      "testRoots": [
-        "tests"
-      ],
-      "install": [
-        [
-          "bun",
-          "install",
-          "--frozen-lockfile"
-        ]
-      ],
-      "checks": [
-        [
-          "bun",
-          "run",
-          "check"
-        ],
-        [
-          "bun",
-          "run",
-          "test:pi"
-        ]
-      ]
+      "locks": ["bun.lock"],
+      "sourceRoots": ["src", "extensions"],
+      "testRoots": ["tests"],
+      "install": [["bun", "install", "--frozen-lockfile"]],
+      "checks": [["bun", "run", "check"], ["bun", "run", "test:pi"]]
     },
     "cursor": {
       "repository": "fitchmultz/pi-cursor-sdk",
       "commit": "f337dc4bb7cea936c52e69a7fe08e7e376c8467b",
       "destination": "rpi-cursor-sdk",
-      "sdk": {
-        "package": "@cursor/sdk",
-        "version": "1.0.37",
-        "redistribution": "unreviewed; do not bundle"
-      },
-      "locks": [
-        "package-lock.json"
-      ],
-      "sourceRoots": [
-        "src",
-        "shared",
-        "scripts/lib"
-      ],
-      "testRoots": [
-        "test"
-      ],
-      "install": [
-        [
-          "npm",
-          "ci",
-          "--ignore-scripts"
-        ]
-      ],
-      "checks": [
-        [
-          "npm",
-          "run",
-          "check:compat"
-        ],
-        [
-          "npm",
-          "pack",
-          "--dry-run",
-          "--ignore-scripts"
-        ]
-      ]
+      "sdk": {"package": "@cursor/sdk", "version": "1.0.37", "redistribution": "unreviewed; do not bundle"},
+      "locks": ["package-lock.json"],
+      "sourceRoots": ["src", "shared", "scripts/lib"],
+      "testRoots": ["test"],
+      "install": [["npm", "ci", "--ignore-scripts"]],
+      "checks": [["npm", "run", "check:compat"], ["npm", "pack", "--dry-run", "--ignore-scripts"]]
     }
   }
 }
