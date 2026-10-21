@@ -1,0 +1,22 @@
+{
+  "status": "partial-host-foundation",
+  "change": "Session-owned provider factories and runtime admission for auth operations",
+  "command": "cargo +1.78.0 test -p rpi-plugin-sdk --features provider --locked provider::context::tests",
+  "result": {
+    "passed": 7,
+    "failed": 0,
+    "ignored": 1
+  },
+  "environment": {
+    "RUSTFLAGS": "-D warnings",
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_PROFILE_TEST_DEBUG": "0"
+  },
+  "log": "/tmp/rpi-owned-provider-runtime.log",
+  "sha256": "bb3aed336be83bc2abcaf691077a028f70d508fe3c7987d47bddc789a15666f7",
+  "compatibility": "No C ABI fields or version changes; existing ContextFactory alias remains",
+  "notTested": [
+    "package-owned native runtime integration",
+    "macOS and Windows"
+  ]
+}

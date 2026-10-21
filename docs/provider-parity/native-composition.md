@@ -5,6 +5,15 @@ private continuation slots. Earlier offsets and control structures are unchanged
 The `provider::composition::register` helper reports missing required capabilities
 and owns one `ProviderContext` through lifecycle shutdown.
 
+Packages with additional session-owned state can pass a capturing factory to
+`drive_with_context`, retaining their lifecycle-managed `ProviderContext` through
+the callback and all background work. `ProviderContext::run` also admits auth and
+other extension work on that same runtime from a blocking callback. Shutdown
+cancels each admitted operation's signal, rejects new work and waits for admitted
+futures and runtime workers before the library can be released. This is a Rust
+SDK helper change; the C ABI and existing function-pointer factory alias remain
+unchanged.
+
 A wrapper manifest is `{version:1,id,providers:[providerIds]}`. An omitted/null
 provider list matches all providers. Registrations are unique within their owning
 plugin and session; first registration wins for a duplicate wrapper ID. The first

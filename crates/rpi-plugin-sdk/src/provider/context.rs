@@ -99,7 +99,7 @@ impl ProviderContext {
 
     pub(super) fn enter(
         &self,
-        options: &SimpleStreamOptions,
+        signal: &tokio_util::sync::CancellationToken,
     ) -> Result<(tokio::runtime::Handle, RequestGuard<'_>), String> {
         let mut state = self.state.lock().map_err(|error| error.to_string())?;
         if state.stopping {
@@ -107,7 +107,7 @@ impl ProviderContext {
         }
         let id = state.next_request;
         state.next_request += 1;
-        let signal = options.signal.clone();
+        let signal = signal.clone();
         state.active.insert(id, Box::new(move || signal.cancel()));
         drop(state);
         let request = RequestGuard { context: self, id };
@@ -133,6 +133,17 @@ impl ProviderContext {
         }
         let handle = resources.runtime.as_ref().unwrap().handle().clone();
         Ok((handle, request))
+    }
+
+    /// Run owned extension work on this registration's runtime from a blocking callback.
+    /// Shutdown cancels `signal` and waits for the future before retiring the runtime.
+    pub fn run<F: std::future::Future>(
+        &self,
+        signal: &tokio_util::sync::CancellationToken,
+        future: F,
+    ) -> Result<F::Output, String> {
+        let (runtime, _request) = self.enter(signal)?;
+        Ok(runtime.block_on(future))
     }
 
     /// Idempotent and nonblocking: reject new calls and cancel active requests.
@@ -244,17 +255,22 @@ pub fn register_with_context(
 /// Drive a context factory, falling back to a per-request runtime on older hosts.
 ///
 /// # Safety
-/// A non-null `context` must be the live user data from `register_with_context`.
+/// A non-null `context` must point to a live `ProviderContext` retained through this
+/// call and all background work. `register_with_context` supplies one automatically;
+/// extensions with additional owned state may supply their own lifecycle-managed context.
 /// Other arguments obey the same borrowed-data contract as [`super::drive`].
-pub unsafe fn drive_with_context(
-    factory: ContextFactory,
+pub unsafe fn drive_with_context<F>(
+    factory: F,
     context: *mut c_void,
     request: StbStringRef,
     emit: Option<ProviderStreamEmitFn>,
     emit_data: *mut c_void,
     control: *const ProviderStreamControl,
     out: *mut StbString,
-) -> i32 {
+) -> i32
+where
+    F: FnOnce(&ProviderContext, &Model, &SimpleStreamOptions) -> Result<Arc<dyn Provider>, String>,
+{
     crate::guard_or(1, || {
         if out.is_null() {
             return 2;
@@ -287,7 +303,7 @@ pub unsafe fn drive_with_context(
             }
         };
         let message = if let Some(context) = context {
-            match context.enter(&options) {
+            match context.enter(&options.signal) {
                 Ok((runtime, _request)) => runtime.block_on(future),
                 Err(error) => AssistantMessage::terminal(
                     request.model.api.clone(),
@@ -367,14 +383,73 @@ mod tests {
     use super::*;
 
     #[test]
+    fn owned_auth_work_uses_the_runtime_and_is_drained_on_shutdown() {
+        let context = Arc::new(ProviderContext::new());
+        let signal = tokio_util::sync::CancellationToken::new();
+        let (started, entered) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn({
+            let context = context.clone();
+            let signal = signal.clone();
+            move || {
+                context.run(&signal, async {
+                    started.send(()).unwrap();
+                    signal.cancelled().await;
+                    "completed"
+                })
+            }
+        });
+        entered.recv_timeout(Duration::from_secs(1)).unwrap();
+        context.finish_shutdown();
+        assert!(signal.is_cancelled());
+        assert_eq!(worker.join().unwrap().unwrap(), "completed");
+        assert!(context.run(&signal, async {}).is_err());
+    }
+
+    #[test]
+    fn provider_factory_can_capture_owning_session_state() {
+        let context = ProviderContext::new();
+        let owner_value = String::from("owning session value");
+        let request = serde_json::json!({
+            "model": Model::new("m", "M", rpi_ai::Api::Faux, "owned", "http://127.0.0.1:9"),
+            "context": rpi_ai::Context::new(vec![]), "options": {}
+        })
+        .to_string();
+        let mut out = StbString::empty();
+        let rc = unsafe {
+            drive_with_context(
+                |_, _, _| {
+                    Ok(rpi_ai::providers::faux::FauxProvider::new(
+                        rpi_ai::providers::faux::FauxScript::new().with_text(owner_value),
+                    ))
+                },
+                (&context as *const ProviderContext).cast_mut().cast(),
+                StbStringRef::from_str(&request),
+                None,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                &mut out,
+            )
+        };
+        assert_eq!(rc, 0);
+        let owned = unsafe {
+            crate::callbacks::OwnedString::from_raw(out, Some(crate::callbacks::free_string))
+        };
+        let message: AssistantMessage = serde_json::from_str(&owned.to_string_lossy()).unwrap();
+        assert!(
+            matches!(message.content.as_slice(), [rpi_ai::Content::Text(text)] if text.text == "owning session value")
+        );
+        context.finish_shutdown();
+    }
+
+    #[test]
     fn repeated_requests_share_one_lazy_runtime_and_shutdown_rejects_work() {
         let context = ProviderContext::new();
         assert!(context.resources.lock().unwrap().runtime.is_none());
         let options = SimpleStreamOptions::default();
-        let (first, request) = context.enter(&options).unwrap();
+        let (first, request) = context.enter(&options.signal).unwrap();
         let runtime = context.resources.lock().unwrap().runtime.as_ref().unwrap() as *const _;
         drop(request);
-        let (_, request) = context.enter(&options).unwrap();
+        let (_, request) = context.enter(&options.signal).unwrap();
         assert_eq!(
             runtime,
             context.resources.lock().unwrap().runtime.as_ref().unwrap() as *const _
@@ -383,7 +458,9 @@ mod tests {
         context.begin_shutdown();
         context.begin_shutdown();
         assert!(options.signal.is_cancelled());
-        assert!(context.enter(&SimpleStreamOptions::default()).is_err());
+        assert!(context
+            .enter(&SimpleStreamOptions::default().signal)
+            .is_err());
         drop(request);
         context.finish_shutdown();
         context.finish_shutdown();
@@ -414,7 +491,9 @@ mod tests {
             let context = context.clone();
             let barrier = barrier.clone();
             workers.push(std::thread::spawn(move || {
-                let (runtime, _request) = context.enter(&SimpleStreamOptions::default()).unwrap();
+                let (runtime, _request) = context
+                    .enter(&SimpleStreamOptions::default().signal)
+                    .unwrap();
                 barrier.wait();
                 barrier.wait();
                 runtime.block_on(async { tokio::time::sleep(Duration::from_millis(20)).await });
@@ -478,7 +557,9 @@ mod tests {
         });
         let context = ProviderContext::new();
         let url = format!("http://{address}");
-        let (runtime, request) = context.enter(&SimpleStreamOptions::default()).unwrap();
+        let (runtime, request) = context
+            .enter(&SimpleStreamOptions::default().signal)
+            .unwrap();
         runtime.block_on(async {
             for credential in ["first-secret", "second-secret"] {
                 let client = context.client(&url).unwrap();

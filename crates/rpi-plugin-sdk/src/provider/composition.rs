@@ -328,7 +328,7 @@ extern "C" fn invoke(
             descriptor,
             model: request.model.clone(),
         };
-        let Ok((runtime, _request)) = context.resources.enter(&options) else {
+        let Ok((runtime, _request)) = context.resources.enter(&options.signal) else {
             return 1;
         };
         let message = runtime.block_on(async {
