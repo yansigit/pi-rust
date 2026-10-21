@@ -1642,6 +1642,8 @@ pub struct PluginApi {
     /// Session-scoped versioned private services and bounded notifications.
     pub register_service: Option<RegisterProviderAuthFn>,
     /// Acquire (0) / release (1) an invocation context across foreign worker threads.
+    /// With `sessions.persistenceLease`, operation 2 retains captured-origin session
+    /// access through caller cancellation; it cannot capture origins or use other ports.
     pub native_context: Option<extern "C" fn(u32, *mut c_void) -> *mut c_void>,
     /// Owned asynchronous commands. Manifest: `{version:1,name,description}`.
     /// The callback receives `{version:1,command,args}` and returns `{version:1,result}`.

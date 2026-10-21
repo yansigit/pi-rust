@@ -339,6 +339,87 @@ async fn child_origins_are_scoped_and_do_not_pin_child_lifetimes() {
 }
 
 #[tokio::test]
+async fn persistent_child_completion_stays_origin_bound_after_stop_and_navigation() {
+    let ports = Arc::new(SessionPorts::default());
+    let storage = memory();
+    let child = Arc::new(ToolExecutionScope::default());
+    let origin = child.run(capture(&ports, storage.clone())).await;
+    child
+        .run(call(&ports, owner(), append(&origin, "append")))
+        .await
+        .unwrap();
+    let before = storage.snapshot().await.unwrap();
+    storage.move_lane("main", None).await.unwrap();
+    child.stopped().cancel();
+    assert!(child
+        .run(call(&ports, owner(), append(&origin, "journalAppend")))
+        .await
+        .is_err());
+    // A later capture must not purge the still-retained writer's origin.
+    let parent = capture(&ports, storage.clone()).await;
+    let request = || Request::JournalAppend {
+        origin: origin.clone(),
+        custom_type: "late".into(),
+        data: None,
+    };
+    let receipt = ports
+        .execute(
+            owner(),
+            request(),
+            Some(child.clone()),
+            CancellationToken::new(),
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(receipt["advancedLane"], false);
+    assert!(storage.snapshot().await.unwrap().branches[0]
+        .leaf_id
+        .is_none());
+    assert_eq!(
+        receipt["entry"]["parentId"],
+        before.branches[0].leaf_id.as_ref().unwrap().as_str()
+    );
+    let cancelled = CancellationToken::new();
+    cancelled.cancel();
+    assert!(ports
+        .execute(
+            owner(),
+            request(),
+            Some(child.clone()),
+            cancelled,
+            None,
+            true
+        )
+        .await
+        .is_err());
+    assert!(ports
+        .execute(
+            owner(),
+            Request::Sync { origin: parent },
+            Some(child.clone()),
+            CancellationToken::new(),
+            None,
+            true
+        )
+        .await
+        .is_err());
+    ports.retire(owner().id);
+    assert!(ports
+        .execute(
+            owner(),
+            request(),
+            Some(child),
+            CancellationToken::new(),
+            None,
+            true
+        )
+        .await
+        .is_err());
+}
+
+#[tokio::test]
 async fn capture_refuses_stale_identity_and_bounds_handles_and_untrusted_input() {
     let ports = Arc::new(SessionPorts::default());
     let storage = memory();

@@ -30,8 +30,18 @@ pub trait NativeProviderRuntime: Send + Sync {
     ) -> Result<Value, String>;
 }
 
+#[derive(Clone)]
 struct Lease {
     bridge: Arc<ActionBridge>,
+    session_persistence: bool,
+}
+tokio::task_local! { static SESSION_PERSISTENCE: bool; }
+
+/// Host-internal authority of a captured session lease, never read from request JSON.
+pub fn is_session_persistence() -> bool {
+    SESSION_PERSISTENCE
+        .try_with(|value| *value)
+        .unwrap_or(false)
 }
 static LEASES: OnceLock<Mutex<HashMap<usize, Lease>>> = OnceLock::new();
 fn leases() -> &'static Mutex<HashMap<usize, Lease>> {
@@ -61,7 +71,7 @@ pub(crate) fn retire_owner(owner: u64) {
     drop(removed);
 }
 
-/// Acquire (0) or release (1) an opaque runtime context, never a raw bridge pointer.
+/// Acquire (0), release (1), or retain only existing session origins (2).
 pub(crate) extern "C" fn context(operation: u32, handle: *mut c_void) -> *mut c_void {
     rpi_plugin_sdk::guard_or(std::ptr::null_mut(), || {
         if operation == 1 {
@@ -76,20 +86,45 @@ pub(crate) extern "C" fn context(operation: u32, handle: *mut c_void) -> *mut c_
             drop(removed);
             return std::ptr::null_mut();
         }
-        if operation != 0 {
+        if !matches!(operation, 0 | 2) {
             return std::ptr::null_mut();
         }
-        let Some(bridge) =
-            ActionBridge::native_invocation(handle as usize).filter(|b| b.is_active())
+        let inherited = leases()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&(handle as usize))
+            .filter(|lease| lease.session_persistence)
+            .cloned();
+        let Some(bridge) = inherited
+            .as_ref()
+            .map(|lease| lease.bridge.clone())
+            .or_else(|| ActionBridge::native_invocation(handle as usize))
+            .filter(|b| b.is_active())
         else {
             return std::ptr::null_mut();
         };
+        if operation == 2
+            && inherited.is_none()
+            && (bridge.native_signal().is_cancelled()
+                || bridge
+                    .tool_scope
+                    .as_ref()
+                    .is_some_and(|scope| scope.stopped().is_cancelled()))
+        {
+            return std::ptr::null_mut();
+        }
         let mut leases = leases().lock().unwrap_or_else(|e| e.into_inner());
         if !bridge.is_active() || leases.len() >= 4096 {
             return std::ptr::null_mut();
         }
         let id = bridge.new_handle() as usize;
-        leases.insert(id, Lease { bridge });
+        leases.insert(
+            id,
+            Lease {
+                bridge,
+                session_persistence: operation == 2 || inherited.is_some(),
+            },
+        );
         id as *mut c_void
     })
 }
@@ -111,7 +146,21 @@ pub(crate) extern "C" fn request(
             {
                 return Err("short native cancellation control".into());
             }
-            let bridge = ActionBridge::native_invocation(data as usize)
+            if unsafe { control.as_ref() }
+                .is_some_and(|control| (control.is_cancelled)(control.user_data) != 0)
+            {
+                return Err("native runtime request cancelled".into());
+            }
+            let persistence = leases()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(&(data as usize))
+                .filter(|lease| lease.session_persistence)
+                .cloned();
+            let bridge = persistence
+                .as_ref()
+                .map(|lease| lease.bridge.clone())
+                .or_else(|| ActionBridge::native_invocation(data as usize))
                 .ok_or("expired native runtime handle")?;
             if !bridge.is_active() {
                 return Err("inactive native runtime".into());
@@ -123,6 +172,28 @@ pub(crate) extern "C" fn request(
                 .map_err(|_| "invalid native request")?;
             if args["version"] != 1 {
                 return Err("unsupported native runtime version".into());
+            }
+            if persistence.is_some()
+                && (args["port"] != "sessions"
+                    || !args["origin"]
+                        .as_str()
+                        .is_some_and(|origin| !origin.is_empty())
+                    || !matches!(
+                        args["action"].as_str(),
+                        Some(
+                            "snapshot"
+                                | "view"
+                                | "location"
+                                | "append"
+                                | "journalAppend"
+                                | "sync"
+                                | "release"
+                        )
+                    ))
+            {
+                return Err(
+                    "session persistence lease only permits captured-origin operations".into(),
+                );
             }
             // Registration can run on a current-thread host runtime that cannot service queued work.
             if (matches!(args["port"].as_str(), Some("capabilities" | "context"))
@@ -165,12 +236,21 @@ pub(crate) extern "C" fn request(
                     "tools.activation",
                     "sessions.location",
                     "sessions.view",
+                    "sessions.persistenceLease",
                     "commands.owned",
                     "ui.notifications",
                     "ui.status"
                 ]));
             }
-            let signal = bridge.native_signal();
+            let session_persistence = persistence.is_some();
+            let signal = if session_persistence {
+                CancellationToken::new()
+            } else {
+                bridge.native_signal()
+            };
+            if signal.is_cancelled() {
+                return Err("native runtime request cancelled".into());
+            }
             let _cancel = signal.clone().drop_guard();
             let (sender, receiver) = mpsc::sync_channel(1);
             let host = bridge.host.clone();
@@ -218,13 +298,17 @@ pub(crate) extern "C" fn request(
                         Ok(result)
                     }
                 };
-                let result = rpi_agent::tool_execution_scope::inherit(tool_scope, async move {
-                    match operation {
-                        Some(identity) => rpi_ai::identity::scope(identity, work).await,
-                        None => work.await,
-                    }
-                })
-                .await;
+                let result = SESSION_PERSISTENCE
+                    .scope(
+                        session_persistence,
+                        rpi_agent::tool_execution_scope::inherit(tool_scope, async move {
+                            match operation {
+                                Some(identity) => rpi_ai::identity::scope(identity, work).await,
+                                None => work.await,
+                            }
+                        }),
+                    )
+                    .await;
                 let _ = sender.send(result);
             });
             loop {

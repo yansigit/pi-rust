@@ -16,10 +16,16 @@ impl RuntimeActionHost for Host {
     }
     async fn native_request(
         &self,
-        _: crate::native::NativeOwner,
+        owner: crate::native::NativeOwner,
         args: Value,
-        _: CancellationToken,
+        signal: CancellationToken,
     ) -> Result<Value, String> {
+        if args["port"] == "sessions" {
+            return Ok(
+                json!({"owner":owner, "persistence":crate::native::is_session_persistence(),
+                "cancelled":signal.is_cancelled(), "childScope":rpi_agent::tool_execution_scope::is_child_execution()}),
+            );
+        }
         assert_eq!(args["port"], "context");
         assert_eq!(args["action"], "snapshot");
         Ok(json!({"mode":"rpc","hasUI":"forged","owner":"forged","identity":"forged"}))
@@ -220,6 +226,70 @@ mod cleanup;
 mod driver;
 mod pacing;
 mod streaming;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_persistence_lease_retains_scope_but_cannot_start_new_work() {
+    let root = ActionBridge::new(Handle::current(), Arc::new(Host::default()));
+    let plugin = root.for_plugin("session-writer");
+    let signal = CancellationToken::new();
+    let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    let invocation = scope
+        .run(async { plugin.for_invocation(true, signal.clone()) })
+        .await;
+    let lease = crate::native::context(2, invocation.user_data()) as usize;
+    assert_ne!(lease, 0);
+    signal.cancel();
+    assert!(crate::native::context(2, invocation.user_data()).is_null());
+    let rescope = crate::native::context(0, lease as *mut c_void) as usize;
+    assert_ne!(rescope, 0);
+    let call = |handle: usize, args: Value| async move {
+        tokio::task::spawn_blocking(move || {
+            let mut out = StbString::empty();
+            let rc = crate::native::request(
+                StbStringRef::from_str(&args.to_string()),
+                std::ptr::null(),
+                &mut out,
+                handle as *mut c_void,
+            );
+            let out = unsafe {
+                rpi_plugin_sdk::callbacks::OwnedString::from_raw(out, Some(crate::host_free_string))
+            };
+            (
+                rc,
+                serde_json::from_str::<Value>(&out.to_string_lossy()).unwrap(),
+            )
+        })
+        .await
+        .unwrap()
+    };
+    let append = json!({"version":1,"port":"sessions","action":"journalAppend","origin":"already-captured","customType":"fixture"});
+    assert_eq!(
+        call(invocation.user_data() as usize, append.clone())
+            .await
+            .0,
+        1
+    );
+    let result = call(rescope, append.clone()).await;
+    assert_eq!(result.0, 0);
+    assert_eq!(result.1["result"]["persistence"], true);
+    assert_eq!(result.1["result"]["cancelled"], false);
+    assert_eq!(result.1["result"]["childScope"], true);
+    assert_eq!(result.1["result"]["owner"]["child"], true);
+    for args in [
+        json!({"port":"sessions","action":"capture"}),
+        json!({"port":"context","action":"snapshot"}),
+        json!({"port":"auth","action":"resolve","providerId":"cursor"}),
+        json!({"port":"tools","action":"invoke"}),
+    ] {
+        let mut args = args;
+        args["version"] = 1.into();
+        assert_eq!(call(rescope, args).await.0, 1);
+    }
+    plugin.invalidate();
+    assert_eq!(call(rescope, append).await.0, 1);
+    crate::native::context(1, lease as *mut c_void);
+    crate::native::context(1, rescope as *mut c_void);
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn side_questions_use_plugin_owner_and_stale_sinks_cannot_resurrect_panels() {

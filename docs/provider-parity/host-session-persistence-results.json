@@ -1,0 +1,55 @@
+{
+  "status": "host session persistence authority; Cursor integration pending",
+  "platform": "Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "bridge": {
+      "log": "/tmp/rpi-session-persistence-bridge.log",
+      "sha256": "e58b2870943d49d671a541acd69fa7f8d6ddaca94112c66b3f18703d08f8ae21",
+      "passed": 1,
+      "ignored": 0
+    },
+    "sessionStore": {
+      "log": "/tmp/rpi-session-persistence-store.log",
+      "sha256": "a10c8669c66412cc85444067fafaad6b40e348b05706ef30a3a76f26b4e81127",
+      "passed": 9,
+      "ignored": 0
+    },
+    "extensions": {
+      "log": "/tmp/rpi-session-persistence-extensions.log",
+      "sha256": "a66867870d2e80a790abf745c2a8f317aa0eea740d64841af02c6e40949d193c",
+      "passed": 194,
+      "ignored": 2
+    },
+    "sdk": {
+      "log": "/tmp/rpi-session-persistence-sdk.log",
+      "sha256": "061f5798e0c168c318b2699728b506237af144913ff71ba8b7e355bf762e14c5",
+      "passed": 73,
+      "ignored": 3
+    },
+    "sdkNoDefault": {
+      "log": "/tmp/rpi-session-persistence-minimal.log",
+      "sha256": "503cb57b6099303e5e364d6d405957470c4508bb0dca2acefb87e0d74b11f538",
+      "passed": true,
+      "ignored": 0
+    },
+    "workspaceAllTargets": {
+      "log": "/tmp/rpi-session-persistence-workspace.log",
+      "sha256": "a6f36e132831f14cb387878c33ded6a3c1f9862622df1e2eddf5c2863b425bec",
+      "passed": true,
+      "ignored": 0
+    }
+  },
+  "contracts": [
+    "Retains original owner, generation and child scope after caller cancellation",
+    "Only captured-origin session operations; no new capture, tools, auth or dialogs",
+    "Rescoping preserves restrictions; cancelled acquisition and retired owners rejected",
+    "Late child journal remains on original branch after navigation; foreign origins rejected",
+    "Explicit cancellation and original ordinary-call semantics retained"
+  ],
+  "limits": [
+    "No ABI layout, signature or version changes",
+    "Actual Cursor router and lifecycle use still under implementation",
+    "macOS and Windows execution not tested"
+  ]
+}

@@ -50,11 +50,19 @@ impl Client {
     }
     /// Call on the foreign callback thread before moving work to a worker/runtime.
     pub fn scoped(&self) -> Result<Self, String> {
+        self.capture(0)
+    }
+    /// Retain only captured session origins through caller cancellation. Negotiate
+    /// `sessions.persistenceLease` first; other ports and new captures are refused.
+    pub fn session_persistence(&self) -> Result<Self, String> {
+        self.capture(2)
+    }
+    fn capture(&self, operation: u32) -> Result<Self, String> {
         let context = self
             .api
             .native_context
             .ok_or("native invocation contexts require a newer rpi host")?;
-        let handle = context(0, self.api.user_data);
+        let handle = context(operation, self.api.user_data);
         if handle.is_null() {
             return Err("native invocation context expired or exhausted".into());
         }

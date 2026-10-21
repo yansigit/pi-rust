@@ -98,3 +98,26 @@ a child or older generation does not wait on or retire unrelated owners.
 separate cloud/usage/cleanup file journals: those require their original framing,
 validation, intent ordering and recovery decisions in the retained adapter.
 
+
+## Retained persistence authority
+
+The negotiated `sessions.persistenceLease` capability adds operation `2` to the
+existing `native_context` slot; `Client::session_persistence()` wraps it. Acquire
+it while the originating invocation is live. It preserves the captured owner,
+generation and child execution scope, but permits only session operations naming
+an existing origin. New capture, auth, tools, dialogs and other native ports are
+rejected. Rescoping retains this restriction. No C ABI layout changes are needed.
+
+This separates a worker's late persistence from the requesting caller's lifetime.
+Explicit request cancellation still applies, and retirement/reload revokes the
+lease. A stopped child's retained writer can finish an origin-bound journal
+entry. Ordinary append still checks the captured branch revision; a journal
+append after navigation cannot advance the newly selected branch. The writer
+must release its origins and lease after completion; handles remain bounded.
+
+The host derives persistence authority from the opaque lease, never from request
+JSON. Ordinary session calls retain their cancellation behavior. Child origins
+hold only weak execution references; retaining a writer does not grant access to
+another child or parent origin. The bridge and storage regressions are recorded
+in `host-session-persistence-results.json`. Cursor's actual native router and
+worker shutdown integration remain separate acceptance work.

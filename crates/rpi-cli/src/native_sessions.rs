@@ -74,11 +74,9 @@ struct Origin {
 }
 impl Origin {
     fn alive(&self) -> bool {
-        self.scope.as_ref().map_or(true, |scope| {
-            scope
-                .upgrade()
-                .is_some_and(|scope| !scope.stopped().is_cancelled())
-        })
+        self.scope
+            .as_ref()
+            .map_or(true, |scope| scope.strong_count() != 0)
     }
     fn matches(&self, owner: &NativeOwner, scope: &Option<Arc<ToolExecutionScope>>) -> bool {
         self.owner == *owner
@@ -153,8 +151,12 @@ impl SessionPorts {
         object.remove("port");
         let request: Request =
             serde_json::from_value(args).map_err(|_| "invalid session request")?;
+        let persistence = rpi_extensions::native::is_session_persistence();
+        if persistence && matches!(request, Request::Capture { .. }) {
+            return Err("session persistence lease cannot capture a new origin".into());
+        }
         let scope = current_scope();
-        check_signal(&signal, &scope)?;
+        check_signal(&signal, &scope, persistence)?;
         let storage = if matches!(request, Request::Capture { .. }) {
             let (storage, options) = current_storage()?;
             if rpi_ai::identity::current()
@@ -180,7 +182,7 @@ impl SessionPorts {
         let task = tokio::spawn(async move {
             let _active = active;
             ports
-                .execute(owner, request, scope, work_signal, storage)
+                .execute(owner, request, scope, work_signal, storage, persistence)
                 .await
         });
         // Once an append begins, dropping/cancelling the waiter cannot discard its commit.
@@ -197,8 +199,9 @@ impl SessionPorts {
         scope: Option<Arc<ToolExecutionScope>>,
         signal: CancellationToken,
         storage: Option<(Arc<dyn SessionStorage>, SessionContextBuildOptions)>,
+        persistence: bool,
     ) -> Result<Value, String> {
-        check_signal(&signal, &scope)?;
+        check_signal(&signal, &scope, persistence)?;
         if let Request::Capture { lane } = request {
             let (storage, context_options) = storage.ok_or("missing session storage")?;
             let snapshot = storage.snapshot().await.map_err(|e| e.to_string())?;
@@ -207,7 +210,7 @@ impl SessionPorts {
                 .iter()
                 .find(|branch| branch.lane == lane)
                 .ok_or("unknown session lane")?;
-            check_signal(&signal, &scope)?;
+            check_signal(&signal, &scope, persistence)?;
             let mut state = self.state.lock().unwrap();
             state.origins.retain(|_, origin| origin.alive());
             if state.retired.contains(&owner.id) {
@@ -267,7 +270,7 @@ impl SessionPorts {
         };
         // Serialize journal writes so detached late entries keep their own parent chain.
         let mut anchor = origin.anchor.lock().await;
-        check_signal(&signal, &scope)?;
+        check_signal(&signal, &scope, persistence)?;
         if self.state.lock().unwrap().retired.contains(&owner.id) {
             return Err("session owner stopped".into());
         }
@@ -381,11 +384,13 @@ fn project_view(
 fn check_signal(
     signal: &CancellationToken,
     scope: &Option<Arc<ToolExecutionScope>>,
+    persistence: bool,
 ) -> Result<(), String> {
     if signal.is_cancelled()
-        || scope
-            .as_ref()
-            .is_some_and(|scope| scope.stopped().is_cancelled())
+        || (!persistence
+            && scope
+                .as_ref()
+                .is_some_and(|scope| scope.stopped().is_cancelled()))
     {
         Err("session request cancelled".into())
     } else {
