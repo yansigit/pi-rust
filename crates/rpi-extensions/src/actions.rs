@@ -76,10 +76,26 @@ struct UiDialogEntry {
     cancelled: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UiNotification {
+    pub text: String,
+    pub kind: String,
+}
+
+enum PendingUi {
+    Dialog(String),
+    Notification { owner: u64, value: UiNotification },
+}
+impl PendingUi {
+    fn is_dialog(&self, id: &str) -> bool {
+        matches!(self, Self::Dialog(known) if known == id)
+    }
+}
+
 struct UiDialogState {
     retired_owners: std::collections::HashSet<u64>,
     attached: bool,
-    pending: VecDeque<String>,
+    pending: VecDeque<PendingUi>,
     active: HashMap<String, UiDialogEntry>,
     cancelled_tool_calls: std::collections::HashSet<String>,
 }
@@ -146,7 +162,14 @@ impl UiDialogMailbox {
     /// enqueue the same request id twice.
     pub fn take_pending(&self) -> Option<UiDialogRequest> {
         let mut state = self.state.lock().expect("ui dialog mailbox poisoned");
-        while let Some(request_id) = state.pending.pop_front() {
+        while let Some(pending) = state.pending.pop_front() {
+            let request_id = match pending {
+                PendingUi::Dialog(id) => id,
+                notification => {
+                    state.pending.push_front(notification);
+                    return None;
+                }
+            };
             if let Some(entry) = state.active.get(&request_id) {
                 if !entry.cancelled && entry.answer.is_none() {
                     return Some(entry.request.clone());
@@ -214,7 +237,9 @@ impl UiDialogMailbox {
             .ok_or_else(|| format!("unknown UI request `{request_id}`"))?;
         entry.cancelled = true;
         entry.answer = None;
-        state.pending.retain(|id| id != request_id);
+        state
+            .pending
+            .retain(|pending| !pending.is_dialog(request_id));
         self.changed.notify_waiters();
         Ok(())
     }
@@ -222,7 +247,9 @@ impl UiDialogMailbox {
     /// Cancel all requests currently known to the mailbox.
     pub fn cancel_all(&self) {
         let mut state = self.state.lock().expect("ui dialog mailbox poisoned");
-        state.pending.clear();
+        state
+            .pending
+            .retain(|pending| matches!(pending, PendingUi::Notification { .. }));
         for entry in state.active.values_mut() {
             entry.cancelled = true;
             entry.answer = None;
@@ -249,7 +276,9 @@ impl UiDialogMailbox {
             .filter(|(_, entry)| entry.cancelled)
             .map(|(id, _)| id.clone())
             .collect();
-        state.pending.retain(|id| !cancelled.contains(id));
+        state
+            .pending
+            .retain(|pending| !matches!(pending,PendingUi::Dialog(id) if cancelled.contains(id)));
         self.changed.notify_waiters();
     }
 
@@ -410,7 +439,7 @@ impl UiDialogMailbox {
                         cancelled: false,
                     },
                 );
-                state.pending.push_back(id.clone());
+                state.pending.push_back(PendingUi::Dialog(id.clone()));
                 Ok(serde_json::json!({"status":"pending","requestId":id,"toolCallId":tool_call_id}))
             }
             "poll" => self.poll_owned(&request_id()?, owner.as_ref()),
@@ -640,6 +669,7 @@ pub struct ActionBridge {
     pub(crate) tool_scope: Option<Arc<rpi_agent::tool_execution_scope::ToolExecutionScope>>,
     /// Some(child) only for a live host-created tool invocation.
     invocation: Option<(bool, String, tokio_util::sync::CancellationToken)>,
+    callback_signal: Option<tokio_util::sync::CancellationToken>,
     execution_context: Option<serde_json::Value>,
     stdio: crate::StdioLifecycle,
     plugin_identity: Option<(u64, String)>,
@@ -708,7 +738,12 @@ impl ActionBridge {
     }
     pub(crate) fn native_signal(&self) -> tokio_util::sync::CancellationToken {
         self.invocation.as_ref().map_or_else(
-            tokio_util::sync::CancellationToken::new,
+            || {
+                self.callback_signal.as_ref().map_or_else(
+                    tokio_util::sync::CancellationToken::new,
+                    tokio_util::sync::CancellationToken::child_token,
+                )
+            },
             |(_, _, signal)| signal.child_token(),
         )
     }
@@ -727,6 +762,7 @@ impl ActionBridge {
         Arc::new(Self {
             handle: OnceLock::new(),
             invocation: Some((child, uuid::Uuid::new_v4().to_string(), signal)),
+            callback_signal: None,
             services: self.services.clone(),
             operation: rpi_ai::identity::current().or_else(|| self.operation.clone()),
             tool_scope: rpi_agent::tool_execution_scope::current_scope()
@@ -745,6 +781,15 @@ impl ActionBridge {
             generation: self.generation.clone(),
         })
     }
+    pub(crate) fn for_command(&self, signal: tokio_util::sync::CancellationToken) -> Arc<Self> {
+        let mut scope = self.for_invocation(false, signal.clone());
+        let inner = Arc::get_mut(&mut scope).unwrap();
+        inner.invocation = None;
+        inner.callback_signal = Some(signal);
+        inner.tool_scope = None;
+        inner.execution_context = None;
+        scope
+    }
     pub(crate) fn invocation_key(&self) -> Option<&str> {
         self.invocation.as_ref().map(|(_, key, _)| key.as_str())
     }
@@ -760,6 +805,7 @@ impl ActionBridge {
         Arc::new(Self {
             handle: OnceLock::new(),
             invocation: None,
+            callback_signal: None,
             services: Arc::new(crate::services::Services::default()),
             operation: None,
             tool_scope: None,
@@ -804,6 +850,7 @@ impl ActionBridge {
         Arc::new(Self {
             handle: OnceLock::new(),
             invocation: None,
+            callback_signal: None,
             services: Arc::new(crate::services::Services::default()),
             operation: None,
             tool_scope: None,
@@ -834,6 +881,7 @@ impl ActionBridge {
         Arc::new(Self {
             handle: OnceLock::new(),
             invocation: None,
+            callback_signal: None,
             services: Arc::new(crate::services::Services::default()),
             operation: None,
             tool_scope: None,
@@ -862,6 +910,7 @@ impl ActionBridge {
         Arc::new(Self {
             handle: OnceLock::new(),
             invocation: None,
+            callback_signal: None,
             services: self.services.clone(),
             operation: None,
             tool_scope: None,
@@ -2325,6 +2374,7 @@ mod tests {
             rpi_plugin_sdk::callbacks::OwnedString::from_raw(out, Some(crate::host_free_string))
         });
     }
+    mod command_tests;
 }
 
 impl Drop for ActionBridge {
@@ -2333,7 +2383,7 @@ impl Drop for ActionBridge {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .retain(|_, weak| !std::ptr::eq(weak.as_ptr(), self));
-        if self.invocation.is_some() {
+        if self.invocation.is_some() || self.callback_signal.is_some() {
             return;
         }
         if let Some((owner, _)) = &self.plugin_identity {

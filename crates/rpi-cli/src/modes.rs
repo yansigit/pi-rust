@@ -292,14 +292,14 @@ pub async fn rpc(
     mut agent_events: Option<tokio::sync::broadcast::Receiver<AgentEvent>>,
     model_catalog: Vec<rpi_ai::Model>,
     ui_dialog: rpi_extensions::UiDialogMailbox,
-    oauth_snapshot: Option<Arc<rpi_extensions::RegistrySnapshot>>,
+    extensions: Option<rpi_extensions::ExtensionSession>,
 ) -> i32 {
     rpc_with_io(
         harness,
         agent_events.take(),
         model_catalog,
         ui_dialog,
-        oauth_snapshot,
+        extensions,
         tokio::io::BufReader::new(tokio::io::stdin()),
         std::io::stdout(),
     )
@@ -311,7 +311,7 @@ async fn rpc_with_io<R, W>(
     mut agent_events: Option<tokio::sync::broadcast::Receiver<AgentEvent>>,
     model_catalog: Vec<rpi_ai::Model>,
     ui_dialog: rpi_extensions::UiDialogMailbox,
-    oauth_snapshot: Option<Arc<rpi_extensions::RegistrySnapshot>>,
+    extensions: Option<rpi_extensions::ExtensionSession>,
     input: R,
     output: W,
 ) -> i32
@@ -319,6 +319,9 @@ where
     R: tokio::io::AsyncBufRead + Unpin,
     W: Write + Send + 'static,
 {
+    let oauth_snapshot = extensions
+        .as_ref()
+        .and_then(|session| session.snapshot_arc());
     let lane: Arc<dyn AgentLane> = harness.lane("main");
     // One blocking writer owns stdout. Producers only enqueue bounded messages,
     // so pipe backpressure never blocks a Tokio worker on IO or a std mutex.
@@ -364,14 +367,28 @@ where
     // `{"type":"ui_dialog_response",…}` on stdin. Without this a headless run
     // leaves the mailbox detached and every `UiDialog` call fails.
     ui_dialog.attach();
+    let (dialog_flush, mut dialog_flush_rx) =
+        tokio::sync::mpsc::channel::<tokio::sync::oneshot::Sender<()>>(64);
     let dialog_task = {
         let mailbox = ui_dialog.clone();
         let out = stdout.clone();
         let stop = pump_stop.clone();
         tokio::spawn(async move {
             let mut shown = std::collections::HashSet::new();
+            let mut flushed: Option<tokio::sync::oneshot::Sender<()>> = None;
             while !stop.is_cancelled() {
-                while let Some(request) = mailbox.take_pending() {
+                loop {
+                    if let Some(notice) = mailbox.take_notification() {
+                        let event = crate::remote::protocol::RemoteEvent::UiNotification {
+                            text: notice.text,
+                            kind: notice.kind,
+                        };
+                        write_line(&out, &serde_json::to_value(event).unwrap()).await;
+                        continue;
+                    }
+                    let Some(request) = mailbox.take_pending() else {
+                        break;
+                    };
                     let event = crate::remote::protocol::RemoteEvent::UiDialogRequest {
                         request_id: request.request_id.clone(),
                         tool_call_id: request.tool_call_id,
@@ -390,8 +407,12 @@ where
                     let event = crate::remote::protocol::RemoteEvent::UiDialogClosed { request_id };
                     write_line(&out, &serde_json::to_value(event).unwrap()).await;
                 }
+                if let Some(done) = flushed.take() {
+                    let _ = done.send(());
+                }
                 tokio::select! {
                     _ = stop.cancelled() => break,
+                    Some(done) = dialog_flush_rx.recv() => { flushed = Some(done); },
                     _ = tokio::time::sleep(std::time::Duration::from_millis(30)) => {}
                 }
             }
@@ -405,6 +426,8 @@ where
     let mut run_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut run_cancel = tokio_util::sync::CancellationToken::new();
     let mut cancel_on_exit = false;
+    let commands_stop = tokio_util::sync::CancellationToken::new();
+    let mut command_tasks = tokio::task::JoinSet::new();
 
     use tokio::io::AsyncBufReadExt;
 
@@ -447,6 +470,7 @@ where
                 continue;
             }
         };
+        while command_tasks.try_join_next().is_some() {}
         let id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
         let kind = msg
             .get("type")
@@ -520,6 +544,64 @@ where
                 )
                 .await;
                 break;
+            }
+            "extension_command" => {
+                let call = (|| {
+                    if command_tasks.len() >= 64 {
+                        return Err("native command capacity exhausted".to_owned());
+                    }
+                    let session = extensions.as_ref().ok_or("extensions are unavailable")?;
+                    let name = msg["name"]
+                        .as_str()
+                        .ok_or("extension_command requires a name")?
+                        .trim_start_matches('/');
+                    let args = msg
+                        .get("args")
+                        .map_or(Some(""), serde_json::Value::as_str)
+                        .ok_or("extension_command args must be text")?;
+                    let snapshot = session.snapshot_arc().ok_or("extensions are unavailable")?;
+                    let command = snapshot
+                        .commands()
+                        .iter()
+                        .find(|command| command.name.trim_start_matches('/') == name)
+                        .ok_or("unknown extension command")?;
+                    let native = command
+                        .native
+                        .as_ref()
+                        .ok_or("command does not support asynchronous invocation")?;
+                    native.start(
+                        session,
+                        &command.name,
+                        args.into(),
+                        commands_stop.child_token(),
+                    )
+                })();
+                match call {
+                    Err(error) => {
+                        write_line(
+                            &stdout,
+                            &rpc_protocol::response(Some(id), &kind, Err(error)),
+                        )
+                        .await
+                    }
+                    Ok(call) => {
+                        let out = stdout.clone();
+                        let flush = dialog_flush.clone();
+                        command_tasks.spawn(async move {
+                            let result = call.wait().await;
+                            let (done, drained) = tokio::sync::oneshot::channel();
+                            if flush.send(done).await.is_ok() {
+                                let _ = drained.await;
+                            }
+                            write_line(
+                                &out,
+                                &rpc_protocol::response(Some(id), &kind, result.map(Some)),
+                            )
+                            .await;
+                        });
+                    }
+                }
+                continue;
             }
             "prompt" | "resume_pending" | "compact" => {
                 let resume = kind == "resume_pending";
@@ -658,6 +740,7 @@ where
                 .await
                 .map(|_| serde_json::json!({"aborted": true}))
                 .map_err(|e| e.to_string()),
+            "get_commands" => Ok(serde_json::json!(oauth_snapshot.as_ref().map(|snapshot| snapshot.commands().iter().map(|command| serde_json::json!({"name":command.name,"description":command.description,"native":command.native.is_some()})).collect::<Vec<_>>()).unwrap_or_default())),
             "get_state" => Ok(rpc_get_state(&lane, harness).await),
             "get_messages" => rpc_get_messages(&lane, harness, &msg).await,
             "get_history" => rpc_get_history(&lane, harness, &msg).await,
@@ -687,7 +770,9 @@ where
     // EOF closes the input half of the protocol, not an accepted prompt.
     // There can be no more dialog answers, so release approvals, then await the
     // run before SessionShutdown can unload plugins or the runtime exits.
+    commands_stop.cancel();
     ui_dialog.detach();
+    while command_tasks.join_next().await.is_some() {}
     if cancel_on_exit {
         run_cancel.cancel();
     }

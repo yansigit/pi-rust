@@ -1718,6 +1718,26 @@ pub async fn interactive_tui(
                     );
                 }
             }
+            while let Some(notice) = ask_user_for_key.mailbox.take_notification() {
+                match notice.kind.as_str() {
+                    "error" => add_error_message(&ctx_for_key.chat, &notice.text),
+                    "warning" => {
+                        let color = current_theme().colors.warning;
+                        ctx_for_key.chat.add_child(Arc::new(Text::new(
+                            format!(
+                                "  {} {}",
+                                color.fg("⚠"),
+                                color.fg(&sanitize_error_message(&notice.text))
+                            ),
+                            1,
+                            0,
+                        )));
+                        ctx_for_key.chat.add_child(Arc::new(Spacer::new(1)));
+                    }
+                    _ => add_note_message(&ctx_for_key.chat, &notice.text),
+                }
+                tui_for_key.request_render(false);
+            }
             if !state_for_key.selector_open() && !state_for_key.extension_dialog_open() {
                 if let Some(request) = ask_user_for_key.take_pending() {
                     open_ask_user_dialog(&ctx_for_key, ask_user_for_key.clone(), request);

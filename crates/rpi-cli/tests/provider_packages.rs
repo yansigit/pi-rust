@@ -1575,3 +1575,138 @@ fn bounded_wait(mut child: std::process::Child) -> std::process::Output {
     }
     child.wait_with_output().unwrap()
 }
+
+#[tokio::test]
+#[ignore = "requires current plugin-stub native command library"]
+async fn loaded_native_commands_await_rpc_dialogs_without_blocking_or_starting_agent_turns() {
+    use serde_json::{json, Value};
+    use tokio::io::AsyncBufReadExt;
+    let library = library("plugin_stub").expect("build the current plugin-stub first");
+    let temp = tempfile::tempdir().unwrap();
+    let mut command = command(&temp, &library);
+    command
+        .env("RPI_STUB_NATIVE_COMMAND", "1")
+        .env("RPI_STUB_REQUEST_AUTH", "prepared")
+        .args([
+            "--provider",
+            "stub-provider",
+            "--model",
+            "stub-model",
+            "--api-key",
+            "fixture-only",
+            "--mode",
+            "rpc",
+            "--no-session",
+            "--no-tools",
+        ])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = tokio::process::Command::from(command)
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    let mut lines = tokio::io::BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut stderr = child.stderr.take().unwrap();
+    let errors = tokio::spawn(async move {
+        let mut bytes = vec![];
+        stderr.read_to_end(&mut bytes).await.unwrap();
+        bytes
+    });
+    async fn next(
+        lines: &mut tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>,
+    ) -> Value {
+        let line = tokio::time::timeout(Duration::from_secs(20), lines.next_line())
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("RPC closed");
+        let value: Value = serde_json::from_str(&line).unwrap();
+        assert_ne!(value["type"], "agent_start");
+        assert!(!line.contains("fixture-private-answer"));
+        value
+    }
+    let ready = tokio::time::timeout(Duration::from_secs(20), lines.next_line())
+        .await
+        .unwrap()
+        .unwrap();
+    let Some(ready) = ready else {
+        panic!(
+            "RPC startup failed: {}",
+            String::from_utf8_lossy(&errors.await.unwrap())
+        );
+    };
+    assert_eq!(
+        serde_json::from_str::<Value>(&ready).unwrap()["type"],
+        "ready"
+    );
+    input
+        .write_all(b"{\"type\":\"get_commands\",\"id\":1}\n")
+        .await
+        .unwrap();
+    let commands = next(&mut lines).await;
+    assert_eq!(commands["id"], 1);
+    assert!(commands["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v["name"] == "native-fixture" && v["native"] == true));
+    for (index, cancelled) in [false, true].into_iter().enumerate() {
+        let id = index as u64 + 10;
+        input.write_all(format!("{}\n",json!({"type":"extension_command","id":id,"name":"native-fixture","args":"fixture arguments"})).as_bytes()).await.unwrap();
+        let started = loop {
+            let value = next(&mut lines).await;
+            if value["type"] != "ui_dialog_closed" {
+                break value;
+            }
+        };
+        assert_eq!(
+            started,
+            json!({"type":"ui_notification","text":"fixture started","kind":"info"})
+        );
+        let dialog = next(&mut lines).await;
+        assert_eq!(dialog["type"], "ui_dialog_request");
+        assert_eq!(dialog["ui"]["nativeDialog"]["masked"], true);
+        input
+            .write_all(b"{\"type\":\"ping\",\"id\":99}\n")
+            .await
+            .unwrap();
+        let pong = next(&mut lines).await;
+        assert_eq!(pong["id"], 99);
+        assert_eq!(pong["success"], true);
+        input.write_all(format!("{}\n",json!({"type":"ui_dialog_response","requestId":dialog["requestId"],"cancelled":cancelled,"answer":{"type":"input","value":"fixture-private-answer"}})).as_bytes()).await.unwrap();
+        let mut completed = false;
+        loop {
+            let value = next(&mut lines).await;
+            if value["type"] == "ui_notification" {
+                assert_eq!(value["text"], "fixture completed");
+                assert_eq!(value["kind"], "warning");
+                completed = true;
+            }
+            if value["type"] == "response" && value["id"] == id {
+                assert!(completed, "command completion overtook notification");
+                assert_eq!(value["success"], true);
+                assert_eq!(value["data"]["answered"], !cancelled);
+                break;
+            }
+        }
+    }
+    input
+        .write_all(b"{\"type\":\"extension_command\",\"id\":20,\"name\":\"native-fixture\"}\n")
+        .await
+        .unwrap();
+    loop {
+        if next(&mut lines).await["type"] == "ui_dialog_request" {
+            break;
+        }
+    }
+    input.shutdown().await.unwrap();
+    drop(input);
+    let status = tokio::time::timeout(Duration::from_secs(10), child.wait())
+        .await
+        .unwrap()
+        .unwrap();
+    let stderr = errors.await.unwrap();
+    assert!(status.success(), "{}", String::from_utf8_lossy(&stderr));
+}

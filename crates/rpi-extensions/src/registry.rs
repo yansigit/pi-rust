@@ -81,6 +81,7 @@ pub struct RegisteredCommand {
     pub description: String,
     pub handler: CommandHandlerFn,
     pub user_data: *mut std::ffi::c_void,
+    pub native: Option<crate::commands::NativeCommand>,
 }
 
 /// A keyboard shortcut declared by a native extension (e.g. `"space"` for
@@ -459,7 +460,20 @@ impl ExtensionRegistry {
             description,
             handler,
             user_data,
+            native: None,
         });
+        false
+    }
+
+    pub(crate) fn register_native_command(&mut self, command: RegisteredCommand) -> bool {
+        if self
+            .commands
+            .iter()
+            .any(|existing| existing.name == command.name)
+        {
+            return true;
+        }
+        self.commands.push(command);
         false
     }
 

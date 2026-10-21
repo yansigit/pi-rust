@@ -31,55 +31,87 @@ impl SlashCommand for ExtensionCommand {
     }
 }
 
+pub(super) enum ExtensionCommandResult {
+    Ready(Option<serde_json::Value>),
+    Pending(rpi_extensions::commands::CommandCall),
+}
+
 pub(super) fn invoke_extension_command(
     session: &crate::session::ExtensionSessionCell,
     name: &str,
     args: &str,
-) -> Option<serde_json::Value> {
-    let command = session
-        .lock()
-        .ok()
-        .and_then(|s| s.snapshot_arc())
-        .and_then(|snap| {
-            snap.commands()
-                .iter()
-                .find(|c| c.name.trim_start_matches('/') == name.trim_start_matches('/'))
-                .cloned()
-        })?;
-    let input = serde_json::json!({ "args": args, "command": name });
-    let input = serde_json::to_string(&input).ok()?;
+) -> ExtensionCommandResult {
+    use ExtensionCommandResult::{Pending, Ready};
+    let Some(loaded) = session.lock().ok().map(|session| session.clone()) else {
+        return Ready(None);
+    };
+    let Some(command) = loaded.snapshot_arc().and_then(|snapshot| {
+        snapshot
+            .commands()
+            .iter()
+            .find(|command| command.name.trim_start_matches('/') == name.trim_start_matches('/'))
+            .cloned()
+    }) else {
+        return Ready(None);
+    };
+    if let Some(native) = &command.native {
+        return match native.start(
+            &loaded,
+            &command.name,
+            args.into(),
+            tokio_util::sync::CancellationToken::new(),
+        ) {
+            Ok(call) => Pending(call),
+            Err(error) => Ready(Some(serde_json::json!({"kind":"message","text":error}))),
+        };
+    }
+    let input = serde_json::json!({"args":args,"command":name}).to_string();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _loaded = loaded;
         let mut out = rpi_plugin_sdk::StbString::empty();
         let rc = (command.handler)(
             rpi_plugin_sdk::StbStringRef::from_str(&input),
-            &mut out as *mut rpi_plugin_sdk::StbString,
+            &mut out,
             command.user_data,
         );
-        // SAFETY: the callback transfers a live output to its producer.
+        // SAFETY: legacy command output uses the host's string deallocator.
         let out = unsafe {
             rpi_plugin_sdk::callbacks::OwnedString::from_raw(
                 out,
                 Some(rpi_extensions::host_free_string),
             )
         };
-        let text = if rc == 0 {
-            Some(out.to_string_lossy())
-        } else {
-            None
-        };
-        text
+        (rc == 0).then(|| out.to_string_lossy())
     }))
     .ok()
-    .flatten()?;
-    serde_json::from_str(&outcome).ok()
+    .flatten()
+    .and_then(|text| serde_json::from_str(&text).ok());
+    Ready(outcome)
 }
 
 pub(super) fn handle_extension_ui_result(
-    result: Option<serde_json::Value>,
+    result: ExtensionCommandResult,
     ctx: &CommandContext,
     session: crate::session::ExtensionSessionCell,
     command_name: String,
 ) {
+    let result = match result {
+        ExtensionCommandResult::Ready(result) => result,
+        ExtensionCommandResult::Pending(call) => {
+            let ctx = ctx.clone();
+            call.complete(move |result| {
+                let value = result
+                    .unwrap_or_else(|error| serde_json::json!({"kind":"message","text":error}));
+                handle_extension_ui_result(
+                    ExtensionCommandResult::Ready(Some(value)),
+                    &ctx,
+                    session,
+                    command_name,
+                );
+            });
+            return;
+        }
+    };
     let Some(value) = result else {
         add_error_message(&ctx.chat, "Extension command failed.");
         ctx.tui.request_render(false);

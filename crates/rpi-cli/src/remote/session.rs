@@ -240,6 +240,13 @@ impl RemoteSession {
     /// Fold one lifecycle event into the transcript.
     pub fn apply_event(&mut self, event: &RemoteEvent) {
         match event {
+            RemoteEvent::UiNotification { text, kind } => {
+                self.transcript.push_notice(if kind == "info" {
+                    text.clone()
+                } else {
+                    format!("{kind}: {text}")
+                })
+            }
             RemoteEvent::UiDialogRequest { .. } | RemoteEvent::UiDialogClosed { .. } => {}
             RemoteEvent::AgentStart => {
                 self.streaming = true;

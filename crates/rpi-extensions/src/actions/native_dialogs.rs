@@ -12,7 +12,7 @@ impl Drop for PendingDialog {
     fn drop(&mut self) {
         let mut state = self.mailbox.state.lock().unwrap_or_else(|e| e.into_inner());
         state.active.remove(&self.id);
-        state.pending.retain(|id| id != &self.id);
+        state.pending.retain(|pending| !pending.is_dialog(&self.id));
         self.mailbox.changed.notify_waiters();
     }
 }
@@ -21,6 +21,7 @@ impl UiDialogMailbox {
     pub(crate) fn cancel_owner(&self, owner: u64) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.retired_owners.insert(owner);
+        state.pending.retain(|pending| !matches!(pending, super::PendingUi::Notification{owner:known,..} if *known == owner));
         for entry in state.active.values_mut() {
             if entry.owner.as_ref().is_some_and(|known| known.id == owner) {
                 entry.cancelled = true;
@@ -228,5 +229,142 @@ mod tests {
         mailbox.cancel("first-0").unwrap();
         mailbox.poll_owned("first-0", Some(&owner(1))).unwrap();
         open("available".into(), owner(1)).unwrap();
+    }
+}
+
+impl UiDialogMailbox {
+    /// Notices and dialogs share their publication order; notices have no reply or transcript entry.
+    pub fn take_notification(&self) -> Option<super::UiNotification> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(
+            state.pending.front(),
+            Some(super::PendingUi::Notification { .. })
+        ) {
+            return None;
+        }
+        match state.pending.pop_front().unwrap() {
+            super::PendingUi::Notification { value, .. } => Some(value),
+            _ => unreachable!(),
+        }
+    }
+    pub(crate) fn notify(&self, owner: NativeOwner, args: &Value) -> Result<Value, String> {
+        if args["action"] != "notify" {
+            return Err("unsupported native UI action".into());
+        }
+        let text = args["text"].as_str().ok_or("missing notification text")?;
+        let kind = args
+            .get("kind")
+            .map_or(Some("info"), Value::as_str)
+            .filter(|kind| matches!(*kind, "info" | "warning" | "error"))
+            .ok_or("invalid notification kind")?;
+        if text.len() > 1024 * 1024 {
+            return Err("notification exceeds size limit".into());
+        }
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if state.retired_owners.contains(&owner.id) {
+            return Err("notification owner expired".into());
+        }
+        if !state.attached {
+            return Ok(json!({"ok":true}));
+        }
+        let mut owned = 0;
+        let mut bytes = 0;
+        let mut total = 0;
+        for item in &state.pending {
+            if let super::PendingUi::Notification {
+                owner: known,
+                value,
+            } = item
+            {
+                total += 1;
+                bytes += value.text.len();
+                owned += usize::from(*known == owner.id);
+            }
+        }
+        if owned >= 128 || total >= 512 || bytes + text.len() > 4 * 1024 * 1024 {
+            return Err("notification capacity exhausted".into());
+        }
+        state.pending.push_back(super::PendingUi::Notification {
+            owner: owner.id,
+            value: super::UiNotification {
+                text: text.into(),
+                kind: kind.into(),
+            },
+        });
+        self.changed.notify_waiters();
+        Ok(json!({"ok":true}))
+    }
+}
+
+#[cfg(test)]
+mod notification_tests {
+    use super::*;
+    fn owner(id: u64) -> NativeOwner {
+        NativeOwner {
+            generation: "session".into(),
+            id,
+            plugin: format!("owner-{id}"),
+            child: false,
+        }
+    }
+    fn notice(text: &str) -> Value {
+        json!({"action":"notify","text":text,"kind":"info"})
+    }
+    #[test]
+    fn notices_keep_dialog_order_survive_dialog_cancellation_and_retire_with_their_owner() {
+        let mailbox = UiDialogMailbox::new();
+        mailbox.attach();
+        mailbox.notify(owner(1), &notice("before")).unwrap();
+        mailbox
+            .handle_owned(
+                json!({"op":"open","requestId":"dialog","ui":{"kind":"input","title":"fixture"}}),
+                Some(owner(1)),
+            )
+            .unwrap();
+        mailbox.notify(owner(1), &notice("after")).unwrap();
+        assert!(mailbox.take_pending().is_none());
+        assert_eq!(mailbox.take_notification().unwrap().text, "before");
+        assert!(mailbox.take_notification().is_none());
+        assert_eq!(mailbox.take_pending().unwrap().request_id, "dialog");
+        mailbox.cancel_all();
+        assert_eq!(mailbox.take_notification().unwrap().text, "after");
+        mailbox.notify(owner(1), &notice("retired")).unwrap();
+        mailbox.notify(owner(2), &notice("survivor")).unwrap();
+        mailbox.cancel_owner(1);
+        assert_eq!(mailbox.take_notification().unwrap().text, "survivor");
+        assert!(mailbox.notify(owner(1), &notice("late")).is_err());
+        mailbox.detach();
+        assert!(mailbox.notify(owner(2), &notice("headless")).is_ok());
+        assert!(mailbox.take_notification().is_none());
+    }
+    #[test]
+    fn notification_validation_and_count_byte_limits_are_explicit() {
+        let mailbox = UiDialogMailbox::new();
+        mailbox.attach();
+        for args in [
+            json!({"action":"other","text":"message"}),
+            json!({"action":"notify","text":null}),
+            json!({"action":"notify","text":"text","kind":"unknown"}),
+            notice(&"x".repeat(1024 * 1024 + 1)),
+        ] {
+            assert!(mailbox.notify(owner(0), &args).is_err());
+        }
+        for id in 0..4 {
+            for _ in 0..128 {
+                mailbox.notify(owner(id), &notice("bounded")).unwrap();
+            }
+            assert!(mailbox.notify(owner(id), &notice("overflow")).is_err());
+        }
+        assert!(mailbox.notify(owner(4), &notice("total overflow")).is_err());
+        for _ in 0..512 {
+            mailbox.take_notification().unwrap();
+        }
+        let big = "é".repeat(512 * 1024);
+        for id in 0..4 {
+            mailbox.notify(owner(id), &notice(&big)).unwrap();
+        }
+        assert!(mailbox.notify(owner(4), &notice("byte overflow")).is_err());
+        mailbox.take_notification().unwrap();
+        mailbox.notify(owner(4), &notice("room again")).unwrap();
     }
 }

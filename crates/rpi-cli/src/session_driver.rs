@@ -345,6 +345,13 @@ fn status_of(session: &RemoteSession) -> DriverStatus {
 /// of the transcript and must reach the shell's modal input slot.
 fn map_remote_driver_event(event: &RemoteEvent) -> Option<DriverEvent> {
     match event {
+        RemoteEvent::UiNotification { text, kind } => {
+            Some(DriverEvent::Notice(if kind == "info" {
+                text.clone()
+            } else {
+                format!("{kind}: {text}")
+            }))
+        }
         RemoteEvent::UiDialogRequest {
             request_id,
             tool_call_id,
@@ -368,7 +375,9 @@ pub fn map_remote_event(event: &RemoteEvent) -> Option<UiEvent> {
     use crate::transcript_view::{assistant_blocks_from_value, tool_calls_from_value};
 
     match event {
-        RemoteEvent::UiDialogRequest { .. } | RemoteEvent::UiDialogClosed { .. } => None,
+        RemoteEvent::UiNotification { .. }
+        | RemoteEvent::UiDialogRequest { .. }
+        | RemoteEvent::UiDialogClosed { .. } => None,
         RemoteEvent::AgentStart => Some(UiEvent::AgentStart),
         RemoteEvent::AgentEnd { .. } => Some(UiEvent::AgentEnd),
         RemoteEvent::RetryScheduled {

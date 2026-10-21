@@ -1,0 +1,84 @@
+{
+  "status": "host-capabilities-not-package-parity",
+  "platform": "Linux",
+  "toolchain": "Rust 1.78.0",
+  "flags": "-Dwarnings",
+  "results": [
+    {
+      "log": "/tmp/rpi-native-command-workspace.log",
+      "sha256": "2f2470ce41bacd9cc7d6e618a1d9110af56598c41a81d51153b19387bb86026b",
+      "status": "passed",
+      "summaries": [
+        "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 53.84s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-command-tests.log",
+      "sha256": "038df894878fe15c9ca1968c41a3a44e6cf795669cf5c785c875676678024390",
+      "status": "passed",
+      "summaries": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 189 filtered out; finished in 0.01s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-command-rpc-regression.log",
+      "sha256": "8d771e4d7e57e047e0f2b58f0329f63cf2835fdafa1d9eaa580a4621e93438f3",
+      "status": "passed",
+      "summaries": [
+        "test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 618 filtered out; finished in 0.41s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-command-sdk-provider.log",
+      "sha256": "ab186f756ba6fbc631e856ed9c63602985ebdc73ec7525fbaf2c15fc633f974d",
+      "status": "passed",
+      "summaries": [
+        "test result: ok. 61 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 6 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.47s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-command-sdk-minimal.log",
+      "sha256": "f3ae8f7996e3dde1f4934a6f3c0a14e02324cb0ae99e6276305c3962604e91f1",
+      "status": "passed",
+      "summaries": [
+        "test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 5 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.31s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-command-extensions.log",
+      "sha256": "c1898aefc9fcf066515871b1c6fa79092675e4c9326bc7f82dbb8cb40f04eb88",
+      "status": "passed",
+      "summaries": [
+        "test result: ok. 189 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.62s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-command-loaded.log",
+      "sha256": "2d5d797428a7b6dc0cf9a10fa3733fe15ba7cc43b59465c68d2174cf0a7cf9f0",
+      "status": "passed",
+      "summaries": [
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.12s"
+      ]
+    },
+    {
+      "log": "/tmp/rpi-native-command-clippy.log",
+      "sha256": "0cdca80c0e2f5aba0307c7345d87e01029ef61262b2c5566debd8a538380ecf7",
+      "status": "baseline-lints-failed",
+      "summaries": []
+    }
+  ],
+  "qualification": "Actual loaded native library, repeat RPC commands, concurrent input, ordered notification/dialog publication, cancellation and EOF, foreign/stale owners, callback lifetime, short SDK vtables and existing extension/RPC suites. Workspace all-targets check passed. Optional Clippy found existing unchanged lint failures: 95 in rpi-tui, one in rpi-telemetry, two in rpi-plugin-sdk (lines 153 and 231).",
+  "not_tested": [
+    "Antigravity production command wiring",
+    "macOS and Windows native execution",
+    "full provider package parity"
+  ]
+}

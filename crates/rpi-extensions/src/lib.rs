@@ -74,7 +74,7 @@ use thiserror::Error;
 
 pub use actions::{
     reload_callback_from_mailbox, trampoline_runtime_action, ActionBridge, ReloadMailbox,
-    RuntimeActionHost, SideQuestionSink, UiDialogMailbox, UiDialogRequest,
+    RuntimeActionHost, SideQuestionSink, UiDialogMailbox, UiDialogRequest, UiNotification,
 };
 pub use editor_text::{EditorTextEdit, EditorTextMailbox, EditorTextMode};
 pub use event_log::{event_log_path, log_handler_invocation, EventLogger};
@@ -98,6 +98,7 @@ pub use registry::{
 };
 pub use resources::{emit_resources_discover, DiscoveredResources};
 pub use status::ExtensionStatusMailbox;
+pub mod commands;
 mod panel;
 pub use panel::{ExtensionPanel, PanelAnchor, PanelHighlight, PanelHighlightColor, PanelLayout};
 pub use tool::{PluginToolAdapter, PluginToolHandle, ToolCallContext};
@@ -180,6 +181,7 @@ pub use rpi_plugin_sdk::callbacks::free_string as host_free_string;
 /// This struct is `Send + Sync` (registry is `Mutex`-guarded).
 pub struct HostApi {
     lifecycle: Mutex<Vec<PluginLifecycle>>,
+    command_signals: Mutex<Vec<tokio_util::sync::CancellationToken>>,
     shutting_down: std::sync::atomic::AtomicBool,
     registry: Mutex<Option<ExtensionRegistry>>,
     /// Display name of the plugin currently registering (from the cdylib file
@@ -207,6 +209,7 @@ impl HostApi {
     ) -> Arc<Self> {
         Arc::new(Self {
             lifecycle: Mutex::new(Vec::new()),
+            command_signals: Mutex::new(Vec::new()),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
             registry: Mutex::new(Some(registry)),
             name: name.into(),
@@ -226,6 +229,9 @@ impl HostApi {
                     bridge.services.remove_owner(owner.id);
                     bridge.ui_dialog_mailbox().cancel_owner(owner.id);
                 }
+            }
+            for signal in self.command_signals.lock().unwrap().iter() {
+                signal.cancel();
             }
             let lifecycle = self.lifecycle.lock().unwrap().clone();
             for lifecycle in lifecycle {
@@ -265,6 +271,7 @@ impl HostApi {
         let action_bridge = action_bridge.for_plugin(&name);
         Arc::new(Self {
             lifecycle: Mutex::new(Vec::new()),
+            command_signals: Mutex::new(Vec::new()),
             shutting_down: std::sync::atomic::AtomicBool::new(false),
             registry: Mutex::new(Some(registry)),
             name,
@@ -334,6 +341,7 @@ impl HostApi {
             register_event_result_handler: Some(trampoline_register_event_result_handler),
             register_service: Some(trampoline_register_service),
             native_context: Some(native::context),
+            register_native_command: Some(trampoline_register_native_command),
             register_command: Some(trampoline_register_command),
             register_shortcut: Some(trampoline_register_shortcut),
             register_flag: Some(trampoline_register_flag),
@@ -544,6 +552,45 @@ fn register_tool(
     } else {
         -1
     }
+}
+
+extern "C" fn trampoline_register_native_command(
+    manifest: StbStringRef,
+    request: rpi_plugin_sdk::AuthRequestFn,
+    free: FreeStringFn,
+    context: *mut c_void,
+) -> i32 {
+    rpi_plugin_sdk::guard_or(-1, || {
+        let Ok(manifest) = commands::Manifest::parse(unsafe { manifest.as_str() }) else {
+            return -2;
+        };
+        match with_current_api(|api| {
+            let bridge = api.action_bridge.as_ref()?;
+            let stopping = tokio_util::sync::CancellationToken::new();
+            api.command_signals.lock().unwrap().push(stopping.clone());
+            api.with_registry(|registry| {
+                registry.register_native_command(registry::RegisteredCommand {
+                    name: manifest.name,
+                    description: manifest.description,
+                    handler: commands::legacy_unavailable,
+                    user_data: bridge.user_data(),
+                    native: Some(commands::NativeCommand {
+                        callback: private_callback::Callback {
+                            request,
+                            free,
+                            context,
+                        },
+                        bridge: Arc::downgrade(bridge),
+                        stopping,
+                        permits: Arc::new(tokio::sync::Semaphore::new(16)),
+                    }),
+                })
+            })
+        }) {
+            Some(Some(duplicate)) => i32::from(duplicate),
+            _ => -1,
+        }
+    })
 }
 
 extern "C" fn trampoline_register_command(

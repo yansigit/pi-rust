@@ -24,6 +24,11 @@ pub enum Command {
     },
     Abort,
     GetState,
+    GetCommands,
+    ExtensionCommand {
+        name: String,
+        args: Option<String>,
+    },
     /// Read-only snapshot of the current branch's message entries.
     GetMessages {
         limit: Option<u64>,
@@ -93,6 +98,8 @@ pub enum Command {
 
 pub const SUPPORTED_COMMANDS: &[&str] = &[
     "get_state",
+    "get_commands",
+    "extension_command",
     "get_messages",
     "get_history",
     "get_stats",

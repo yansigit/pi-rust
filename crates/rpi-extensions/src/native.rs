@@ -148,7 +148,9 @@ pub(crate) extern "C" fn request(
                     "auth.providerRequest",
                     "auth.providerPolicy",
                     "auth.dynamicMethods",
-                    "context.inspect"
+                    "context.inspect",
+                    "commands.owned",
+                    "ui.notifications"
                 ]));
             }
             let signal = bridge.native_signal();
@@ -164,6 +166,11 @@ pub(crate) extern "C" fn request(
                 let work = async move {
                     if args["port"] == "services" {
                         services.request(owner, args, work_signal).await
+                    } else if args["port"] == "ui" {
+                        if work_signal.is_cancelled() {
+                            return Err("native notification cancelled".into());
+                        }
+                        dialogs.notify(owner, &args)
                     } else if args["port"] == "dialogs" {
                         dialogs.request(owner, args, work_signal).await
                     } else {

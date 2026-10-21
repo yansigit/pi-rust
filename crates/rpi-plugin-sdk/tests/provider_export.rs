@@ -178,6 +178,7 @@ fn api() -> sdk::PluginApi {
         register_event_result_handler: None,
         register_service: None,
         native_context: None,
+        register_native_command: None,
     }
 }
 

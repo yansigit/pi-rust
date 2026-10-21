@@ -104,6 +104,7 @@ pub fn native_backend_info() -> ExtensionBackendInfo {
         [
             ExtensionCapability::Tools,
             ExtensionCapability::Commands,
+            ExtensionCapability::UiNotify,
             ExtensionCapability::Resources,
             ExtensionCapability::Session,
             ExtensionCapability::Models,

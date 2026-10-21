@@ -742,11 +742,18 @@ extern "C" fn on_auth_request(
 }
 
 mod catalog;
+mod commands;
 mod initialization;
 mod request_auth;
 mod wrapping;
 
 rpi_plugin_sdk::export_plugin!(|api| {
+    if std::env::var_os("RPI_STUB_NATIVE_COMMAND").is_some() {
+        if let Err(error) = commands::register(api) {
+            eprintln!("stub native command: {error}");
+            return 1;
+        }
+    }
     if std::env::var_os("RPI_STUB_REQUEST_AUTH").is_some() {
         if let Err(error) = request_auth::register(api) {
             eprintln!("stub request auth: {error}");
