@@ -85,8 +85,83 @@
         },
         "piBuild": "passed"
       },
+      "ciAttempts": [
+        {
+          "run": "https://github.com/yansigit/pi-rust/actions/runs/39568611235",
+          "repository": "cortexkit/antigravity-auth",
+          "commit": "a97f9055017f3c1546afbfe61a19d50b428be3d8",
+          "locksBefore": {
+            "bun.lock": "c1516a1df0bdc59ade67884bf39520f29366a6810781a799c1b60defd2e7e932",
+            "tools/common-auth-build/bun.lock": "70e5e197a0fc42c63d2490641506005d825742c8a43d8f766d3f86358c409cd0"
+          },
+          "locksAfter": {
+            "bun.lock": "c1516a1df0bdc59ade67884bf39520f29366a6810781a799c1b60defd2e7e932",
+            "tools/common-auth-build/bun.lock": "70e5e197a0fc42c63d2490641506005d825742c8a43d8f766d3f86358c409cd0"
+          },
+          "commands": [
+            {
+              "command": [
+                "bun",
+                "install",
+                "--frozen-lockfile"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 3.142,
+              "log": "antigravity-0.log",
+              "logSha256": "d7f554a5ea3663a53547dcaf533ebe9801f2803a7305aeaa6b3d81c983e17bf5"
+            },
+            {
+              "command": [
+                "bun",
+                "install",
+                "--frozen-lockfile",
+                "--cwd",
+                "tools/common-auth-build"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 0.328,
+              "log": "antigravity-1.log",
+              "logSha256": "b99df026a58066dd25dc8a72d9375cbc9fecdf962fac0db11373c4ed2dc4561d"
+            },
+            {
+              "command": [
+                "bun",
+                "run",
+                "build"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 60.801,
+              "log": "antigravity-2.log",
+              "logSha256": "ae33a692238239c0afa2830e637b60abe46042f02b74ba5d30828f2886f5cb58"
+            },
+            {
+              "command": [
+                "bun",
+                "run",
+                "test"
+              ],
+              "exitCode": 1,
+              "elapsedSeconds": 429.886,
+              "log": "antigravity-3.log",
+              "logSha256": "0e1ea4e37be72a306707bb6ca5045b926dfa14194d48028decf44758524d80a5"
+            }
+          ],
+          "passed": false,
+          "testCounts": {
+            "passed": 4007,
+            "failed": 2,
+            "skipped": 1,
+            "total": 4010
+          },
+          "remainingFailures": [
+            "build.repo_hygiene",
+            "build.private_toolchain"
+          ],
+          "cause": "The unchanged prepare-common-auth-public-consumer runner replaces the child environment and drops COMMON_AUTH_BUN_CACHE. Its tests fall back to a cache relative to the Bun executable, while the first workflow populated an explicit different cache. Product build and all remaining 4007 tests passed; this is not yet a passing full baseline."
+        }
+      ],
       "ci": {
-        "run": "https://github.com/yansigit/pi-rust/actions/runs/39568611235",
+        "run": "https://github.com/yansigit/pi-rust/actions/runs/39569889592",
         "repository": "cortexkit/antigravity-auth",
         "commit": "a97f9055017f3c1546afbfe61a19d50b428be3d8",
         "locksBefore": {
@@ -105,9 +180,9 @@
               "--frozen-lockfile"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 3.142,
+            "elapsedSeconds": 1.977,
             "log": "antigravity-0.log",
-            "logSha256": "d7f554a5ea3663a53547dcaf533ebe9801f2803a7305aeaa6b3d81c983e17bf5"
+            "logSha256": "1c103fb60e50542303a34171323d42e616ccf87731090ec158a8d3fb6dcc82a7"
           },
           {
             "command": [
@@ -118,9 +193,9 @@
               "tools/common-auth-build"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 0.328,
+            "elapsedSeconds": 0.134,
             "log": "antigravity-1.log",
-            "logSha256": "b99df026a58066dd25dc8a72d9375cbc9fecdf962fac0db11373c4ed2dc4561d"
+            "logSha256": "277a7165aef3f8052a5b17ff84ffbb0db80ceb7d00670eab8a368eb716972a97"
           },
           {
             "command": [
@@ -129,9 +204,9 @@
               "build"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 60.801,
+            "elapsedSeconds": 63.851,
             "log": "antigravity-2.log",
-            "logSha256": "ae33a692238239c0afa2830e637b60abe46042f02b74ba5d30828f2886f5cb58"
+            "logSha256": "1e8a8f327ee9c94d8ce303058a2a1a8f4cef64f1bb1ca3ae9720c252876fb479"
           },
           {
             "command": [
@@ -139,24 +214,33 @@
               "run",
               "test"
             ],
-            "exitCode": 1,
-            "elapsedSeconds": 429.886,
+            "exitCode": 0,
+            "elapsedSeconds": 442.055,
             "log": "antigravity-3.log",
-            "logSha256": "0e1ea4e37be72a306707bb6ca5045b926dfa14194d48028decf44758524d80a5"
+            "logSha256": "0da776c783b3f9f882141a698a488d1618bb74f61e142912f5537d4ebf4cf83f"
+          },
+          {
+            "command": [
+              "bun",
+              "run",
+              "--cwd",
+              "packages/pi",
+              "build"
+            ],
+            "exitCode": 0,
+            "elapsedSeconds": 2.599,
+            "log": "antigravity-4.log",
+            "logSha256": "d9b89a8d7a0b9cb27d290938186329bd1f03f0191f8bdf5ed1968cf0c3c3ee98"
           }
         ],
-        "passed": false,
+        "passed": true,
         "testCounts": {
-          "passed": 4007,
-          "failed": 2,
+          "passed": 4009,
+          "failed": 0,
           "skipped": 1,
           "total": 4010
         },
-        "remainingFailures": [
-          "build.repo_hygiene",
-          "build.private_toolchain"
-        ],
-        "cause": "The unchanged prepare-common-auth-public-consumer runner replaces the child environment and drops COMMON_AUTH_BUN_CACHE. Its tests fall back to a cache relative to the Bun executable, while the first workflow populated an explicit different cache. Product build and all remaining 4007 tests passed; this is not yet a passing full baseline."
+        "qualification": "Original source and dependencies unchanged. Full product build precedes test; checkout avoids a false-positive upstream absolute-path guard; isolated runner requires the default Bun-executable-relative dependency cache. Original build.setup_probe skip is retained."
       }
     },
     "multiprovider": {
@@ -183,8 +267,57 @@
         "build": "passed",
         "pi130LoadStartupShutdown": "passed"
       },
+      "ciAttempts": [
+        {
+          "run": "https://github.com/yansigit/pi-rust/actions/runs/39568611235",
+          "repository": "monotykamary/pi-multiprovider",
+          "commit": "bd97d65a36f541935dc91e33ba15d7910a30f9d7",
+          "locksBefore": {
+            "bun.lock": "bb80034fcd474b579f024e6775c406f058d0b78c734dfea8f7ed210364087888"
+          },
+          "locksAfter": {
+            "bun.lock": "bb80034fcd474b579f024e6775c406f058d0b78c734dfea8f7ed210364087888"
+          },
+          "commands": [
+            {
+              "command": [
+                "bun",
+                "install",
+                "--frozen-lockfile"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 0.984,
+              "log": "multiprovider-0.log",
+              "logSha256": "4bf001e3cda6cf9412e15983ff6bc26e4c3da267abdce374f38f374e2c65879b"
+            },
+            {
+              "command": [
+                "bun",
+                "run",
+                "check"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 16.958,
+              "log": "multiprovider-1.log",
+              "logSha256": "5f4d9f1582c8126eb21bf49f08dfd7abf1d5f27d4951fc7fe96b4c62736e75ab"
+            },
+            {
+              "command": [
+                "bun",
+                "run",
+                "test:pi"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 1.695,
+              "log": "multiprovider-2.log",
+              "logSha256": "f315719161d29ef18d8456da4c6d2e570da29696f7633451759ac33cca0f7425"
+            }
+          ],
+          "passed": true
+        }
+      ],
       "ci": {
-        "run": "https://github.com/yansigit/pi-rust/actions/runs/39568611235",
+        "run": "https://github.com/yansigit/pi-rust/actions/runs/39569889592",
         "repository": "monotykamary/pi-multiprovider",
         "commit": "bd97d65a36f541935dc91e33ba15d7910a30f9d7",
         "locksBefore": {
@@ -201,9 +334,9 @@
               "--frozen-lockfile"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 0.984,
+            "elapsedSeconds": 0.863,
             "log": "multiprovider-0.log",
-            "logSha256": "4bf001e3cda6cf9412e15983ff6bc26e4c3da267abdce374f38f374e2c65879b"
+            "logSha256": "3d1d0cd15820cd32d3eae268fee9e5c2ea9a15bcb6d38cc371a9392a1ba50bf1"
           },
           {
             "command": [
@@ -212,9 +345,9 @@
               "check"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 16.958,
+            "elapsedSeconds": 16.395,
             "log": "multiprovider-1.log",
-            "logSha256": "5f4d9f1582c8126eb21bf49f08dfd7abf1d5f27d4951fc7fe96b4c62736e75ab"
+            "logSha256": "2da3dde8c22d1b9a984969570583705600109153eb01f02758ac2097ef2db27d"
           },
           {
             "command": [
@@ -223,12 +356,16 @@
               "test:pi"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 1.695,
+            "elapsedSeconds": 1.651,
             "log": "multiprovider-2.log",
             "logSha256": "f315719161d29ef18d8456da4c6d2e570da29696f7633451759ac33cca0f7425"
           }
         ],
-        "passed": true
+        "passed": true,
+        "testCounts": {
+          "passed": 107,
+          "failed": 0
+        }
       }
     },
     "cursor": {
@@ -304,8 +441,58 @@
         ],
         "packageDryRun": "passed"
       },
+      "ciAttempts": [
+        {
+          "run": "https://github.com/yansigit/pi-rust/actions/runs/39568611235",
+          "repository": "fitchmultz/pi-cursor-sdk",
+          "commit": "f337dc4bb7cea936c52e69a7fe08e7e376c8467b",
+          "locksBefore": {
+            "package-lock.json": "31bd04b3f9a9fc2c2010a46f92f65e45e604a909b17aeffa176a8afd6f7c7d72"
+          },
+          "locksAfter": {
+            "package-lock.json": "31bd04b3f9a9fc2c2010a46f92f65e45e604a909b17aeffa176a8afd6f7c7d72"
+          },
+          "commands": [
+            {
+              "command": [
+                "npm",
+                "ci",
+                "--ignore-scripts"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 8.331,
+              "log": "cursor-0.log",
+              "logSha256": "83bbc427153962666c1abbea920ecd2f75dd84265540748c6c7fc4e21f20b7f5"
+            },
+            {
+              "command": [
+                "npm",
+                "run",
+                "check:compat"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 121.916,
+              "log": "cursor-1.log",
+              "logSha256": "7bf0a510f912714aecaf334d3c4f8c5f9446d02e592c307559d369f51731f983"
+            },
+            {
+              "command": [
+                "npm",
+                "pack",
+                "--dry-run",
+                "--ignore-scripts"
+              ],
+              "exitCode": 0,
+              "elapsedSeconds": 2.181,
+              "log": "cursor-2.log",
+              "logSha256": "ffe2347c8fccc933335595cf3377bcd84e57b62072764cef013ba9d5557f876d"
+            }
+          ],
+          "passed": true
+        }
+      ],
       "ci": {
-        "run": "https://github.com/yansigit/pi-rust/actions/runs/39568611235",
+        "run": "https://github.com/yansigit/pi-rust/actions/runs/39569889592",
         "repository": "fitchmultz/pi-cursor-sdk",
         "commit": "f337dc4bb7cea936c52e69a7fe08e7e376c8467b",
         "locksBefore": {
@@ -322,9 +509,9 @@
               "--ignore-scripts"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 8.331,
+            "elapsedSeconds": 5.698,
             "log": "cursor-0.log",
-            "logSha256": "83bbc427153962666c1abbea920ecd2f75dd84265540748c6c7fc4e21f20b7f5"
+            "logSha256": "c5946be88c66c590679e898a2c06f12f232bb2cbfd2b0b72354023cb1df44f08"
           },
           {
             "command": [
@@ -333,9 +520,9 @@
               "check:compat"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 121.916,
+            "elapsedSeconds": 97.537,
             "log": "cursor-1.log",
-            "logSha256": "7bf0a510f912714aecaf334d3c4f8c5f9446d02e592c307559d369f51731f983"
+            "logSha256": "913323231c4b45692165edfd75a7b22ee55c7ca2c2c7e763d73a1a54970b9800"
           },
           {
             "command": [
@@ -345,12 +532,19 @@
               "--ignore-scripts"
             ],
             "exitCode": 0,
-            "elapsedSeconds": 2.181,
+            "elapsedSeconds": 1.719,
             "log": "cursor-2.log",
             "logSha256": "ffe2347c8fccc933335595cf3377bcd84e57b62072764cef013ba9d5557f876d"
           }
         ],
-        "passed": true
+        "passed": true,
+        "testCounts": {
+          "unitPassed": 1634,
+          "unitFailed": 0,
+          "unitSkipped": 2,
+          "nativePassed": 53,
+          "nativeFailed": 0
+        }
       }
     }
   },

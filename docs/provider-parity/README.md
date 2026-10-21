@@ -38,14 +38,19 @@ SDK fixture verifies a pooled HTTP request, canonical endpoint restoration and
 credential isolation. Stream snapshots retain timestamps, usage and signatures.
 [Native runtime ports](native-runtime.md) now provide scoped catalog inspection,
 publication, refresh, registration, removal and private resumable authentication.
-Print/JSON session lifecycle dispatch is included. H01–H05 remain pending until
-legacy authentication coverage, interactive TUI callers, both Pi stream entry
-adapters and complete differential tests are integrated. The
+Print/JSON session lifecycle dispatch, explicit legacy OAuth/key management and
+both Pi stream entries are included. [Compatibility regressions](host-compatibility-results.json)
+cover the adapters and nested wrappers. H01–H05 remain pending until interactive
+TUI callers and complete differential tests are integrated. The
 [SDK distribution review](cursor-sdk-distribution.md) keeps the pinned Cursor SDK
 external to release archives.
 
 [baseline-results.json](baseline-results.json) records upstream results, lock
-hashes and evidence hashes. Cross-platform and inference acceptance remain untested.
+hashes and evidence hashes. All three unchanged suites pass in
+[CI run 39569889592](https://github.com/yansigit/pi-rust/actions/runs/39569889592):
+Antigravity 4,009 passed/one upstream skip; multiprovider 107 passed;
+Cursor 1,634 unit tests and 53 native tests passed/two upstream skips.
+Cross-platform and inference acceptance remain untested.
 Read-only live discovery with one authorized Cursor account confirmed Composer 2.5
 and Grok 4.7, including their `fast=false` setting; this is not inference acceptance.
 `scripts/provider-auth-reference.mjs INSTALL_DIRECTORY` executes Pi 1.3.0's
