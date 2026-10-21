@@ -132,8 +132,14 @@ Replace the paths with the same compatible core checkout. Released SDK versions
 through 0.6.2 do not include this feature; use the migrated source until a version
 containing it is published.
 
-`provider::completions(model, options, anonymous)` reuses the OpenAI-compatible
-protocol without reading vendor credentials from the process environment.
+`provider::completions(model, options, anonymous)` returns
+`Result<Arc<dyn Provider>, String>` and reuses the OpenAI-compatible protocol
+without reading vendor credentials from the process environment. Propagate
+client construction errors through a `ContextFactory`; transport failures never
+fall back to an unconfigured HTTP client. Changing this helper's return type
+from `Arc<dyn Provider>` to `Result<Arc<dyn Provider>, String>` is a Rust source
+API break included in the maintainer-managed breaking release. Migrate callers
+to a fallible `ContextFactory` and propagate the result with `?`.
 `export_provider!` exports a single-provider plugin from a Rust factory. For
 multiple providers, keep one `export_plugin!` entrypoint and use
 `provider::register` and `provider::drive` for each provider instead.

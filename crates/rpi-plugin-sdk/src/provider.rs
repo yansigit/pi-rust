@@ -20,18 +20,18 @@ pub use context::{drive_with_context, register_with_context, ContextFactory, Pro
 pub type Factory = fn(&Model, &SimpleStreamOptions) -> Arc<dyn Provider>;
 
 /// Reuse the maintained OpenAI-compatible protocol without importing any
-/// vendor credentials from the host process environment.
+/// vendor credentials from the host process environment. Client construction
+/// errors propagate without bypassing the configured transport.
 pub fn completions(
     model: &Model,
     options: &SimpleStreamOptions,
     anonymous: bool,
-) -> Arc<dyn Provider> {
-    let client = rpi_ai::http::build_client(&model.base_url, None, None)
-        .unwrap_or_else(|_| reqwest::Client::new());
+) -> Result<Arc<dyn Provider>, String> {
+    let client = rpi_ai::http::build_client(&model.base_url, None, None)?;
     if anonymous && options.api_key.is_none() {
-        Arc::new(rpi_ai::providers::openai_completions::OpenAiCompletionsProvider::with_models_without_auth(model.provider.clone(), client, vec![model.clone()]))
+        Ok(Arc::new(rpi_ai::providers::openai_completions::OpenAiCompletionsProvider::with_models_without_auth(model.provider.clone(), client, vec![model.clone()])))
     } else {
-        Arc::new(rpi_ai::providers::openai_completions::OpenAiCompletionsProvider::with_models_without_env_api_key(model.provider.clone(), options.api_key.clone(), client, vec![model.clone()]))
+        Ok(Arc::new(rpi_ai::providers::openai_completions::OpenAiCompletionsProvider::with_models_without_env_api_key(model.provider.clone(), options.api_key.clone(), client, vec![model.clone()])))
     }
 }
 
@@ -400,6 +400,58 @@ mod tests {
             "context":Context::new(vec![]),"options":{}})
         .to_string()
     }
+    #[test]
+    fn transport_construction_errors_return_terminal_output_with_or_without_emit() {
+        fn factory(
+            _: &ProviderContext,
+            model: &Model,
+            options: &SimpleStreamOptions,
+        ) -> Result<Arc<dyn Provider>, String> {
+            completions(model, options, false)
+        }
+        let model = Model::new(
+            "m",
+            "M",
+            rpi_ai::Api::OpenaiCompletions,
+            "probe",
+            ":invalid",
+        );
+        assert!(completions(&model, &SimpleStreamOptions::default(), false).is_err());
+        let request =
+            serde_json::json!({"model":model, "context":Context::new(vec![]), "options":{}})
+                .to_string();
+        for with_emit in [false, true] {
+            let mut chunks = Vec::<serde_json::Value>::new();
+            let mut out = StbString::empty();
+            assert_eq!(
+                unsafe {
+                    drive_with_context(
+                        factory,
+                        std::ptr::null_mut(),
+                        StbStringRef::from_str(&request),
+                        with_emit.then_some(collect as ProviderStreamEmitFn),
+                        (&mut chunks as *mut Vec<serde_json::Value>).cast(),
+                        std::ptr::null(),
+                        &mut out,
+                    )
+                },
+                0
+            );
+            let output = unsafe {
+                crate::callbacks::OwnedString::from_raw(out, Some(crate::callbacks::free_string))
+            };
+            let message: AssistantMessage =
+                serde_json::from_str(&output.to_string_lossy()).unwrap();
+            assert_eq!(message.stop_reason, StopReason::Error);
+            assert!(message
+                .error_message
+                .as_deref()
+                .unwrap()
+                .contains("invalid target URL"));
+            assert!(chunks.is_empty(), "terminal errors use the output slot");
+        }
+    }
+
     #[test]
     fn bridge_emits_tool_identity_and_valid_terminal_json() {
         let mut chunks = Vec::<serde_json::Value>::new();
