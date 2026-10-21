@@ -2997,10 +2997,13 @@ impl AgentHarness {
                             format!("No provider registered for '{}'", model.provider),
                             0,
                         );
-                        let _ = producer.push(rpi_ai::types::AssistantMessageEvent::Error {
-                            reason: rpi_ai::types::ErrorReason::Error,
-                            error: msg,
-                        });
+                        // Terminal publication never waits for ordinary queue capacity.
+                        let _ = futures::executor::block_on(producer.push(
+                            rpi_ai::types::AssistantMessageEvent::Error {
+                                reason: rpi_ai::types::ErrorReason::Error,
+                                error: msg,
+                            },
+                        ));
                         stream
                     }
                 }

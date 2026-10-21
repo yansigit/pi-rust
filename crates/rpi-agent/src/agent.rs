@@ -608,7 +608,7 @@ mod tests {
                 let mut s = p.stream_simple(&model, &ctx, &opts).await;
                 // Drain the real stream into our producer.
                 while let Some(ev) = s.next().await {
-                    if !prod.push(ev) {
+                    if !prod.push(ev).await {
                         break;
                     }
                 }

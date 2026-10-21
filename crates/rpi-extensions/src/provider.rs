@@ -39,7 +39,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+#[cfg(test)]
 use rpi_ai::event_stream::create_assistant_message_event_stream;
+use rpi_ai::event_stream::create_assistant_message_event_stream_with_cancellation;
 use rpi_ai::types::{AssistantMessage, Content, DoneReason, ErrorReason, ToolCall, ToolCallType};
 use rpi_ai::{
     AssistantMessageEvent, AssistantMessageEventStream, AssistantMessageEventStreamProducer,
@@ -59,6 +61,7 @@ mod compact_tests;
 mod lifetime_tests;
 #[cfg(all(test, feature = "provider-performance"))]
 mod performance;
+mod queue;
 #[cfg(test)]
 mod stream_tests;
 
@@ -158,7 +161,8 @@ impl Provider for PluggableProvider {
         ctx: &Context,
         opts: &SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        let (mut prod, stream) = create_assistant_message_event_stream();
+        let (mut prod, stream) =
+            create_assistant_message_event_stream_with_cancellation(&opts.signal);
         let snapshot = Arc::clone(&self.snapshot);
         // into_owned_record copies the fn pointers + owned strings; the
         // `user_data` raw pointer is carried (plugin-owned, valid for the
@@ -172,7 +176,8 @@ impl Provider for PluggableProvider {
         // request envelope needs as owned values so the spawned task is
         // `'static`. `SimpleStreamOptions` IS `Clone` (verified, provider.rs:27),
         // so a single clone carries every field into the task.
-        let opts = opts.clone();
+        let mut opts = opts.clone();
+        opts.signal = prod.cancellation_token();
 
         // `spawn` (not `spawn_blocking`) for the producer task — the producer
         // must be async so it can `await` the blocking ffi call. Inside, we
@@ -189,13 +194,13 @@ impl Provider for PluggableProvider {
                     &mut prod,
                 )
                 .await;
-                push_terminal(&mut prod, message);
+                push_terminal(&mut prod, message).await;
             } else {
                 let message = drive_plugin_provider(
                     &snapshot, &record, runtime, lifetime, &model, &ctx, &opts,
                 )
                 .await;
-                push_terminal(&mut prod, message);
+                push_terminal(&mut prod, message).await;
             }
             // `prod` drops here, closing the mpsc sender so the consumer's
             // `next()` returns `None` after the terminal event.
@@ -377,7 +382,7 @@ fn run_provider_request_inner(
 /// message → `Error` (with the matching `ErrorReason`); otherwise → `Done`
 /// (mapping the stop reason onto [`DoneReason`]). This is the single chunk the
 /// one-shot path emits, and the terminal event for the streaming path.
-fn push_terminal(prod: &mut AssistantMessageEventStreamProducer, message: AssistantMessage) {
+async fn push_terminal(prod: &mut AssistantMessageEventStreamProducer, message: AssistantMessage) {
     use rpi_ai::types::StopReason;
     match message.stop_reason {
         // The two failure reasons map to distinct `ErrorReason`s: `Aborted` is
@@ -393,7 +398,8 @@ fn push_terminal(prod: &mut AssistantMessageEventStreamProducer, message: Assist
             prod.push(AssistantMessageEvent::Error {
                 reason,
                 error: message,
-            });
+            })
+            .await;
         }
         other => {
             let reason = match other {
@@ -405,7 +411,8 @@ fn push_terminal(prod: &mut AssistantMessageEventStreamProducer, message: Assist
                 // terminal reason; if not, the response is still complete).
                 _ => DoneReason::Stop,
             };
-            prod.push(AssistantMessageEvent::Done { reason, message });
+            prod.push(AssistantMessageEvent::Done { reason, message })
+                .await;
         }
     }
 }
@@ -492,8 +499,8 @@ async fn drive_streaming_plugin_provider(
     // it owns the chunk channel's **only** sender: when that task drops it, the
     // consumer's `recv()` sees the channel close. That lifetime coupling is the
     // reason this is a plain field and not a second `Arc` handle.
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<StreamChunk>();
     let control = Arc::new(ProviderControlState::default());
+    let (tx, mut rx) = queue::channel(64, 4 * 1024 * 1024, Arc::clone(&control));
     let bridge = StreamEmitBridge {
         tx,
         plugin_free_string: record.plugin_free_string,
@@ -510,8 +517,7 @@ async fn drive_streaming_plugin_provider(
     let provider_id = record.provider_id.clone();
     let model_id = model.id.clone();
 
-    // The plugin call must not hold `prod`: forwarding happens on this task, so
-    // a slow consumer cannot stall the plugin thread inside an FFI call.
+    // The callback blocks on bridge capacity while this task forwards events.
     let request_model_id = model_id.clone();
     let join = runtime.spawn_blocking(move || {
         // Cancellation detaches this task; keep the library and host-side
@@ -528,9 +534,7 @@ async fn drive_streaming_plugin_provider(
         )
     });
 
-    // The mapper lives on THIS side: the callback only forwards raw chunks, so a
-    // slow consumer cannot block the plugin's thread inside an FFI call, and
-    // there is exactly one writer to the event producer.
+    // One async task maps and forwards chunks; pressure propagates to emit.
     let mut mapper = StreamMapper::new(
         model.api.clone(),
         record.provider_id.clone(),
@@ -544,7 +548,7 @@ async fn drive_streaming_plugin_provider(
     // second queue. The cancel arm can fire at any await point — including on the
     // very first `recv`, which is why it is selected rather than checked in the
     // loop body.
-    loop {
+    'forward: loop {
         tokio::select! {
             biased;
             _ = cancel.cancelled() => {
@@ -556,13 +560,26 @@ async fn drive_streaming_plugin_provider(
             }
             chunk = rx.recv() => match chunk {
                 Some(chunk) => {
-                    if let Some(event) = mapper.apply(chunk) {
-                        prod.push(event);
-                    }
-                    while let Some(deferred) = mapper.take_deferred() {
-                        if let Some(event) = mapper.apply(deferred) {
-                            prod.push(event);
+                    let mut next = Some(chunk);
+                    while let Some(chunk) = next {
+                        let metadata_only = chunk.get("type").and_then(serde_json::Value::as_str) == Some("usage");
+                        if let Some(event) = mapper.apply(chunk) {
+                            let accepted = tokio::select! {
+                                biased;
+                                _ = cancel.cancelled() => false,
+                                accepted = prod.push(event) => accepted,
+                            };
+                            if !accepted {
+                                control.cancel();
+                                cancelled_mid_stream = true;
+                                mapper.output = prod.committed_message().cloned().unwrap_or_else(||
+                                    AssistantMessage::empty(model.api.clone(), record.provider_id.clone(), model.id.clone(), 0));
+                                break 'forward;
+                            }
+                        } else if metadata_only {
+                            prod.commit_metadata(&mapper.output);
                         }
+                        next = mapper.take_deferred();
                     }
                 }
                 // The plugin finished (or its task ended). Stop forwarding: the
@@ -606,7 +623,7 @@ async fn drive_streaming_plugin_provider(
         message.model = model.id.clone();
     }
     for event in mapper.chunks_then_message(&message) {
-        prod.push(event);
+        prod.push(event).await;
     }
     message
 }
@@ -623,6 +640,7 @@ struct ProviderControlState {
     cancelled: AtomicBool,
     wait_lock: Mutex<()>,
     wake: Condvar,
+    queue: Mutex<Option<std::sync::Weak<queue::Queue>>>,
 }
 
 impl ProviderControlState {
@@ -637,6 +655,15 @@ impl ProviderControlState {
         let _guard = self.wait_lock.lock().unwrap_or_else(|err| err.into_inner());
         self.cancelled.store(true, Ordering::SeqCst);
         self.wake.notify_all();
+        if let Some(queue) = self
+            .queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            queue.cancel();
+        }
     }
 
     /// Block up to `timeout_ms` for cancellation. `0` is a non-blocking poll.
@@ -720,7 +747,7 @@ extern "C" fn control_wait_cancelled_ms(user_data: *mut c_void, timeout_ms: u32)
 /// sender of the chunk channel — the channel's lifetime marker: when the
 /// blocking task drops it, the consumer's `recv()` returns `None`.
 struct StreamEmitBridge {
-    tx: tokio::sync::mpsc::UnboundedSender<StreamChunk>,
+    tx: queue::Sender,
     /// The plugin's own `plugin_free_string`: every emitted chunk arrives as a
     /// **plugin-owned** allocation, so only the plugin's deallocator may reclaim
     /// it (the host's would corrupt the plugin's heap).
@@ -757,7 +784,11 @@ extern "C" fn stream_emit_trampoline(event_json: StbString, user_data: *mut c_vo
         // once; `plugin_free_string` is that plugin's deallocator.
         let owned = unsafe { OwnedString::from_raw(event_json, Some(bridge.plugin_free_string)) };
         let text = owned.to_string_lossy();
-        match serde_json::from_str::<serde_json::Value>(&text) {
+        let bytes = text.len();
+        let parsed = serde_json::from_str::<serde_json::Value>(&text);
+        drop(text);
+        drop(owned);
+        match parsed {
             Ok(chunk) if chunk.is_object() => {
                 // A cancelled run still needs the structural frames that close
                 // the message it already showed, but has no consumer left for
@@ -776,9 +807,17 @@ extern "C" fn stream_emit_trampoline(event_json: StbString, user_data: *mut c_vo
                     // without enqueueing events that no longer have a consumer.
                     return i32::from(is_content);
                 }
-                if bridge.tx.send(chunk).is_err() {
-                    // The consumer went away (cancelled run); nothing to deliver.
-                    return 1;
+                if bridge.tx.send(chunk, bytes).is_err() {
+                    // Cancellation can also arrive during the capacity wait.
+                    return if bridge
+                        .control
+                        .as_ref()
+                        .is_some_and(|state| state.is_cancelled())
+                    {
+                        i32::from(is_content)
+                    } else {
+                        1
+                    };
                 }
                 0
             }
@@ -1526,7 +1565,7 @@ mod tests {
             plugin_free_string: stub_free,
             user_data: std::ptr::null_mut(),
         };
-        push_terminal(&mut prod, cancelled_message(&record));
+        futures::executor::block_on(push_terminal(&mut prod, cancelled_message(&record)));
         let event = futures::executor::block_on(stream.next()).expect("a terminal event");
         match event {
             AssistantMessageEvent::Error { reason, error } => {
@@ -1589,7 +1628,7 @@ mod tests {
                 &mut prod,
             )
             .await;
-            push_terminal(&mut prod, message);
+            push_terminal(&mut prod, message).await;
         });
 
         let mut aborted = false;
@@ -1641,7 +1680,7 @@ mod tests {
         let owner = Arc::new(ProviderControlOwner {
             state: Arc::new(ProviderControlState::default()),
         });
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<StreamChunk>();
+        let (tx, mut rx) = queue::channel(64, 4 * 1024 * 1024, Arc::clone(&owner.state));
         let bridge = StreamEmitBridge {
             tx,
             plugin_free_string: stub_free,

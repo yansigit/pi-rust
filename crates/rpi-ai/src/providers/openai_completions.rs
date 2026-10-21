@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use serde_json::{json, Map, Value};
 
 use crate::event_stream::{
-    create_assistant_message_event_stream, AssistantMessageEventStream,
+    create_assistant_message_event_stream_with_cancellation, AssistantMessageEventStream,
     AssistantMessageEventStreamProducer,
 };
 use crate::model::{MaxTokensField, Model, StreamingProtocolCompat};
@@ -104,14 +104,16 @@ impl Provider for OpenAiCompletionsProvider {
         ctx: &Context,
         opts: &SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        let (mut producer, stream) = create_assistant_message_event_stream();
+        let (mut producer, stream) =
+            create_assistant_message_event_stream_with_cancellation(&opts.signal);
         let http = self.http.clone();
         let provider_key = self.api_key.clone();
         let allow_env_api_key = self.allow_env_api_key;
         let require_auth = self.require_auth;
         let model = model.clone();
         let ctx = Arc::new(ctx.clone());
-        let opts = opts.clone();
+        let mut opts = opts.clone();
+        opts.signal = producer.cancellation_token();
 
         tokio::spawn(async move {
             run_stream(
@@ -155,11 +157,13 @@ async fn run_stream(
     // caller/model already set a User-Agent.
     crate::http::ensure_user_agent(&mut headers);
     if require_auth && !has_auth_header(&headers) {
-        state.error(
-            producer,
-            format!("No API key for provider: {}", model.provider),
-            false,
-        );
+        state
+            .error(
+                producer,
+                format!("No API key for provider: {}", model.provider),
+                false,
+            )
+            .await;
         return;
     }
 
@@ -212,17 +216,19 @@ async fn run_stream(
     let response = match response {
         Ok(response) => response,
         Err(error) => {
-            state.error(producer, error.to_string(), error.is_abort());
+            state
+                .error(producer, error.to_string(), error.is_abort())
+                .await;
             return;
         }
     };
 
-    state.start(producer);
+    state.start(producer).await;
     let mut events = SseEventStream::new(response, opts.signal.clone());
     loop {
         match events.next_event().await {
             Ok(Some(event)) if event.data.trim() == "[DONE]" => {
-                state.finish(producer, model);
+                state.finish(producer, model).await;
                 return;
             }
             Ok(Some(event)) => match serde_json::from_str::<Value>(&event.data) {
@@ -232,26 +238,30 @@ async fn run_stream(
                         .and_then(|v| v.get("message"))
                         .and_then(Value::as_str)
                     {
-                        state.error(producer, message.to_string(), false);
+                        state.error(producer, message.to_string(), false).await;
                         return;
                     }
-                    state.apply_chunk(producer, &chunk);
+                    state.apply_chunk(producer, &chunk).await;
                 }
                 Err(error) => {
-                    state.error(
-                        producer,
-                        format!("failed to parse OpenAI SSE chunk: {error}"),
-                        false,
-                    );
+                    state
+                        .error(
+                            producer,
+                            format!("failed to parse OpenAI SSE chunk: {error}"),
+                            false,
+                        )
+                        .await;
                     return;
                 }
             },
             Ok(None) => {
-                state.finish(producer, model);
+                state.finish(producer, model).await;
                 return;
             }
             Err(error) => {
-                state.error(producer, error.to_string(), error.is_abort());
+                state
+                    .error(producer, error.to_string(), error.is_abort())
+                    .await;
                 return;
             }
         }
@@ -692,12 +702,12 @@ impl StreamState {
 
     /// Emit whatever text/thinking is batched. Called at every channel boundary
     /// so no delta is ever dropped or reordered.
-    fn flush_pending(&mut self, producer: &mut AssistantMessageEventStreamProducer) {
-        self.flush_text(producer);
-        self.flush_thinking(producer);
+    async fn flush_pending(&mut self, producer: &mut AssistantMessageEventStreamProducer) {
+        self.flush_text(producer).await;
+        self.flush_thinking(producer).await;
     }
 
-    fn flush_text(&mut self, producer: &mut AssistantMessageEventStreamProducer) {
+    async fn flush_text(&mut self, producer: &mut AssistantMessageEventStreamProducer) {
         if self.pending_text.is_empty() {
             return;
         }
@@ -707,14 +717,16 @@ impl StreamState {
         };
         let delta = std::mem::take(&mut self.pending_text);
         self.last_flush = Instant::now();
-        producer.push(AssistantMessageEvent::TextDelta {
-            content_index: index,
-            delta,
-            partial: Arc::new(self.output.clone()),
-        });
+        producer
+            .push(AssistantMessageEvent::TextDelta {
+                content_index: index,
+                delta,
+                partial: Arc::new(self.output.clone()),
+            })
+            .await;
     }
 
-    fn flush_thinking(&mut self, producer: &mut AssistantMessageEventStreamProducer) {
+    async fn flush_thinking(&mut self, producer: &mut AssistantMessageEventStreamProducer) {
         if self.pending_thinking.is_empty() {
             return;
         }
@@ -724,23 +736,31 @@ impl StreamState {
         };
         let delta = std::mem::take(&mut self.pending_thinking);
         self.last_flush = Instant::now();
-        producer.push(AssistantMessageEvent::ThinkingDelta {
-            content_index: index,
-            delta,
-            partial: Arc::new(self.output.clone()),
-        });
+        producer
+            .push(AssistantMessageEvent::ThinkingDelta {
+                content_index: index,
+                delta,
+                partial: Arc::new(self.output.clone()),
+            })
+            .await;
     }
 
-    fn start(&mut self, producer: &mut AssistantMessageEventStreamProducer) {
+    async fn start(&mut self, producer: &mut AssistantMessageEventStreamProducer) {
         if !self.started {
             self.started = true;
-            producer.push(AssistantMessageEvent::Start {
-                partial: Arc::new(self.output.clone()),
-            });
+            producer
+                .push(AssistantMessageEvent::Start {
+                    partial: Arc::new(self.output.clone()),
+                })
+                .await;
         }
     }
 
-    fn apply_chunk(&mut self, producer: &mut AssistantMessageEventStreamProducer, chunk: &Value) {
+    async fn apply_chunk(
+        &mut self,
+        producer: &mut AssistantMessageEventStreamProducer,
+        chunk: &Value,
+    ) {
         if let Some(id) = chunk.get("id").and_then(Value::as_str) {
             self.output.response_id = Some(id.to_string());
         }
@@ -756,6 +776,7 @@ impl StreamState {
             .and_then(Value::as_array)
             .and_then(|choices| choices.first())
         else {
+            producer.commit_metadata(&self.output);
             return;
         };
         if chunk.get("usage").map_or(true, Value::is_null) {
@@ -769,7 +790,7 @@ impl StreamState {
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty())
         {
-            self.push_text(producer, text);
+            self.push_text(producer, text).await;
         }
         let thinking = delta
             .get("reasoning_content")
@@ -778,11 +799,11 @@ impl StreamState {
             .and_then(Value::as_str)
             .filter(|s| !s.is_empty());
         if let Some(thinking) = thinking {
-            self.push_thinking(producer, thinking);
+            self.push_thinking(producer, thinking).await;
         }
         if let Some(tool_calls) = delta.get("tool_calls").and_then(Value::as_array) {
             for tool in tool_calls {
-                self.push_tool_delta(producer, tool);
+                self.push_tool_delta(producer, tool).await;
             }
         }
         if let Some(reason) = choice.get("finish_reason").and_then(Value::as_str) {
@@ -796,19 +817,22 @@ impl StreamState {
                 }
             }
         }
+        producer.commit_metadata(&self.output);
     }
 
-    fn push_text(&mut self, producer: &mut AssistantMessageEventStreamProducer, delta: &str) {
+    async fn push_text(&mut self, producer: &mut AssistantMessageEventStreamProducer, delta: &str) {
         let index = match self.text_index {
             Some(index) => index,
             None => {
                 let index = self.output.content.len();
                 self.output.content.push(Content::text(""));
                 self.text_index = Some(index);
-                producer.push(AssistantMessageEvent::TextStart {
-                    content_index: index,
-                    partial: Arc::new(self.output.clone()),
-                });
+                producer
+                    .push(AssistantMessageEvent::TextStart {
+                        content_index: index,
+                        partial: Arc::new(self.output.clone()),
+                    })
+                    .await;
                 index
             }
         };
@@ -819,14 +843,18 @@ impl StreamState {
         // SSE chunk makes a long stream quadratic. See `DELTA_FLUSH_BYTES`.
         self.pending_text.push_str(delta);
         if self.should_flush(&self.pending_text) {
-            self.flush_text(producer);
+            self.flush_text(producer).await;
         }
     }
 
-    fn push_thinking(&mut self, producer: &mut AssistantMessageEventStreamProducer, delta: &str) {
+    async fn push_thinking(
+        &mut self,
+        producer: &mut AssistantMessageEventStreamProducer,
+        delta: &str,
+    ) {
         // Keep channel order strict: text already streamed must be emitted before
         // the first thinking delta of a new block.
-        self.flush_text(producer);
+        self.flush_text(producer).await;
         let index = match self.thinking_index {
             Some(index) => index,
             None => {
@@ -838,10 +866,12 @@ impl StreamState {
                     redacted: false,
                 }));
                 self.thinking_index = Some(index);
-                producer.push(AssistantMessageEvent::ThinkingStart {
-                    content_index: index,
-                    partial: Arc::new(self.output.clone()),
-                });
+                producer
+                    .push(AssistantMessageEvent::ThinkingStart {
+                        content_index: index,
+                        partial: Arc::new(self.output.clone()),
+                    })
+                    .await;
                 index
             }
         };
@@ -850,18 +880,18 @@ impl StreamState {
         }
         self.pending_thinking.push_str(delta);
         if self.should_flush(&self.pending_thinking) {
-            self.flush_thinking(producer);
+            self.flush_thinking(producer).await;
         }
     }
 
-    fn push_tool_delta(
+    async fn push_tool_delta(
         &mut self,
         producer: &mut AssistantMessageEventStreamProducer,
         value: &Value,
     ) {
         // A tool-call block starts a new channel; flush what is batched so the
         // consumer never sees tool events before the text that preceded them.
-        self.flush_pending(producer);
+        self.flush_pending(producer).await;
         let wire_index = value.get("index").and_then(Value::as_u64).unwrap_or(0) as usize;
         if !self.tools.contains_key(&wire_index) {
             let content_index = self.output.content.len();
@@ -877,10 +907,12 @@ impl StreamState {
                     arguments: String::new(),
                 },
             );
-            producer.push(AssistantMessageEvent::ToolCallStart {
-                content_index,
-                partial: Arc::new(self.output.clone()),
-            });
+            producer
+                .push(AssistantMessageEvent::ToolCallStart {
+                    content_index,
+                    partial: Arc::new(self.output.clone()),
+                })
+                .await;
         }
 
         let tool = self
@@ -914,40 +946,46 @@ impl StreamState {
             call.arguments = parse_streaming_json(Some(&tool.arguments));
         }
         if !arguments.is_empty() {
-            producer.push(AssistantMessageEvent::ToolCallDelta {
-                content_index: tool.content_index,
-                delta: arguments.to_string(),
-                partial: Arc::new(self.output.clone()),
-            });
+            producer
+                .push(AssistantMessageEvent::ToolCallDelta {
+                    content_index: tool.content_index,
+                    delta: arguments.to_string(),
+                    partial: Arc::new(self.output.clone()),
+                })
+                .await;
         }
     }
 
-    fn finish(&mut self, producer: &mut AssistantMessageEventStreamProducer, model: &Model) {
+    async fn finish(&mut self, producer: &mut AssistantMessageEventStreamProducer, model: &Model) {
         // Terminal boundary: emit the last batched delta before the `*End`
         // events, otherwise the tail of a short final chunk would be visible in
         // the final message but never in the delta stream.
-        self.flush_pending(producer);
+        self.flush_pending(producer).await;
         if let Some(index) = self.text_index {
             let content = match self.output.content.get(index) {
                 Some(Content::Text(text)) => text.text.clone(),
                 _ => String::new(),
             };
-            producer.push(AssistantMessageEvent::TextEnd {
-                content_index: index,
-                content,
-                partial: Arc::new(self.output.clone()),
-            });
+            producer
+                .push(AssistantMessageEvent::TextEnd {
+                    content_index: index,
+                    content,
+                    partial: Arc::new(self.output.clone()),
+                })
+                .await;
         }
         if let Some(index) = self.thinking_index {
             let content = match self.output.content.get(index) {
                 Some(Content::Thinking(thinking)) => thinking.thinking.clone(),
                 _ => String::new(),
             };
-            producer.push(AssistantMessageEvent::ThinkingEnd {
-                content_index: index,
-                content,
-                partial: Arc::new(self.output.clone()),
-            });
+            producer
+                .push(AssistantMessageEvent::ThinkingEnd {
+                    content_index: index,
+                    content,
+                    partial: Arc::new(self.output.clone()),
+                })
+                .await;
         }
         for tool in self.tools.values() {
             let call = ToolCall {
@@ -961,14 +999,16 @@ impl StreamState {
             if let Some(slot) = self.output.content.get_mut(tool.content_index) {
                 *slot = Content::ToolCall(call.clone());
             }
-            producer.push(AssistantMessageEvent::ToolCallEnd {
-                content_index: tool.content_index,
-                tool_call: call,
-                partial: Arc::new(self.output.clone()),
-            });
+            producer
+                .push(AssistantMessageEvent::ToolCallEnd {
+                    content_index: tool.content_index,
+                    tool_call: call,
+                    partial: Arc::new(self.output.clone()),
+                })
+                .await;
         }
         if let Some(message) = self.finish_error.take() {
-            self.error(producer, message, false);
+            self.error(producer, message, false).await;
             return;
         }
         if self.finish_reason.is_none() && supports_finish_reason(model) {
@@ -976,7 +1016,8 @@ impl StreamState {
                 producer,
                 "Stream ended without finish_reason".to_string(),
                 false,
-            );
+            )
+            .await;
             return;
         }
         let reason = self.finish_reason.unwrap_or_else(|| {
@@ -988,13 +1029,15 @@ impl StreamState {
         });
         self.output.stop_reason = reason.into();
         self.output.usage.cost = calculate_cost(&model.cost, &self.output.usage);
-        producer.push(AssistantMessageEvent::Done {
-            reason,
-            message: self.output.clone(),
-        });
+        producer
+            .push(AssistantMessageEvent::Done {
+                reason,
+                message: self.output.clone(),
+            })
+            .await;
     }
 
-    fn error(
+    async fn error(
         &mut self,
         producer: &mut AssistantMessageEventStreamProducer,
         message: String,
@@ -1008,15 +1051,17 @@ impl StreamState {
         self.output.error_message = Some(message);
         // Surface whatever streamed before the failure; the batched tail would
         // otherwise be lost from the delta stream.
-        self.flush_pending(producer);
-        producer.push(AssistantMessageEvent::Error {
-            reason: if aborted {
-                ErrorReason::Aborted
-            } else {
-                ErrorReason::Error
-            },
-            error: self.output.clone(),
-        });
+        self.flush_pending(producer).await;
+        producer
+            .push(AssistantMessageEvent::Error {
+                reason: if aborted {
+                    ErrorReason::Aborted
+                } else {
+                    ErrorReason::Error
+                },
+                error: self.output.clone(),
+            })
+            .await;
     }
 }
 
@@ -1069,6 +1114,7 @@ fn now_ms() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event_stream::create_assistant_message_event_stream;
     use crate::model::OpenaiCompletionsCompat;
     use crate::types::{
         AssistantMessage, AssistantMessageEvent, ImageContent, ImageContentType, Message,
@@ -1095,9 +1141,9 @@ mod tests {
 
     /// Drain every event the producer pushed. `next()` yields `None` after the
     /// terminal `Done`/`Error`, so this always terminates.
-    fn drain(stream: &mut AssistantMessageEventStream) -> Vec<AssistantMessageEvent> {
+    async fn drain(stream: &mut AssistantMessageEventStream) -> Vec<AssistantMessageEvent> {
         let mut events = Vec::new();
-        while let Some(event) = futures::executor::block_on(stream.next()) {
+        while let Some(event) = stream.next().await {
             events.push(event);
         }
         events
@@ -1113,8 +1159,8 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn a_slow_stream_flushes_on_the_interval_not_the_byte_count() {
+    #[tokio::test]
+    async fn a_slow_stream_flushes_on_the_interval_not_the_byte_count() {
         // A pure byte threshold would hide output for
         // `DELTA_FLUSH_BYTES / rate`; a model emitting one character per 100ms
         // would show nothing for six seconds. Ageing `last_flush` by more than
@@ -1126,9 +1172,9 @@ mod tests {
         let model = model();
         let (mut producer, mut stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
+        state.start(&mut producer).await;
 
-        state.apply_chunk(&mut producer, &text_chunk("a"));
+        state.apply_chunk(&mut producer, &text_chunk("a")).await;
         assert_eq!(
             state.pending_text, "a",
             "a single byte well inside the interval must stay batched (no event)"
@@ -1138,20 +1184,23 @@ mod tests {
         state.last_flush = Instant::now()
             .checked_sub(DELTA_FLUSH_INTERVAL + Duration::from_millis(5))
             .expect("instant arithmetic");
-        state.apply_chunk(&mut producer, &text_chunk("b"));
+        state.apply_chunk(&mut producer, &text_chunk("b")).await;
         assert!(
             state.pending_text.is_empty(),
             "an aged batch must be emitted even though it is under the byte threshold"
         );
 
-        state.apply_chunk(&mut producer, &stop_chunk());
-        state.finish(&mut producer, &model);
+        state.apply_chunk(&mut producer, &stop_chunk()).await;
+        state.finish(&mut producer, &model).await;
         // Flushing early must not lose or duplicate anything.
-        assert_eq!(text_deltas(&drain(&mut stream)), vec!["ab".to_string()]);
+        assert_eq!(
+            text_deltas(&drain(&mut stream).await),
+            vec!["ab".to_string()]
+        );
     }
 
-    #[test]
-    fn event_count_is_bounded_by_the_batch_size_not_the_message_length() {
+    #[tokio::test]
+    async fn event_count_is_bounded_by_the_batch_size_not_the_message_length() {
         // The regression this guards: every event carries a full
         // `Arc<AssistantMessage>` snapshot, so one event per SSE chunk made a
         // long stream quadratic (measured 500 deltas 1.1ms → 8000 deltas 105ms).
@@ -1160,15 +1209,15 @@ mod tests {
         let model = model();
         let (mut producer, mut stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
-
         let total = 8000usize;
-        for _ in 0..total {
-            state.apply_chunk(&mut producer, &text_chunk("x"));
-        }
-        state.finish(&mut producer, &model);
-
-        let events = drain(&mut stream);
+        let produce = async {
+            state.start(&mut producer).await;
+            for _ in 0..total {
+                state.apply_chunk(&mut producer, &text_chunk("x")).await;
+            }
+            state.finish(&mut producer, &model).await;
+        };
+        let (_, events) = tokio::join!(produce, drain(&mut stream));
         let batches = text_deltas(&events).len();
         assert!(
             batches <= total / DELTA_FLUSH_BYTES + 5,
@@ -1179,22 +1228,22 @@ mod tests {
         assert_eq!(text_deltas(&events).join("").len(), total);
     }
 
-    #[test]
-    fn batched_text_is_flushed_before_text_end_and_matches_the_final_message() {
+    #[tokio::test]
+    async fn batched_text_is_flushed_before_text_end_and_matches_the_final_message() {
         let model = model();
         let (mut producer, mut stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
+        state.start(&mut producer).await;
 
         // Deliberately shorter than the flush threshold: the tail must still
         // reach the consumer, via the boundary flush in `finish`.
         let short = "hi";
         assert!(short.len() < DELTA_FLUSH_BYTES);
-        state.apply_chunk(&mut producer, &text_chunk(short));
-        state.apply_chunk(&mut producer, &stop_chunk());
-        state.finish(&mut producer, &model);
+        state.apply_chunk(&mut producer, &text_chunk(short)).await;
+        state.apply_chunk(&mut producer, &stop_chunk()).await;
+        state.finish(&mut producer, &model).await;
 
-        let events = drain(&mut stream);
+        let events = drain(&mut stream).await;
         let deltas = text_deltas(&events);
         assert_eq!(deltas, vec![short.to_string()]);
 
@@ -1220,18 +1269,20 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn channel_switch_flushes_text_before_the_thinking_block() {
+    #[tokio::test]
+    async fn channel_switch_flushes_text_before_the_thinking_block() {
         let model = model();
         let (mut producer, mut stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
+        state.start(&mut producer).await;
 
-        state.apply_chunk(&mut producer, &text_chunk("abc"));
-        state.apply_chunk(&mut producer, &thinking_chunk("reasoning"));
-        state.finish(&mut producer, &model);
+        state.apply_chunk(&mut producer, &text_chunk("abc")).await;
+        state
+            .apply_chunk(&mut producer, &thinking_chunk("reasoning"))
+            .await;
+        state.finish(&mut producer, &model).await;
 
-        let events = drain(&mut stream);
+        let events = drain(&mut stream).await;
         let delta_at = events
             .iter()
             .position(|e| matches!(e, AssistantMessageEvent::TextDelta { .. }))
@@ -1252,20 +1303,20 @@ mod tests {
         );
     }
 
-    #[test]
-    fn thinking_deltas_are_batched_losslessly_too() {
+    #[tokio::test]
+    async fn thinking_deltas_are_batched_losslessly_too() {
         let model = model();
         let (mut producer, mut stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
+        state.start(&mut producer).await;
 
         let total = 500usize;
         for _ in 0..total {
-            state.apply_chunk(&mut producer, &thinking_chunk("y"));
+            state.apply_chunk(&mut producer, &thinking_chunk("y")).await;
         }
-        state.finish(&mut producer, &model);
+        state.finish(&mut producer, &model).await;
 
-        let events = drain(&mut stream);
+        let events = drain(&mut stream).await;
         let joined: String = events
             .iter()
             .filter_map(|event| match event {
@@ -1284,17 +1335,19 @@ mod tests {
         );
     }
 
-    #[test]
-    fn an_error_flushes_batched_text_before_the_terminal_event() {
+    #[tokio::test]
+    async fn an_error_flushes_batched_text_before_the_terminal_event() {
         let model = model();
         let (mut producer, mut stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
+        state.start(&mut producer).await;
 
-        state.apply_chunk(&mut producer, &text_chunk("partial"));
-        state.error(&mut producer, "boom".to_string(), false);
+        state
+            .apply_chunk(&mut producer, &text_chunk("partial"))
+            .await;
+        state.error(&mut producer, "boom".to_string(), false).await;
 
-        let events = drain(&mut stream);
+        let events = drain(&mut stream).await;
         assert_eq!(text_deltas(&events), vec!["partial".to_string()]);
         assert!(matches!(
             events.last(),
@@ -1505,32 +1558,36 @@ mod tests {
         assert_eq!(body["store"], false);
     }
 
-    #[test]
-    fn maps_text_tool_calls_and_usage() {
+    #[tokio::test]
+    async fn maps_text_tool_calls_and_usage() {
         let model = model();
         let (mut producer, _stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
-        state.apply_chunk(
-            &mut producer,
-            &json!({
-                "id": "chat-1",
-                "model": "gpt-test-actual",
-                "choices": [{"delta": {"content": "hello"}, "finish_reason": null}]
-            }),
-        );
-        state.apply_chunk(
-            &mut producer,
-            &json!({
-                "choices": [{"delta": {"tool_calls": [{
-                    "index": 0,
-                    "id": "call-1",
-                    "function": {"name": "read", "arguments": "{\"path\":\"a\"}"}
-                }]}, "finish_reason": "tool_calls"}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
-            }),
-        );
-        state.finish(&mut producer, &model);
+        state.start(&mut producer).await;
+        state
+            .apply_chunk(
+                &mut producer,
+                &json!({
+                    "id": "chat-1",
+                    "model": "gpt-test-actual",
+                    "choices": [{"delta": {"content": "hello"}, "finish_reason": null}]
+                }),
+            )
+            .await;
+        state
+            .apply_chunk(
+                &mut producer,
+                &json!({
+                    "choices": [{"delta": {"tool_calls": [{
+                        "index": 0,
+                        "id": "call-1",
+                        "function": {"name": "read", "arguments": "{\"path\":\"a\"}"}
+                    }]}, "finish_reason": "tool_calls"}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+                }),
+            )
+            .await;
+        state.finish(&mut producer, &model).await;
         assert_eq!(state.output.stop_reason, StopReason::ToolUse);
         assert_eq!(state.output.response_id.as_deref(), Some("chat-1"));
         assert_eq!(state.output.usage.total_tokens, 15);
@@ -1560,19 +1617,21 @@ mod tests {
         assert_eq!(usage.total_tokens, 120);
     }
 
-    #[test]
-    fn maps_provider_error_finish_reason_to_error() {
+    #[tokio::test]
+    async fn maps_provider_error_finish_reason_to_error() {
         let model = model();
         let (mut producer, _stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
-        state.apply_chunk(
-            &mut producer,
-            &json!({
-                "choices": [{"delta": {}, "finish_reason": "content_filter"}]
-            }),
-        );
-        state.finish(&mut producer, &model);
+        state.start(&mut producer).await;
+        state
+            .apply_chunk(
+                &mut producer,
+                &json!({
+                    "choices": [{"delta": {}, "finish_reason": "content_filter"}]
+                }),
+            )
+            .await;
+        state.finish(&mut producer, &model).await;
         assert_eq!(state.output.stop_reason, StopReason::Error);
         assert_eq!(
             state.output.error_message.as_deref(),
@@ -1580,13 +1639,13 @@ mod tests {
         );
     }
 
-    #[test]
-    fn missing_finish_reason_obeys_compat_flag() {
+    #[tokio::test]
+    async fn missing_finish_reason_obeys_compat_flag() {
         let mut model = model();
         let (mut producer, _stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
-        state.finish(&mut producer, &model);
+        state.start(&mut producer).await;
+        state.finish(&mut producer, &model).await;
         assert_eq!(state.output.stop_reason, StopReason::Error);
 
         model.compat = Some(StreamingProtocolCompat::OpenaiCompletions(
@@ -1597,8 +1656,8 @@ mod tests {
         ));
         let (mut producer, _stream) = create_assistant_message_event_stream();
         let mut state = StreamState::new(&model);
-        state.start(&mut producer);
-        state.finish(&mut producer, &model);
+        state.start(&mut producer).await;
+        state.finish(&mut producer, &model).await;
         assert_eq!(state.output.stop_reason, StopReason::Stop);
     }
 
@@ -1624,5 +1683,39 @@ mod tests {
             chat_completions_url("https://gateway.test/custom/chat/completions"),
             "https://gateway.test/custom/chat/completions"
         );
+    }
+    #[tokio::test]
+    async fn cancellation_while_enqueue_waits_keeps_committed_content_and_metadata() {
+        use crate::event_stream::create_assistant_message_event_stream_with_limits;
+        use tokio_util::sync::CancellationToken;
+        let parent = CancellationToken::new();
+        let (mut producer, mut stream) =
+            create_assistant_message_event_stream_with_limits(1, 4 * 1024 * 1024, &parent);
+        let mut state = StreamState::new(&model());
+        state.start(&mut producer).await;
+        stream.next().await.unwrap();
+        state
+            .apply_chunk(&mut producer, &text_chunk("accepted"))
+            .await;
+        stream.next().await.unwrap(); // TextStart
+        state.flush_pending(&mut producer).await; // fills the queue with accepted content
+        state
+            .apply_chunk(
+                &mut producer,
+                &json!({ "id": "accepted-id", "choices": [], "usage": { "prompt_tokens": 42 } }),
+            )
+            .await;
+
+        let rejected = json!({ "id": "rejected-id", "choices": [{ "delta": { "content": "x".repeat(DELTA_FLUSH_BYTES) } }] });
+        let mut blocked = Box::pin(state.apply_chunk(&mut producer, &rejected));
+        assert!(futures::poll!(&mut blocked).is_pending());
+        parent.cancel();
+        blocked.await;
+        state.error(&mut producer, "cancelled".into(), true).await;
+        let result = stream.result().await.unwrap();
+        assert_eq!(result.content, vec![Content::text("accepted")]);
+        assert_eq!(result.response_id.as_deref(), Some("accepted-id"));
+        assert_eq!(result.usage.input, 42);
+        assert_eq!(result.stop_reason, StopReason::Aborted);
     }
 }
