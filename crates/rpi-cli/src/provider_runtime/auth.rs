@@ -126,6 +126,9 @@ impl ProviderRuntime {
         if action == "methods" {
             return self.auth_methods(id, signal).await;
         }
+        if action == "resolve" {
+            return self.resolve_owned_auth(owner, id, &args, signal).await;
+        }
         let auth = self.registered_auth(id).await?;
         let store = self.credential_store(&owner, id, &args)?;
         match action {
@@ -223,6 +226,58 @@ impl ProviderRuntime {
             }
             _ => Err("unsupported authentication action".into()),
         }
+    }
+
+    async fn resolve_owned_auth(
+        &self,
+        owner: NativeOwner,
+        id: &str,
+        args: &Value,
+        signal: CancellationToken,
+    ) -> Result<Value, String> {
+        let registered = self.state.lock().await.catalog.owner(id);
+        if !registered.is_some_and(|registered| {
+            registered.generation == owner.generation
+                && registered.plugin == owner.plugin
+                && (registered.id == owner.id || owner.child)
+        }) {
+            return Err("resolved authentication belongs to another session or plugin".into());
+        }
+        if args.as_object().map_or(true, |fields| {
+            fields.keys().any(|key| {
+                !["version", "port", "action", "providerId", "env"].contains(&key.as_str())
+            })
+        }) {
+            return Err("unsupported resolved authentication field".into());
+        }
+        let env = args
+            .get("env")
+            .map_or_else(
+                || Ok(BTreeMap::new()),
+                |value| serde_json::from_value::<BTreeMap<String, String>>(value.clone()),
+            )
+            .map_err(|_| "invalid request authentication environment")?;
+        let binding = self
+            .auth
+            .get(id)
+            .ok_or("provider has no native authentication")?;
+        let auth = binding
+            .runtime
+            .resolve(
+                id.into(),
+                binding.provider.clone(),
+                binding.store.clone().map_err(|error| error.to_string())?,
+                binding.context.clone(),
+                AuthOptions {
+                    env,
+                    ..Default::default()
+                },
+                signal,
+                Arc::new(SystemClock),
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        serde_json::to_value(auth).map_err(|_| "invalid resolved authentication".into())
     }
 
     async fn credential_store_request(

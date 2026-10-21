@@ -547,3 +547,203 @@ fn native_credential_transition_is_owner_bound_and_retains_lock_through_cancelle
         lock.try_lock_exclusive().unwrap();
     });
 }
+
+#[test]
+fn owned_auth_resolution_keeps_configuration_private_and_environment_request_local() {
+    struct Environment(Option<std::ffi::OsString>);
+    impl Drop for Environment {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
+                None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
+            }
+        }
+    }
+    extern "C" fn auth(
+        input: rpi_plugin_sdk::StbStringRef,
+        _: *const rpi_plugin_sdk::AuthRequestControl,
+        output: *mut rpi_plugin_sdk::StbString,
+        data: *mut std::ffi::c_void,
+    ) -> i32 {
+        rpi_plugin_sdk::guard_or(1, || {
+            let calls = unsafe { &*data.cast::<AtomicUsize>() };
+            calls.fetch_add(1, Ordering::SeqCst);
+            let request: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+            assert_eq!(request["action"], "resolveApiKey");
+            let input = &request["input"];
+            let key = input["credential"]["key"].as_str().unwrap_or("fallback");
+            unsafe {
+                *output = rpi_plugin_sdk::StbString::from_string(json!({"version":1,"kind":"auth","payload":{
+                    "apiKey":key,"env":{"RPI_AUTH_TEST_OVERLAY":input["env"]["RPI_AUTH_TEST_OVERLAY"].as_str().unwrap_or("ambient")}
+                }}).to_string());
+            }
+            0
+        })
+    }
+    let _lock = crate::config::test_support::env_lock().lock().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let _environment = Environment(std::env::var_os(crate::config::CONFIG_DIR_ENV));
+    std::env::set_var(crate::config::CONFIG_DIR_ENV, directory.path());
+    std::fs::write(directory.path().join("models.json"), r#"{"providers":{"test":{"apiKey":"configured-private-key","headers":{"X-Overlay":"${RPI_AUTH_TEST_OVERLAY}"}}}}"#).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let (runtime, owner, _) = fixture_with(|registry| {
+            registry.register_provider_auth(rpi_extensions::provider_auth::RegisteredAuthProvider {
+                plugin: "test-plugin".into(),
+                manifest: serde_json::from_value(json!({"version":1,"id":"test","displayName":"Test","apiKey":true,"oauth":false,"methods":[]})).unwrap(),
+                request_fn: auth,
+                plugin_free_string: rpi_plugin_sdk::callbacks::free_string,
+                user_data: Arc::as_ptr(&calls).cast_mut().cast(),
+            });
+        });
+        // Catalog refresh and commands resolve from this generation's same configured auth snapshot.
+        std::fs::write(directory.path().join("models.json"), "{}").unwrap();
+        let request = |env: &str| json!({"port":"auth","action":"resolve","providerId":"test","env":{"RPI_AUTH_TEST_OVERLAY":env}});
+        let (left, right) = tokio::join!(
+            runtime.request(owner.clone(),request("left"), CancellationToken::new()),
+            runtime.request(owner.clone(),request("right"), CancellationToken::new()),
+        );
+        let (left,right) = (left.unwrap(),right.unwrap());
+        assert_eq!(left["apiKey"], "configured-private-key");
+        assert_eq!(left["headers"]["X-Overlay"], "left");
+        assert_eq!(right["headers"]["X-Overlay"], "right");
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        for (caller,mut input) in [
+            (NativeOwner { plugin:"foreign".into(), ..owner.clone() }, request("rejected")),
+            (NativeOwner { id:2, ..owner.clone() }, request("rejected")),
+            (owner.clone(), { let mut v=request("rejected");v["storeId"]="foreign-store".into();v }),
+            (owner.clone(), { let mut v=request("rejected");v["env"]=json!({"RPI_AUTH_TEST_OVERLAY":false});v }),
+        ] {
+            input["version"] = 1.into();
+            assert!(runtime.request(caller,input,CancellationToken::new()).await.is_err());
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let signal = CancellationToken::new();signal.cancel();
+        assert!(runtime.request(owner.clone(),request("cancelled"),signal).await.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        std::fs::write(directory.path().join("auth.json"),r#"{"test":{"type":"api_key","key":"stored-private-key"}}"#).unwrap();
+        let result = runtime.request(owner,request("stored"),CancellationToken::new()).await.unwrap();
+        assert_eq!(result["apiKey"],"stored-private-key");
+        let catalog = runtime.providers().await;
+        let serialized = serde_json::to_string(&catalog[0].models()).unwrap();
+        assert!(!serialized.contains("private-key"));
+        assert!(!serialized.contains("X-Overlay"));
+        runtime.session.auth_runtime().shutdown().await;
+    });
+}
+
+#[tokio::test]
+async fn awaited_publication_commits_once_and_rejects_stale_or_expired_refresh_tickets() {
+    struct Gate {
+        started: tokio::sync::mpsc::Sender<Value>,
+        release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+        returned: tokio::sync::Notify,
+    }
+    extern "C" fn refresh(
+        input: rpi_plugin_sdk::StbStringRef,
+        _: *const rpi_plugin_sdk::AuthRequestControl,
+        output: *mut rpi_plugin_sdk::StbString,
+        context: *mut std::ffi::c_void,
+    ) -> i32 {
+        let gate = unsafe { &*context.cast::<Gate>() };
+        gate.started
+            .blocking_send(serde_json::from_str(unsafe { input.as_str() }).unwrap())
+            .unwrap();
+        gate.release
+            .lock()
+            .unwrap()
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .unwrap();
+        unsafe {
+            *output = rpi_plugin_sdk::StbString::from_string(
+                json!({"version":1,"result":{"published":true}}).to_string(),
+            );
+        }
+        gate.returned.notify_one();
+        0
+    }
+    let (send, mut started) = tokio::sync::mpsc::channel(1);
+    let (release, receive) = std::sync::mpsc::channel();
+    let gate = Arc::new(Gate {
+        started: send,
+        release: std::sync::Mutex::new(receive),
+        returned: tokio::sync::Notify::new(),
+    });
+    let (runtime, owner, host) = fixture_with(|registry| {
+        registry.register_provider_runtime(
+            rpi_extensions::provider_runtime::RegisteredProviderRuntime {
+                plugin: "test-plugin".into(),
+                manifest: rpi_extensions::provider_runtime::RuntimeManifest {
+                    version: 1,
+                    id: "test".into(),
+                    actions: vec!["refreshCatalog".into()],
+                },
+                request_fn: refresh,
+                free: rpi_plugin_sdk::callbacks::free_string,
+                context: Arc::as_ptr(&gate).cast_mut().cast(),
+            },
+        );
+    });
+    for stale in [false, true] {
+        let pending = tokio::spawn({
+            let runtime = runtime.clone();
+            let owner = owner.clone();
+            async move {
+                request(
+                    &runtime,
+                    owner,
+                    json!({"action":"refresh","providerId":"test"}),
+                )
+                .await
+            }
+        });
+        let input = started.recv().await.unwrap();
+        let publish = json!({"action":"publish","providerId":"test","models":[model("awaited")],"publicationId":input["input"]["publicationId"]});
+        assert!(request(
+            &runtime,
+            NativeOwner {
+                plugin: "foreign".into(),
+                ..owner.clone()
+            },
+            publish.clone()
+        )
+        .await
+        .is_err());
+        if stale {
+            request(
+                &runtime,
+                owner.clone(),
+                json!({"action":"publish","providerId":"test","models":[model("newer")]}),
+            )
+            .await
+            .unwrap();
+            assert!(request(&runtime, owner.clone(), publish.clone())
+                .await
+                .unwrap_err()
+                .contains("catalog changed"));
+        } else {
+            let receipt = request(&runtime, owner.clone(), publish.clone())
+                .await
+                .unwrap();
+            assert_eq!(receipt["revision"], 2);
+            assert!(request(&runtime, owner.clone(), publish.clone())
+                .await
+                .unwrap_err()
+                .contains("does not own"));
+        }
+        release.send(()).unwrap();
+        let result = pending.await.unwrap();
+        gate.returned.notified().await;
+        if stale {
+            assert!(result.is_err());
+        } else {
+            assert_eq!(result.unwrap()["revision"], 2);
+            assert_eq!(host.installs.load(Ordering::SeqCst), 1);
+        }
+        assert!(request(&runtime, owner.clone(), publish)
+            .await
+            .unwrap_err()
+            .contains("expired"));
+    }
+    assert_eq!(runtime.providers().await[0].models()[0].id, "newer");
+}

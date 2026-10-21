@@ -77,7 +77,7 @@ use rpi_ai::{
     AssistantMessageEventStream, Context, Model, Provider, SimpleStreamOptions, ThinkingLevel,
 };
 
-mod auth;
+pub(crate) mod auth;
 pub(crate) mod auth_config;
 mod auth_policy;
 mod binding;
@@ -85,6 +85,18 @@ mod factories;
 use binding::{ExecutionBinding, RequestAuth};
 pub(crate) use factories::native_alias;
 use factories::RuntimeFactories;
+
+pub(crate) fn native_auth_bindings(
+    session: &rpi_extensions::ExtensionSession,
+) -> Result<BTreeMap<String, Arc<auth::AuthBinding>>, String> {
+    let factories = RuntimeFactories::from_session(session);
+    if factories.auth.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    let mut config = crate::config::load_models_config().map_err(|error| error.to_string())?;
+    apply_manifest_defaults(&mut config, &factories.manifests);
+    Ok(factories.with_native_auth_config(&config).auth)
+}
 
 use crate::args::parse_thinking_level;
 #[cfg(test)]

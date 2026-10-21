@@ -7,7 +7,7 @@ use rpi_ai::auth::{
 use rpi_ai::{Model, SimpleStreamOptions};
 
 #[derive(Clone)]
-pub(super) struct AuthBinding {
+pub(crate) struct AuthBinding {
     pub provider: Arc<dyn ProviderAuth>,
     pub runtime: Arc<AuthRuntime>,
     pub store: Result<Arc<dyn CredentialStore>, AuthError>,

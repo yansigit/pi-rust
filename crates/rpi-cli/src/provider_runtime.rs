@@ -1,6 +1,7 @@
 //! Session-owned catalog publication. Readers capture an immutable execution
 //! chain; publication rebuilds wrappers from bases and acknowledges one revision.
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use rpi_ai::{AssistantMessageEventStream, Context, Model, Provider, SimpleStreamOptions};
@@ -19,6 +20,12 @@ struct State {
     catalog: ModelRegistry,
     chains: BTreeMap<String, Arc<dyn Provider>>,
 }
+struct Publication {
+    owner: NativeOwner,
+    provider: String,
+    expected_revision: u64,
+    committed: AtomicU64,
+}
 pub(crate) struct ProviderRuntime {
     session: ExtensionSession,
     generation: String,
@@ -26,6 +33,8 @@ pub(crate) struct ProviderRuntime {
     myself: Weak<Self>,
     state: Mutex<State>,
     logins: Mutex<BTreeMap<String, auth::Login>>,
+    auth: BTreeMap<String, Arc<crate::provider::auth::AuthBinding>>,
+    publications: std::sync::Mutex<BTreeMap<String, Weak<Publication>>>,
 }
 impl ProviderRuntime {
     pub(crate) fn new(
@@ -76,6 +85,7 @@ impl ProviderRuntime {
             }
         }
         let chains = Self::chains(session, &catalog);
+        let auth = crate::provider::native_auth_bindings(session)?;
         let runtime = Arc::new_cyclic(|myself| Self {
             session: session.clone(),
             generation: bridge.generation().into(),
@@ -83,6 +93,8 @@ impl ProviderRuntime {
             myself: myself.clone(),
             state: Mutex::new(State { catalog, chains }),
             logins: Mutex::new(BTreeMap::new()),
+            auth,
+            publications: Default::default(),
         });
         Ok(runtime)
     }
@@ -209,6 +221,32 @@ impl ProviderRuntime {
         if owner.child || registered_owner.as_ref() != Some(&owner) {
             return Err("provider belongs to a different session or plugin".into());
         }
+        let publication = if let Some(ticket) = args.get("publicationId") {
+            let publication = self
+                .publications
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(
+                    ticket
+                        .as_str()
+                        .ok_or("invalid catalog publication identity")?,
+                )
+                .and_then(Weak::upgrade)
+                .ok_or("expired catalog publication")?;
+            if action != "publish"
+                || publication.owner != owner
+                || publication.provider != id
+                || publication.committed.load(Ordering::Acquire) != 0
+            {
+                return Err("catalog publication does not own this update".into());
+            }
+            if publication.expected_revision != state.catalog.revision() {
+                return Err("provider catalog changed during the operation".into());
+            }
+            Some(publication)
+        } else {
+            None
+        };
         if args
             .get("expectedRevision")
             .is_some_and(|revision| revision.as_u64() != Some(state.catalog.revision()))
@@ -268,6 +306,9 @@ impl ProviderRuntime {
             catalog: candidate,
             chains,
         };
+        if let Some(publication) = publication {
+            publication.committed.store(revision, Ordering::Release);
+        }
         Ok(json!({"revision":revision}))
     }
     async fn refresh(
@@ -295,7 +336,29 @@ impl ProviderRuntime {
             id,
         )
         .ok_or("provider has no catalog refresh callback")?;
-        let result = operations.request("refreshCatalog", json!({"allowNetwork":args["allowNetwork"].as_bool().unwrap_or(false),"force":args["force"].as_bool().unwrap_or(false)}), signal.clone()).await?;
+        let publication = Arc::new(Publication {
+            owner: owner.clone(),
+            provider: id.into(),
+            expected_revision: revision,
+            committed: AtomicU64::new(0),
+        });
+        let ticket = uuid::Uuid::new_v4().to_string();
+        {
+            let mut pending = self.publications.lock().unwrap_or_else(|e| e.into_inner());
+            pending.retain(|_, publication| publication.strong_count() != 0);
+            if pending.len() >= 64 {
+                return Err("catalog refresh capacity exhausted".into());
+            }
+            pending.insert(ticket.clone(), Arc::downgrade(&publication));
+        }
+        let result = operations.request("refreshCatalog", json!({"allowNetwork":args["allowNetwork"].as_bool().unwrap_or(false),"force":args["force"].as_bool().unwrap_or(false),"publicationId":ticket}), signal.clone()).await?;
+        let committed = publication.committed.load(Ordering::Acquire);
+        if committed != 0 || result.get("published").is_some() {
+            if committed == 0 || result != json!({"published":true}) {
+                return Err("provider did not acknowledge its catalog publication".into());
+            }
+            return Ok(json!({"revision":committed}));
+        }
         self.catalog_request(owner, json!({"action":"publish","providerId":id,"models":result["models"],"expectedRevision":revision}), signal).await
     }
 }

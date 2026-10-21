@@ -1,0 +1,33 @@
+{
+  "status": "Private provider query and publication primitives verified; full native refresh orchestration pending",
+  "rust": "1.78.0",
+  "warningsDenied": true,
+  "checks": {
+    "providerRuntimeTests": 8,
+    "workspaceAllTargets": "passed"
+  },
+  "coverage": [
+    "Provider ownership checked before credential resolution",
+    "Configuration and request environment remain private",
+    "Stored credential precedence and concurrent request environment isolation",
+    "Unknown fields, foreign stores and cancelled admissions rejected",
+    "Refresh tickets scope catalog writes and prevent stale, repeated or expired publication",
+    "Awaited publication does not install the catalog twice"
+  ],
+  "pending": [
+    "Loaded Cursor native worker dispatch",
+    "ModelRuntime offline/live refresh phases, latest-refresh cancellation, configuration recomposition and availability",
+    "Native publication completion through caller cancellation and worker failure",
+    "Cross-platform execution"
+  ],
+  "logs": [
+    {
+      "path": "/tmp/rpi-native-owned-provider-tests.log",
+      "sha256": "f13c776bd3b46a4e50f9a4d76104a0379978d1e73e32c7aa58fea2e056f01633"
+    },
+    {
+      "path": "/tmp/rpi-native-owned-provider-workspace.log",
+      "sha256": "4d2fcb478f1662fd263b0c771929a454917f19ada41cdab5a831c8f643156360"
+    }
+  ]
+}

@@ -177,3 +177,36 @@ The provider must not acknowledge queued writes as committed. A failed callback
 may have already published a file; its durable recovery records remain authoritative.
 This extends the private JSON contract without changing C vtable offsets,
 control structures, or workspace versions. Packages must negotiate the capability.
+
+## Private resolved auth and awaited publication
+
+`auth.resolveOwned` adds `{port:"auth",action:"resolve",providerId,env?}` for a
+provider's own native registration. It returns that generation's composed
+`RequestAuth`, or null when unconfigured, through the private response only.
+Foreign registrations, unrelated owner IDs, unknown fields and store/path
+redirection are rejected before resolving credentials. An inherited child may
+resolve the registration it owns; it cannot publish its parent's catalog.
+The generation captures configuration and the credential-store location.
+Stored credentials are read afresh, and request environment overlays do not
+change process environment. This uses the existing native auth runtime, including
+its refresh/persistence semantics. It does not run model-specific admission or
+request-auth callbacks, matching the provider-level auth query used for catalog
+refresh and management commands. Existing providers without native auth are not
+opted into this operation.
+
+`providers.awaitedPublication` adds an opaque `publicationId` to a
+`refreshCatalog` callback's input. A provider that must await host acceptance
+submits its candidate using `providers.publish` with that ID. The host validates
+ownership and the refresh's starting revision, installs the catalog and returns
+its committed revision. Only then may the worker change its private catalog or
+cache. The callback returns exactly `{published:true}`; the host verifies its
+receipt and does not publish twice. A callback that returns `{models}` retains
+the earlier contract.
+
+Refresh tickets are single-use, owner/provider/generation scoped, and expire with
+the refresh. At most 64 refreshes can be pending. Rejected or failed publication
+does not consume the ticket; stale refreshes cannot replace newer catalogs.
+The worker's publication call must await any admitted commit even after the
+requesting consumer cancels, and finish its private update after an acknowledged
+commit. The native Cursor dispatcher must use its owning runtime lease for this
+bounded completion. Neither change adds C ABI fields or changes workspace versions.
