@@ -8,6 +8,7 @@ use rpi_extensions::provider_auth::{
     AuthAction, AuthChoice, AuthInteraction, AuthResponseKind, NativeProviderAuth,
 };
 use serde_json::{json, Value};
+use std::io::IsTerminal;
 use tokio_util::sync::CancellationToken;
 
 pub(super) async fn run(
@@ -175,7 +176,7 @@ async fn read_input(secret: bool, signal: CancellationToken) -> Result<String, A
         .name("rpi-auth-input".into())
         .spawn(move || {
             let result = (|| {
-                if secret {
+                if secret && io::stdin().is_terminal() {
                     return rpassword::read_password().map_err(|_| AuthError::Resolve);
                 }
                 let mut line = String::new();

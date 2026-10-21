@@ -103,6 +103,8 @@ async fn native_auth_login_refresh_send_and_logout_use_the_same_durable_slot() {
     )
     .unwrap();
     let mut login = command_base(&temp)
+        .env("RPI_STUB_AUTH_SECRET", "1")
+        .env("RPI_STUB_REQUIRE_NATIVE_AUTH_CAPS", "1")
         .args(["auth", "login", "--provider", "stub-auth", "--extension"])
         .arg(&library)
         .stdin(Stdio::piped())
@@ -121,6 +123,8 @@ async fn native_auth_login_refresh_send_and_logout_use_the_same_durable_slot() {
     );
     let stored: serde_json::Value =
         serde_json::from_slice(&std::fs::read(agent.join("auth.json")).unwrap()).unwrap();
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("stub-code"));
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("stub-code"));
     assert_eq!(stored["stub-auth"]["expires"], 1234567890_i64);
     assert_eq!(stored["stub-auth"]["refresh"], "stub-login-refresh");
     assert_eq!(stored["other"]["key"], "unrelated");
@@ -1061,4 +1065,111 @@ fn native_catalog_refresh_and_login_commit_through_loaded_library() {
             assert!(!String::from_utf8_lossy(&output.stderr).contains(secret));
         }
     }
+}
+
+#[test]
+#[ignore = "requires cargo build -p plugin-stub with native auth capabilities"]
+fn native_auth_discovery_can_probe_host_before_harness_exists() {
+    let library = library("plugin_stub").expect("build plugin-stub first");
+    let temp = tempfile::tempdir().unwrap();
+    let output = command_base(&temp)
+        .env("RPI_STUB_REQUIRE_NATIVE_AUTH_CAPS", "1")
+        .args(["auth", "methods", "--provider", "stub-auth", "--extension"])
+        .arg(library)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let methods: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(methods
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|method| method["id"] == "browser"));
+    assert!(!temp.path().join("agent/auth.json").exists());
+}
+
+#[tokio::test]
+#[ignore = "requires RPI_TEST_ANTIGRAVITY_LIBRARY built from the provider package fork"]
+async fn antigravity_native_preflight_and_auth_errors_cross_the_loaded_library() {
+    use rpi_ai::{
+        auth::{OAuthCredential, ProviderAuth},
+        Context, SimpleStreamOptions,
+    };
+    use std::sync::Arc;
+    let library = PathBuf::from(
+        std::env::var_os("RPI_TEST_ANTIGRAVITY_LIBRARY").expect("provider library path"),
+    );
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = tokio::runtime::Handle::current();
+    let (host, _) = rpi_cli::extensions_actions::HarnessActionHost::new_empty(
+        vec![],
+        temp.path().into(),
+        runtime.clone(),
+        Default::default(),
+        rpi_extensions::ToolCallContext::new(temp.path().to_string_lossy().into_owned()),
+    );
+    let bridge = rpi_extensions::ActionBridge::new(runtime.clone(), Arc::new(host));
+    let session = rpi_extensions::load_session_mixed(
+        &[],
+        &[library],
+        Arc::new(rpi_extensions::NullDiagnostics),
+        Some(bridge),
+    );
+    let providers = rpi_extensions::PluggableProvider::from_session(&session, runtime);
+    assert_eq!(providers.len(), 1);
+    let provider = &providers[0];
+    assert_eq!(provider.id(), "google");
+    assert_eq!(provider.models().len(), 6);
+    let mut model = provider.models()[0].clone();
+    model.id = "antigravity-gemini-3.7-flash".into();
+    assert_eq!(
+        provider
+            .preflight(&model, Default::default())
+            .await
+            .unwrap_err(),
+        "This Antigravity model is no longer offered. Choose another model."
+    );
+    let model = provider
+        .models()
+        .iter()
+        .find(|model| model.id == "antigravity-gemini-3.8-flash")
+        .unwrap();
+    provider.preflight(model, Default::default()).await.unwrap();
+    let result = provider
+        .stream_simple(
+            model,
+            &Context::new(vec![]),
+            &SimpleStreamOptions::default(),
+        )
+        .await
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(
+        result.error_message.as_deref(),
+        Some("Missing Antigravity OAuth access token")
+    );
+    assert!(result.duration_ms.is_some());
+    let auth = rpi_extensions::provider_auth::NativeProviderAuth::from_session(&session, "google")
+        .unwrap();
+    let error = auth
+        .refresh(
+            OAuthCredential {
+                access: String::new(),
+                refresh: "claustrum-tombstone:v1:fixture".into(),
+                expires_ms: 0,
+                extra: Default::default(),
+            },
+            Default::default(),
+        )
+        .await
+        .err()
+        .unwrap();
+    assert_eq!(error.to_string(),"Pi holds the Antigravity vault placeholder, not a login. Run /login, or serve Antigravity from the vault.");
+    session.auth_runtime().shutdown().await;
+    session.begin_shutdown();
 }

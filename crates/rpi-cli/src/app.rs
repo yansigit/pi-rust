@@ -146,8 +146,15 @@ async fn run_inner() -> i32 {
                 return EXIT_USAGE;
             }
             let trusted = crate::session::resolve_project_trust(&args, &cwd);
-            let extension_session = crate::session::load_extensions(&args, &cwd, trusted, None);
-            let result = crate::auth::run_with_session(&argv[1..], &extension_session).await;
+            let prepared = match prepare_extensions(&args, &cwd, trusted) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    print_build_error(&error);
+                    return EXIT_RUNTIME;
+                }
+            };
+            let extension_session = &prepared.extension_session;
+            let result = crate::auth::run_with_session(&argv[1..], extension_session).await;
             extension_session.auth_runtime().shutdown().await;
             extension_session.begin_shutdown();
             return result;

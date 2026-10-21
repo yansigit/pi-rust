@@ -720,7 +720,7 @@ extern "C" fn on_auth_request(
             }
             Some("revoke") => serde_json::json!({"version":1,"kind":"success","payload":{}}),
             _ => {
-                serde_json::json!({"version":1,"kind":"interaction","payload":{"kind":"input","title":"Stub login","continuation":"stub-continuation"}})
+                serde_json::json!({"version":1,"kind":"interaction","payload":{"kind":"input","title":"Stub login","secret":std::env::var_os("RPI_STUB_AUTH_SECRET").is_some(),"continuation":"stub-continuation"}})
             }
         };
         let mut out = unsafe { rpi_plugin_sdk::callbacks::Output::from_raw(out) };
@@ -732,6 +732,22 @@ mod catalog;
 mod wrapping;
 
 rpi_plugin_sdk::export_plugin!(|api| {
+    if std::env::var_os("RPI_STUB_REQUIRE_NATIVE_AUTH_CAPS").is_some() {
+        let mut out = StbString::empty();
+        let status = api.native_request.unwrap()(
+            StbStringRef::from_str(r#"{"version":1,"port":"capabilities","action":"inspect"}"#),
+            std::ptr::null(),
+            &mut out,
+            api.user_data,
+        );
+        let out = rpi_plugin_sdk::callbacks::OwnedString::from_raw(out, Some(api.free_string));
+        assert_eq!(status, 0, "{}", out.to_string_lossy());
+        let value: serde_json::Value = serde_json::from_str(&out.to_string_lossy()).unwrap();
+        assert!(value["result"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("auth.publicErrors")));
+    }
     if std::env::var_os("RPI_STUB_CATALOG").is_some() {
         if let Err(error) = catalog::register(api) {
             eprintln!("stub catalog: {error}");

@@ -1,0 +1,35 @@
+{
+  "status": "host-foundation-only",
+  "platform": "linux",
+  "environment": {
+    "RUSTFLAGS": "-D warnings",
+    "CARGO_BUILD_JOBS": "2",
+    "RPI_TEST_ANTIGRAVITY_LIBRARY": "../rpi-package/target/debug/deps/librpi_antigravity_auth.so"
+  },
+  "checks": [
+    {
+      "command": "cargo +1.78.0 build -p plugin-stub --locked",
+      "status": "passed",
+      "log": "/tmp/rpi-auth-registration-stub-build-2.log",
+      "sha256": "4f58226f559c3933d1cca756f13505b56a8ce20f8e9698e20ee2951176ceac16"
+    },
+    {
+      "command": "cargo +1.78.0 test -p rpi-cli --test provider_packages native_ --locked -- --ignored",
+      "status": "passed",
+      "log": "/tmp/rpi-native-auth-cli-final.log",
+      "sha256": "6eb58a1ae237e68cb02122f8d271056708276af8dbb437272fb5dcdb2bd765e3"
+    }
+  ],
+  "coverage": [
+    "registration-time capability discovery through CLI auth",
+    "secret piped login without echo",
+    "durable login, refresh, send and logout",
+    "loaded Antigravity catalog, preflight, missing-key stream and public refresh refusal",
+    "native pooled delegation and canonical credential endpoint"
+  ],
+  "notTested": [
+    "live OAuth/inference",
+    "macOS",
+    "Windows"
+  ]
+}

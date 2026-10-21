@@ -107,3 +107,9 @@ workspace version bump. Legacy providers keep their existing fallback behavior.
 Capability discovery is synchronous and requires an active owning plugin. It is
 safe during registration even when the loader uses a current-thread runtime;
 it does not queue work onto that blocked runtime.
+
+CLI authentication uses the same prepared extension bridge as inference, so
+registration can inspect capabilities before a harness exists. Secret input uses
+the terminal's non-echoing reader when attached to a terminal; piped input is read
+without echoing it. Login and logout still await the shared credential store.
+The loaded-library checks are recorded in [CLI evidence](host-auth-cli-results.json).
