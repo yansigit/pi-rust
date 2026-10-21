@@ -4086,6 +4086,29 @@ impl AgentHarness {
             convert_to_llm: convert,
             transform_context: snap.transform_context.clone(),
             get_api_key: None,
+            prepare_request: {
+                let inner = self.inner.clone();
+                Some(Arc::new(move |context: &AgentContext| {
+                    let inner = inner.lock().unwrap();
+                    let tools = Self::active_tools(&inner.tools, &inner.active_tool_names);
+                    let changed = tools.len() != context.tools.len()
+                        || tools
+                            .iter()
+                            .zip(&context.tools)
+                            .any(|(a, b)| !Arc::ptr_eq(a, b));
+                    let context = changed.then(|| {
+                        let mut context = context.clone();
+                        context.tools = tools;
+                        context
+                    });
+                    let update = rpi_agent::AgentLoopTurnUpdate {
+                        context,
+                        model: Some(inner.model.clone()),
+                        thinking_level: Some(inner.thinking_level),
+                    };
+                    Box::pin(async move { Some(update) })
+                }))
+            },
             should_stop_after_turn,
             prepare_next_turn: None,
             after_tool_results: {

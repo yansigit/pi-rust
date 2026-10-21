@@ -76,6 +76,18 @@ model traces and four name writes through the unchanged Pi 1.3.0 implementation.
 `AgentLane::set_model_with_source` has a backward-compatible default; existing
 callers of `set_model` use `set`. There is no C ABI layout change.
 
+`events.turnIndex` includes the zero-based index on turn start/end and an emission
+timestamp on turn start. Indices reset at agent start, including a retry within
+the same operation; explicit turn/request identities remain distinct.
+`requests.liveBinding` refreshes active tools, model and thinking after awaited
+turn hooks and before each request. Tool execution uses that same refreshed
+selection. `check-turn-reference.mjs` captures eight event projections and four
+request bindings from Pi 1.3.0. This projection does not cover committed turn-end
+entry IDs or boundary drafts. `AgentLoopConfig` gains an optional
+`prepare_request` field: Rust struct-literal callers must supply it during the
+maintainer's coordinated release. Existing agent construction uses `None`; the
+harness installs its live binding. The C ABI is unchanged.
+
 `events.promptContext` supplies the captured cwd, loaded context-file contents,
 skills, selected tools and composed prompt as `systemPromptOptions` before an
 operation. It does not reread files after prompt construction. Result callbacks

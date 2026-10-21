@@ -291,10 +291,11 @@ async fn run_loop(
     // `new_messages`, because it is already in the transcript.
     pending_assistant: Option<AssistantMessage>,
 ) -> Result<LoopOutcome, AgentError> {
+    let mut config = config.clone();
     let mut pending_assistant = pending_assistant;
     let mut first_turn = true;
     // Check for steering messages at start (user may have typed while waiting).
-    let mut pending_messages = drain_steering(config).await;
+    let mut pending_messages = drain_steering(&config).await;
 
     // Outer loop: continues when queued follow-up messages arrive after the
     // agent would otherwise stop.
@@ -331,13 +332,28 @@ async fn run_loop(
                 }
             }
 
+            if let Some(prepare) = &config.prepare_request {
+                if let Some(update) = prepare(current_context).await {
+                    if let Some(context) = update.context {
+                        *current_context = context;
+                    }
+                    if let Some(model) = update.model {
+                        config.model = model;
+                    }
+                    if let Some(thinking_level) = update.thinking_level {
+                        config.thinking_level = thinking_level;
+                    }
+                }
+            }
+
             // Stream the assistant response — unless the caller handed us one
             // whose tools still have to run.
             let message = match pending_assistant.take() {
                 Some(message) => message,
                 None => {
                     let message =
-                        stream_assistant_response(current_context, config, emit, stream_fn).await?;
+                        stream_assistant_response(current_context, &config, emit, stream_fn)
+                            .await?;
                     new_messages.push(AgentMessage::Assistant(Box::new(message.clone())));
                     message
                 }
@@ -380,7 +396,8 @@ async fn run_loop(
                     // Truncate-fail invariant: Length → fail ALL without executing.
                     fail_tool_calls_from_truncated_message(&tool_calls, emit).await?
                 } else {
-                    execute_tool_calls(current_context, &message, &tool_calls, config, emit).await?
+                    execute_tool_calls(current_context, &message, &tool_calls, &config, emit)
+                        .await?
                 };
                 tool_results.extend(batch.messages);
                 has_more_tool_calls = !batch.terminate;
@@ -394,7 +411,7 @@ async fn run_loop(
 
             if !tool_results.is_empty() {
                 if let Some(upd) = after_tool_results(
-                    config,
+                    &config,
                     &message,
                     &tool_results,
                     current_context,
@@ -418,11 +435,9 @@ async fn run_loop(
             )
             .await;
 
-            // prepareNextTurn: replace context if provided. (Model/thinking swaps
-            // are owned by Agent; run_loop borrows config immutably for hook
-            // stability. M2 tests exercise context replacement only.)
+            // Context replacement between turns; the request hook refreshes the live binding.
             if let Some(upd) = prepare_next_turn(
-                config,
+                &config,
                 &message,
                 &tool_results,
                 current_context,
@@ -436,7 +451,7 @@ async fn run_loop(
             }
 
             if should_stop_after_turn(
-                config,
+                &config,
                 &message,
                 &tool_results,
                 current_context,
@@ -460,7 +475,7 @@ async fn run_loop(
             // returned transcript/context instead of leaving them stranded in
             // the queue. The next stream observes the cancelled signal and
             // produces the terminal aborted assistant message.
-            pending_messages = drain_steering(config).await;
+            pending_messages = drain_steering(&config).await;
             if config.signal.is_cancelled() && pending_messages.is_empty() {
                 emit_event(
                     emit,
@@ -474,7 +489,7 @@ async fn run_loop(
         }
 
         // Agent would stop here. Check for follow-up messages.
-        let follow_ups = drain_follow_up(config).await;
+        let follow_ups = drain_follow_up(&config).await;
         if !follow_ups.is_empty() {
             pending_messages = follow_ups;
             continue;
@@ -1560,6 +1575,9 @@ async fn should_stop_after_turn(
 
 /// Emit one event via the emitter.
 async fn emit_event(emit: &Arc<dyn AgentEmitter>, event: AgentEvent) -> Option<AgentMessage> {
+    if matches!(event, AgentEvent::AgentStart) {
+        rpi_ai::identity::begin_agent_run();
+    }
     if matches!(event, AgentEvent::TurnStart) {
         rpi_ai::identity::next_turn();
     }

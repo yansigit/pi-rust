@@ -929,14 +929,10 @@ impl AgentEmitter for ExtensionEmitter {
             let keepalive = self.keepalive.clone();
             let identity = rpi_ai::identity::current();
             let signal = rpi_agent::tool_execution_scope::invocation_signal().unwrap_or_default();
+            let data = event_json(&event);
             return Box::pin(async move {
                 let _ = crate::result_events::dispatch(
-                    snapshot,
-                    keepalive,
-                    tag,
-                    event_json(&event),
-                    identity,
-                    signal,
+                    snapshot, keepalive, tag, data, identity, signal,
                 )
                 .await;
             });
@@ -954,14 +950,29 @@ impl AgentEmitter for ExtensionEmitter {
     }
 }
 fn event_json(event: &AgentEvent) -> serde_json::Value {
+    let timestamp = if matches!(event, AgentEvent::TurnStart) {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64
+    } else {
+        0
+    };
+    event_json_at(event, timestamp)
+}
+fn event_json_at(event: &AgentEvent, timestamp: u64) -> serde_json::Value {
     use serde_json::json;
     match event {
-        AgentEvent::AgentStart | AgentEvent::TurnStart => json!({}),
+        AgentEvent::AgentStart => json!({}),
+        AgentEvent::TurnStart => json!({"turnIndex":rpi_ai::identity::turn_index().unwrap_or(0),
+            "timestamp":timestamp}),
         AgentEvent::AgentEnd { messages } => json!({"messages":messages}),
         AgentEvent::TurnEnd {
             message,
             tool_results,
-        } => json!({"message":message,"toolResults":tool_results}),
+        } => {
+            json!({"turnIndex":rpi_ai::identity::turn_index().unwrap_or(0),"message":message,"toolResults":tool_results})
+        }
         AgentEvent::MessageStart { message } | AgentEvent::MessageEnd { message } => {
             json!({"message":message})
         }
@@ -1173,6 +1184,47 @@ mod tests {
     // dispatch is synchronous (fn-pointer calls), so the guard is released
     // before the test returns — no handler outlives the test.
     static HANDLER_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[tokio::test]
+    async fn turn_indices_match_pi_reference_across_agent_runs() {
+        let reference: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../docs/provider-parity/turn-reference.json"
+        ))
+        .unwrap();
+        let message: AgentMessage = serde_json::from_value(serde_json::json!({
+            "kind":"assistant", "role":"assistant", "content":[],
+            "api":"anthropic-messages", "provider":"fixture", "model":"fixture",
+            "usage":Usage::zero(), "stopReason":"stop", "timestamp":0
+        }))
+        .unwrap();
+        rpi_ai::identity::scope(
+            rpi_ai::identity::RequestIdentity::operation(Some("fixture".into()), "prompt"),
+            async {
+                let mut events = Vec::new();
+                for turns in [3, 1] {
+                    rpi_ai::identity::begin_agent_run();
+                    for _ in 0..turns {
+                        rpi_ai::identity::next_turn();
+                        let mut start = event_json_at(&AgentEvent::TurnStart, 1000);
+                        start["type"] = "turn_start".into();
+                        events.push(start);
+                        let end = event_json_at(
+                            &AgentEvent::TurnEnd {
+                                message: message.clone(),
+                                tool_results: vec![],
+                            },
+                            0,
+                        );
+                        events.push(serde_json::json!({
+                            "type":"turn_end", "turnIndex":end["turnIndex"]
+                        }));
+                    }
+                }
+                assert_eq!(serde_json::json!(events), reference["events"]);
+            },
+        )
+        .await;
+    }
 
     #[test]
     fn all_ten_agent_events_map_to_a_tag() {

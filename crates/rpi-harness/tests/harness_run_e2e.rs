@@ -4477,6 +4477,123 @@ async fn selection_and_name_events_match_pinned_pi_and_observe_committed_state()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn awaited_turn_hooks_refresh_request_tools_model_and_thinking() {
+    struct Turns {
+        harness: rpi_harness::agent_harness::WeakAgentHarness,
+        indices: Arc<Mutex<Vec<u64>>>,
+    }
+    impl AgentEmitter for Turns {
+        fn emit(&self, event: AgentEvent) -> futures::future::BoxFuture<'static, ()> {
+            let harness = self.harness.upgrade().unwrap();
+            let indices = self.indices.clone();
+            let index = rpi_ai::identity::turn_index();
+            Box::pin(async move {
+                if matches!(event, AgentEvent::TurnStart) {
+                    tokio::task::yield_now().await;
+                    let index = index.unwrap();
+                    indices.lock().unwrap().push(index);
+                    harness
+                        .set_active_tools(if index == 0 {
+                            vec!["write".into()]
+                        } else {
+                            vec![]
+                        })
+                        .await
+                        .unwrap();
+                    let mut model = harness.get_model().await.unwrap();
+                    model.id = format!("selected-{index}");
+                    model.reasoning = true;
+                    harness.set_model(model).await.unwrap();
+                    harness
+                        .set_thinking_level(if index == 0 {
+                            rpi_ai::ThinkingLevel::High
+                        } else {
+                            rpi_ai::ThinkingLevel::Off
+                        })
+                        .await
+                        .unwrap();
+                }
+            })
+        }
+    }
+    #[derive(Default)]
+    struct Requests(Mutex<Vec<serde_json::Value>>);
+    #[async_trait::async_trait]
+    impl rpi_ai::ProviderHooks for Requests {
+        async fn prepare_request(
+            &self,
+            model: &rpi_ai::Model,
+            context: &mut rpi_ai::Context,
+            options: &mut rpi_ai::SimpleStreamOptions,
+        ) {
+            self.0
+                .lock()
+                .unwrap()
+                .push(serde_json::json!({"model":model.id,
+                "tools":context.tools.iter().map(|tool| tool.name.as_str()).collect::<Vec<_>>(),
+                "thinking":options.reasoning_level()}));
+        }
+    }
+    let (harness, provider, env) = harness_with(
+        FauxScript::new()
+            .with_tool_call(
+                "write",
+                serde_json::json!({"path":"turn.txt","content":"executed once"}),
+            )
+            .with_tool_call(
+                "write",
+                serde_json::json!({"path":"turn.txt","content":"must not execute"}),
+            )
+            .with_text("done")
+            .with_text("new run"),
+    )
+    .await;
+    harness.set_active_tools(vec![]).await.unwrap();
+    let indices = Arc::new(Mutex::new(Vec::new()));
+    harness
+        .set_agent_emitter(Some(Arc::new(Turns {
+            harness: harness.downgrade(),
+            indices: indices.clone(),
+        })))
+        .await
+        .unwrap();
+    let requests = Arc::new(Requests::default());
+    harness
+        .set_provider_hooks(Some(requests.clone()))
+        .await
+        .unwrap();
+    assert!(matches!(
+        harness.prompt_text("first", vec![]).await.unwrap().outcome,
+        HarnessRunOutcome::Completed { .. }
+    ));
+    assert!(matches!(
+        harness.prompt_text("again", vec![]).await.unwrap().outcome,
+        HarnessRunOutcome::Completed { .. }
+    ));
+    let reference: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../docs/provider-parity/turn-reference.json"
+    ))
+    .unwrap();
+    let expected_indices: Vec<_> = reference["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|event| event["type"] == "turn_start")
+        .map(|event| event["turnIndex"].as_u64().unwrap())
+        .collect();
+    assert_eq!(*indices.lock().unwrap(), expected_indices);
+    assert_eq!(
+        serde_json::json!(*requests.0.lock().unwrap()),
+        reference["requests"]
+    );
+    assert_eq!(
+        env.read_text_file("/turn.txt", None).await.unwrap(),
+        "executed once"
+    );
+    assert_eq!(provider.script().pending_count(), 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn before_operation_receives_the_loaded_prompt_inputs() {
     #[derive(Default)]
     struct Hooks(Mutex<Vec<serde_json::Value>>);

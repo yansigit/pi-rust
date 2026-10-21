@@ -40,6 +40,13 @@ pub type TransformContext = Arc<
 /// `(provider: &str) -> Option<String>` — dynamic API-key resolver per turn.
 pub type GetApiKey = Arc<dyn Fn(&str) -> BoxFuture<'static, Option<String>> + Send + Sync>;
 
+/// Refresh the execution binding after awaited turn hooks, before a provider request.
+pub type PrepareRequest = Arc<
+    dyn Fn(&crate::types::AgentContext) -> BoxFuture<'static, Option<AgentLoopTurnUpdate>>
+        + Send
+        + Sync,
+>;
+
 /// `(context) -> bool` — return true to stop after the current turn (before
 /// steering/follow-up drain).
 pub type ShouldStopAfterTurn =
@@ -106,6 +113,7 @@ pub struct AgentLoopConfig {
 
     pub transform_context: Option<TransformContext>,
     pub get_api_key: Option<GetApiKey>,
+    pub prepare_request: Option<PrepareRequest>,
     pub should_stop_after_turn: Option<ShouldStopAfterTurn>,
     pub prepare_next_turn: Option<PrepareNextTurn>,
     pub after_tool_results: Option<AfterToolResults>,
@@ -139,6 +147,7 @@ impl std::fmt::Debug for AgentLoopConfig {
             .field("session_id", &self.session_id)
             .field("transform_context", &self.transform_context.is_some())
             .field("get_api_key", &self.get_api_key.is_some())
+            .field("prepare_request", &self.prepare_request.is_some())
             .field(
                 "should_stop_after_turn",
                 &self.should_stop_after_turn.is_some(),

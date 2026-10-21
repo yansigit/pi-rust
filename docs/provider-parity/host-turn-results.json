@@ -1,0 +1,47 @@
+{
+  "status": "Live request selection and turn index projections verified on Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "reference": {
+      "log": "/tmp/rpi-live-binding-reference.log",
+      "sha256": "dd81ee5b73584c2d49beff9158edf09fd53b5fb406a111b459277853a8481505"
+    },
+    "nativeTrace": {
+      "log": "/tmp/rpi-live-binding-events.log",
+      "sha256": "b91a101b3e081f1c4bc51f66c3f60646b21c6bba5dd2dae967ae9bdd59aaa9d6",
+      "passed": 1
+    },
+    "identity": {
+      "log": "/tmp/rpi-live-binding-identity.log",
+      "sha256": "bf8615d2ba4313e94c303048c0c9a46c1ba2c700e613291c78f1f831703e8c4b",
+      "passed": 1
+    },
+    "agent": {
+      "log": "/tmp/rpi-live-binding-agent.log",
+      "sha256": "566a86592b4f278c1b3c7559d6b54f3f7b28651e6e0f5d6c7d5c208ec5830469",
+      "passed": 44
+    },
+    "harness": {
+      "log": "/tmp/rpi-live-binding-harness-full.log",
+      "sha256": "2138abfe1f0f86798d8f1dbd3a2bcf637a971c5d6d1a271f252161cca7d97a61",
+      "passed": 47
+    },
+    "workspace": {
+      "log": "/tmp/rpi-live-binding-workspace.log",
+      "sha256": "14751e07a24098519e2bea71afc22473765fb8c6bd6dafe774ead7f169a5cb94"
+    }
+  },
+  "assertions": [
+    "Eight turn event projections and four live request bindings match unchanged Pi 1.3.0",
+    "Awaited turn hooks update tools, model and thinking before the provider request",
+    "Disabled write call does not execute; enabled write executes once",
+    "Agent start resets the index within an operation without reusing turn or request IDs"
+  ],
+  "review": "Manual exact-diff review covered all config literals, tool selection and execution, lock lifetimes, pending assistant execution, identity reset and event capture. No C ABI or workspace version change. The new optional AgentLoopConfig field requires coordinated Rust source release.",
+  "notTested": [
+    "Committed turn-end entry IDs and boundary drafts",
+    "Installed Cursor acceptance of these capabilities (tracked in package evidence)",
+    "Live Cursor inference",
+    "macOS and Windows execution"
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "reference": "Pi 1.3.0",
+  "projection": "Live request binding and turn index/timestamp fields; committed turn-end entry IDs and boundary drafts are separate contracts",
+  "events": [
+    {
+      "type": "turn_start",
+      "turnIndex": 0,
+      "timestamp": 1000
+    },
+    {
+      "type": "turn_end",
+      "turnIndex": 0
+    },
+    {
+      "type": "turn_start",
+      "turnIndex": 1,
+      "timestamp": 1000
+    },
+    {
+      "type": "turn_end",
+      "turnIndex": 1
+    },
+    {
+      "type": "turn_start",
+      "turnIndex": 2,
+      "timestamp": 1000
+    },
+    {
+      "type": "turn_end",
+      "turnIndex": 2
+    },
+    {
+      "type": "turn_start",
+      "turnIndex": 0,
+      "timestamp": 1000
+    },
+    {
+      "type": "turn_end",
+      "turnIndex": 0
+    }
+  ],
+  "requests": [
+    {
+      "model": "selected-0",
+      "tools": [
+        "write"
+      ],
+      "thinking": "high"
+    },
+    {
+      "model": "selected-1",
+      "tools": [],
+      "thinking": "off"
+    },
+    {
+      "model": "selected-2",
+      "tools": [],
+      "thinking": "off"
+    },
+    {
+      "model": "selected-0",
+      "tools": [
+        "write"
+      ],
+      "thinking": "high"
+    }
+  ]
+}

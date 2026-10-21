@@ -37,7 +37,7 @@ pub use error::AgentError;
 pub use events::{AgentEmitter, AgentEvent, CollectorEmitter};
 pub use hooks::{
     AfterToolCall, AfterToolResults, AgentLoopConfig, BeforeToolCall, ConvertToLlm, GetApiKey,
-    GetFollowUpMessages, GetSteeringMessages, PrepareNextTurn, ShouldStopAfterTurn,
+    GetFollowUpMessages, GetSteeringMessages, PrepareNextTurn, PrepareRequest, ShouldStopAfterTurn,
     TransformContext,
 };
 pub use message::{AgentMessage, AgentMessageRole, CustomMessage};

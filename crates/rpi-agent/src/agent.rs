@@ -518,6 +518,7 @@ impl Agent {
             convert_to_llm: Arc::clone(&self.inner.convert_to_llm),
             transform_context: None,
             get_api_key: None,
+            prepare_request: None,
             should_stop_after_turn: None,
             prepare_next_turn: None,
             after_tool_results: None,

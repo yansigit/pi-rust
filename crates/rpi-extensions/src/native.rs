@@ -303,6 +303,8 @@ pub(crate) extern "C" fn request(
                     "events.lifecycleReasons",
                     "events.compactionDetails",
                     "events.selectionDetails",
+                    "events.turnIndex",
+                    "requests.liveBinding",
                     "events.promptContext",
                     "tools.provenance",
                     "tools.metadata",
