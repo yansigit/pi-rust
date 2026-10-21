@@ -962,10 +962,13 @@
       "A07"
     ],
     "portFiles": [
-      "packages/rpi-antigravity-auth/src/storage.rs"
+      "packages/rpi-antigravity-auth/src/storage.rs",
+      "packages/rpi-antigravity-auth/src/vault/slot.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/storage.rs"
+      "packages/rpi-antigravity-auth/tests/storage.rs",
+      "packages/rpi-antigravity-auth/tests/vault_slot.rs",
+      "packages/rpi-antigravity-auth/tests/vault_fsync.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
@@ -1135,13 +1138,16 @@
       "A07"
     ],
     "portFiles": [
-      "packages/rpi-antigravity-auth/src/vault/slot.rs"
+      "crates/rpi-cli/src/config/auth_store.rs",
+      "crates/rpi-cli/src/provider_runtime/auth.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/vault_slot.rs"
+      "crates/rpi-cli/src/config/auth_store/tests.rs",
+      "crates/rpi-cli/src/provider_runtime/tests.rs",
+      "crates/rpi-cli/tests/provider_packages.rs"
     ],
     "scope": "required-shared",
-    "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
+    "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module. Native credential files use the host kernel lock shared by login/refresh; original Pi lease timing/compromise qualification is still pending, not declared equivalent."
   },
   "antigravity:packages/core/src/common-auth-embedded/pi-slot/slot.js": {
     "sha256": "13a7d5941b79c6d444cf9dc6f23263cf9237146c7dd5de7d162dbc21e015532c",
@@ -1152,7 +1158,8 @@
       "packages/rpi-antigravity-auth/src/vault/slot.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/vault_slot.rs"
+      "packages/rpi-antigravity-auth/tests/vault_slot.rs",
+      "packages/rpi-antigravity-auth/tests/vault_fsync.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
