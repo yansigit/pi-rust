@@ -100,6 +100,9 @@ jobs:
       - name: Check the standalone ABI core
         run: cargo check -p rpi-plugin-sdk --no-default-features --locked
 
+      - name: Test provider bridge reconstruction
+        run: cargo test -p rpi-extensions --features provider-performance --locked provider::
+
       - name: Test prebuilt release manifests
         run: python3 scripts/test_prebuilt_release.py
 
