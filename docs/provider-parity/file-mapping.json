@@ -703,10 +703,12 @@
       "A08"
     ],
     "portFiles": [
-      "packages/rpi-antigravity-auth/src/vault/errors.rs"
+      "packages/rpi-antigravity-auth/src/vault/errors.rs",
+      "packages/rpi-antigravity-auth/src/vault/policy.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/vault_errors.rs"
+      "packages/rpi-antigravity-auth/tests/vault_errors.rs",
+      "packages/rpi-antigravity-auth/tests/vault_policy.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
@@ -733,10 +735,12 @@
       "A08"
     ],
     "portFiles": [
-      "packages/rpi-antigravity-auth/src/vault/custody.rs"
+      "packages/rpi-antigravity-auth/src/vault/custody.rs",
+      "packages/rpi-antigravity-auth/src/vault/policy.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/vault_custody.rs"
+      "packages/rpi-antigravity-auth/tests/vault_custody.rs",
+      "packages/rpi-antigravity-auth/tests/vault_policy.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
@@ -748,10 +752,12 @@
       "A08"
     ],
     "portFiles": [
-      "packages/rpi-antigravity-auth/src/vault/enrollment.rs"
+      "packages/rpi-antigravity-auth/src/vault/enrollment.rs",
+      "packages/rpi-antigravity-auth/src/vault/ceremony.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-antigravity-auth/tests/vault_enrollment.rs"
+      "packages/rpi-antigravity-auth/tests/vault_enrollment.rs",
+      "packages/rpi-antigravity-auth/tests/vault_ceremony.rs"
     ],
     "scope": "required-shared",
     "scopeReason": "Pi runtime dependency; named barrel exports and lazy common-auth loader edges are recorded in antigravity-reachability.json. Coverage is conservative within each reached module."
