@@ -1,0 +1,52 @@
+{
+  "status": "Captured prompt inputs and ordered before-agent results verified",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "platform": "Linux",
+  "checks": {
+    "harness": {
+      "log": "/tmp/rpi-prompt-context-harness.log",
+      "sha256": "0c29516ede1adda82e57ac71da2dcc264a4438b594b28fdfd4e1bbf1d9d6d363",
+      "passed": 44
+    },
+    "nonUtf8Paths": {
+      "log": "/tmp/rpi-prompt-context-paths.log",
+      "sha256": "b9d43daaa797e7f91da0a1b07ff69aeb5d639c4c263f7ff3b521c20736d9fef3",
+      "passed": 1
+    },
+    "extensions": {
+      "log": "/tmp/rpi-prompt-context-extensions.log",
+      "sha256": "8746ea5578be1f0cebfe290c1f635345f2113d3ec1a27d119ef6c37d04799539",
+      "passed": 198,
+      "ignored": 2
+    },
+    "installedCursorLibrary": {
+      "log": "/tmp/rpi-cursor-prompt-dll-host.log",
+      "sha256": "2130464add1efa3f9aa925f0f6360d0ce55429eac3ffe1ed58a67e492f56619b",
+      "passed": 3
+    },
+    "workspace": {
+      "log": "/tmp/rpi-prompt-context-workspace.log",
+      "sha256": "cb4cfe77e8a70fa3367f214b73ebb3f43a4971884d7037f14b8107b52b0df8cb"
+    },
+    "sdkCore": {
+      "log": "/tmp/rpi-prompt-context-sdk-core.log",
+      "sha256": "fecede7c2157efe2f16c8c8b9dce94b0fb4dd384dca8207046c8bf7636eb0ffe"
+    },
+    "sdkProvider": {
+      "log": "/tmp/rpi-prompt-context-sdk-provider.log",
+      "sha256": "359b7ecb905f1046d7626bccfd694532234cfc66030546cd4b4b24e0bff1735a"
+    }
+  },
+  "assertions": [
+    "Operation hooks receive the captured cwd, context-file contents, skill metadata, selected tools and composed system prompt",
+    "Existing ProviderHooks implementations retain their original callback through the default method",
+    "Prompt result reducers preserve every custom message in listener order and chain the rewritten prompt",
+    "Context paths use the renderer's lossy conversion; non-UTF-8 paths cannot panic JSON serialization",
+    "Actual Cursor library removes only its known captured context block, including XML-escaped paths"
+  ],
+  "notTested": [
+    "Complete lifecycle and trigger payload parity",
+    "Cursor live inference",
+    "macOS and Windows native loading"
+  ]
+}

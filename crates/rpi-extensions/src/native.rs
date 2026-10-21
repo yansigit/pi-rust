@@ -301,6 +301,7 @@ pub(crate) extern "C" fn request(
                     "context.scopeLifetime",
                     "context.trustProvenance",
                     "events.lifecycleReasons",
+                    "events.promptContext",
                     "tools.provenance",
                     "tools.activation",
                     "sessions.location",

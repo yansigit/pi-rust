@@ -97,13 +97,33 @@ impl ProviderHooks for ExtensionProviderHooks {
         ctx: &Context,
         opts: &SimpleStreamOptions,
     ) -> Option<rpi_ai::provider::OperationStartPatch> {
+        self.begin_operation_with_prompt_options(model, ctx, opts, serde_json::json!({}))
+            .await
+    }
+
+    async fn begin_operation_with_prompt_options(
+        &self,
+        model: &Model,
+        ctx: &Context,
+        opts: &SimpleStreamOptions,
+        mut prompt_options: serde_json::Value,
+    ) -> Option<rpi_ai::provider::OperationStartPatch> {
         let mut start_context = ctx.clone();
         if let Some(patch) = self.transform_context(model, &start_context) {
             patch.apply(&mut start_context);
         }
         let (prompt, images) = latest_user_prompt(&start_context.messages).unwrap_or_default();
-        let event =
+        let mut event =
             before_agent_start_event(&prompt, images, &start_context, opts.identity.as_ref());
+        prompt_options.as_object_mut()?.insert(
+            "forceSystemPrompt".into(),
+            start_context
+                .system_prompt
+                .clone()
+                .unwrap_or_default()
+                .into(),
+        );
+        event["systemPromptOptions"] = prompt_options;
         let result = crate::result_events::dispatch(
             self.snapshot.clone(),
             self._keepalive.clone(),

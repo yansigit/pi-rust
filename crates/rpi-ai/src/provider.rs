@@ -359,6 +359,18 @@ pub trait ProviderHooks: Send + Sync {
         None
     }
 
+    /// Loaded prompt inputs at the same operation boundary. Existing hooks keep
+    /// their original callback through this default adapter.
+    async fn begin_operation_with_prompt_options(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &SimpleStreamOptions,
+        _prompt_options: serde_json::Value,
+    ) -> Option<OperationStartPatch> {
+        self.begin_operation(model, context, options).await
+    }
+
     /// Awaited before the provider opens a stream. Existing synchronous hooks
     /// retain their order; native result handlers override this boundary.
     async fn prepare_request(

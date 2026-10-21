@@ -149,6 +149,32 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
     )
     .await;
     assert_eq!(result, None);
+    let files = vec![rpi_harness::context_files::ContextFile {
+        path: cwd.path().join("project&one/AGENTS.md"),
+        content: "captured native instructions".into(),
+    }];
+    let original_prompt = format!(
+        "native base{}",
+        rpi_harness::context_files::format_project_context(&files)
+    );
+    let prompt_options = json!({"cwd":cwd.path(),"contextFiles":files.into_iter().map(rpi_harness::types::PromptContextFile::from).collect::<Vec<_>>(),"skills":[]});
+    let hooks = rpi_extensions::ExtensionProviderHooks::from_session(&extensions).unwrap();
+    let mut prompt_context = Context::new(vec![]);
+    prompt_context.system_prompt = Some(original_prompt);
+    let patch = rpi_ai::ProviderHooks::begin_operation_with_prompt_options(
+        &hooks,
+        &model,
+        &prompt_context,
+        &Default::default(),
+        prompt_options,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        patch.system_prompt.as_deref(),
+        Some("native base"),
+        "the actual DLL must apply retained context deduplication to the host prompt"
+    );
     let command = snapshot
         .commands()
         .iter()

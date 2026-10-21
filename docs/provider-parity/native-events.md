@@ -46,6 +46,14 @@ need to be connected to their authoritative session/UI operations. Synchronous
 progress callbacks retain the observer path. Complete differential event traces,
 platform loading and package acceptance remain pending.
 
+`events.promptContext` supplies the captured cwd, loaded context-file contents,
+skills, selected tools and composed prompt as `systemPromptOptions` before an
+operation. It does not reread files after prompt construction. Result callbacks
+can return an ordered `messages` array as well as the legacy singular `message`;
+the rewritten prompt is chained into `forceSystemPrompt` for later listeners.
+The retained Cursor hook and actual Linux DLL checks are recorded in
+`host-prompt-context-results.json`. Trigger payload parity remains separate.
+
 Rust source changes require maintainer release coordination: ProviderHooks has
 awaited operation/request/lifecycle methods, AgentEmitter has preparation and
 prepared-publication methods, stream options carry explicit identity, and tool

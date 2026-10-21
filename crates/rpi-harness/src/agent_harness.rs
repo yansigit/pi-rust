@@ -3867,7 +3867,23 @@ impl AgentHarness {
                 signal: signal.clone(),
                 ..Default::default()
             };
-            if let Some(patch) = hooks.begin_operation(&snap.model, &context, &options).await {
+            let prompt_context = snap.resources.prompt_context.as_ref();
+            let prompt_options = serde_json::json!({
+                "cwd": prompt_context.map(|context| context.cwd.as_str()).unwrap_or_default(),
+                "contextFiles": prompt_context.map(|context| context.files.as_slice()).unwrap_or_default(),
+                "skills": snap.resources.skills.as_deref().unwrap_or_default(),
+                "selectedTools": snap.active_tool_names,
+                "forceSystemPrompt": agent_context.system_prompt,
+            });
+            if let Some(patch) = hooks
+                .begin_operation_with_prompt_options(
+                    &snap.model,
+                    &context,
+                    &options,
+                    prompt_options,
+                )
+                .await
+            {
                 if let Some(prompt) = patch.system_prompt {
                     agent_context.system_prompt = prompt;
                 }

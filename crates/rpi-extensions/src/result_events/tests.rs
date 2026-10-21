@@ -50,6 +50,48 @@ fn register(registry: &mut ExtensionRegistry, tag: EventTag, probe: &Probe) {
 fn keepalive() -> Arc<PluginKeepalive> {
     Arc::new(PluginKeepalive::new(Vec::new(), None))
 }
+
+#[tokio::test]
+async fn before_agent_start_keeps_all_messages_and_chains_rendered_prompt_options() {
+    let first = Probe {
+        seen: Mutex::new(Vec::new()),
+        response: json!({"version":1,"result":{
+            "systemPrompt":"rewritten", "systemPromptOptions":{"cwd":"/fixture"},
+            "messages":[{"customType":"first"},{"customType":"second"}]
+        }}),
+    };
+    let last = Probe {
+        seen: Mutex::new(Vec::new()),
+        response: json!({"version":1,"result":{"message":{"customType":"third"}}}),
+    };
+    let mut registry = ExtensionRegistry::new();
+    register(&mut registry, EventTag::BeforeAgentStart, &first);
+    register(&mut registry, EventTag::BeforeAgentStart, &last);
+    let outcome = dispatch(
+        Arc::new(registry.snapshot()),
+        keepalive(),
+        EventTag::BeforeAgentStart,
+        json!({"systemPrompt":"original","systemPromptOptions":{"forceSystemPrompt":"original"}}),
+        None,
+        CancellationToken::new(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        outcome
+            .messages
+            .iter()
+            .map(|message| message["customType"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["first", "second", "third"]
+    );
+    let seen = last.seen.lock().unwrap();
+    assert_eq!(seen[0]["event"]["systemPrompt"], "rewritten");
+    assert_eq!(
+        seen[0]["event"]["systemPromptOptions"],
+        json!({"cwd":"/fixture","forceSystemPrompt":"rewritten"})
+    );
+}
 #[tokio::test]
 async fn lifecycle_details_preserve_the_authoritative_reason_and_operation_identity() {
     let probe = Probe {

@@ -572,22 +572,22 @@ pub async fn build_prepared(
         resource_diags.extend(result.resource_diagnostics);
     }
 
-    let context_block = if args.no_context_files || !project_trusted {
-        String::new()
+    let context_files = if args.no_context_files || !project_trusted {
+        Vec::new()
     } else {
         // `load_project_context_files` walks the global agentDir first then
         // ancestor-walks cwd→root (deepest last). It needs a real agent_dir; if
         // none is resolvable, pass the cwd dir so only the ancestor-walk runs
         // (the global step returns None anyway).
         let agent_dir_path = agent_dir.clone().unwrap_or_else(|| cwd.to_path_buf());
-        let files = load_project_context_files(&env_dyn, cwd, &agent_dir_path).await;
-        context_paths.extend(
-            files
-                .iter()
-                .map(|file| file.path.to_string_lossy().into_owned()),
-        );
-        format_project_context(&files)
+        load_project_context_files(&env_dyn, cwd, &agent_dir_path).await
     };
+    context_paths.extend(
+        context_files
+            .iter()
+            .map(|file| file.path.to_string_lossy().into_owned()),
+    );
+    let context_block = format_project_context(&context_files);
 
     // Surface resource-discovery diagnostics as startup warnings (verbose-only).
     if args.verbose {
@@ -779,6 +779,10 @@ pub async fn build_prepared(
         system_prompt: Some(system_prompt),
         resources: AgentHarnessResources {
             context_files: context_paths,
+            prompt_context: Some(rpi_harness::types::PromptContext {
+                cwd: cwd_str.clone(),
+                files: context_files.into_iter().map(Into::into).collect(),
+            }),
             skills: if skills.is_empty() {
                 None
             } else {
@@ -1776,6 +1780,10 @@ where
     // ---- 5. Push the rebuilt state into the live harness via the B5d setters ----
     let resources = AgentHarnessResources {
         context_files: context_paths,
+        prompt_context: Some(rpi_harness::types::PromptContext {
+            cwd: cwd_str.clone(),
+            files: context_files.into_iter().map(Into::into).collect(),
+        }),
         skills: if skills.is_empty() {
             None
         } else {

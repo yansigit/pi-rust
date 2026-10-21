@@ -76,6 +76,27 @@ pub struct PromptTemplate {
     pub content: String,
 }
 
+/// Captured context-file contents associated with the composed system prompt.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct PromptContext {
+    pub cwd: String,
+    pub files: Vec<PromptContextFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PromptContextFile {
+    pub path: String,
+    pub content: String,
+}
+impl From<crate::context_files::ContextFile> for PromptContextFile {
+    fn from(file: crate::context_files::ContextFile) -> Self {
+        Self {
+            path: file.path.to_string_lossy().into_owned(),
+            content: file.content,
+        }
+    }
+}
+
 /// Resources made available to explicit invocation methods and system-prompt
 /// callbacks. Mirrors TS `AgentHarnessResources`. Fields clone-on-get per
 /// the defensive-copy contract.
@@ -87,6 +108,9 @@ pub struct AgentHarnessResources {
     /// into the system prompt and must not be injected again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context_files: Vec<String>,
+    /// Loaded inputs used by prompt hooks; never reread paths after prompt composition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_context: Option<PromptContext>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_templates: Option<Vec<PromptTemplate>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -522,6 +546,22 @@ impl Default for AgentHarnessOptions {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn prompt_context_paths_match_the_renderers_lossy_display_without_serialization_failure() {
+        use std::os::unix::ffi::OsStringExt;
+        let path = std::path::PathBuf::from(std::ffi::OsString::from_vec(
+            b"/fixture\xff/AGENTS.md".to_vec(),
+        ));
+        let rendered = path.to_string_lossy().into_owned();
+        let file = super::PromptContextFile::from(crate::context_files::ContextFile {
+            path,
+            content: "captured".into(),
+        });
+        let value = serde_json::to_value(file).unwrap();
+        assert_eq!(value["path"], rendered);
+        assert_eq!(value["content"], "captured");
+    }
     use super::*;
 
     #[test]

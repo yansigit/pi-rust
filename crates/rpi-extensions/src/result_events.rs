@@ -194,14 +194,35 @@ fn reduce(tag: EventTag, outcome: &mut Outcome, result: Value) -> Result<bool, S
             }
         }
         T::BeforeAgentStart => {
+            if let Some(messages) = result.get("messages") {
+                if !messages.is_array() {
+                    return Err("before-agent messages must be an array".into());
+                }
+            }
+            if let Some(options) = result.get("systemPromptOptions") {
+                if !options.is_object() {
+                    return Err("system prompt options must be an object".into());
+                }
+                outcome.event["systemPromptOptions"] = options.clone();
+            }
             if let Some(prompt) = result.get("systemPrompt") {
                 if !prompt.is_string() {
                     return Err("system prompt must be a string".into());
                 }
                 outcome.event["systemPrompt"] = prompt.clone();
+                if let Some(options) = outcome
+                    .event
+                    .get_mut("systemPromptOptions")
+                    .and_then(Value::as_object_mut)
+                {
+                    options.insert("forceSystemPrompt".into(), prompt.clone());
+                }
             }
             if let Some(message) = result.get("message") {
                 outcome.messages.push(message.clone());
+            }
+            if let Some(messages) = result.get("messages").and_then(Value::as_array) {
+                outcome.messages.extend(messages.iter().cloned());
             }
         }
         T::BeforeProviderHeaders => {

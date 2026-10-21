@@ -4281,6 +4281,72 @@ async fn operation_turn_and_request_ids_do_not_depend_on_prompt_timestamps() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn before_operation_receives_the_loaded_prompt_inputs() {
+    #[derive(Default)]
+    struct Hooks(Mutex<Vec<serde_json::Value>>);
+    #[async_trait::async_trait]
+    impl rpi_ai::ProviderHooks for Hooks {
+        async fn begin_operation_with_prompt_options(
+            &self,
+            _: &rpi_ai::Model,
+            context: &rpi_ai::Context,
+            _: &rpi_ai::SimpleStreamOptions,
+            prompt_options: serde_json::Value,
+        ) -> Option<rpi_ai::provider::OperationStartPatch> {
+            assert_eq!(
+                prompt_options["forceSystemPrompt"].as_str(),
+                context.system_prompt.as_deref()
+            );
+            self.0.lock().unwrap().push(prompt_options);
+            None
+        }
+    }
+    let (harness, _, _) = harness_with(FauxScript::new().with_text("done")).await;
+    let hooks = Arc::new(Hooks::default());
+    harness
+        .set_provider_hooks(Some(hooks.clone()))
+        .await
+        .unwrap();
+    harness
+        .set_system_prompt(Some("native prompt".into()))
+        .await
+        .unwrap();
+    let resources = rpi_harness::types::AgentHarnessResources {
+        prompt_context: Some(rpi_harness::types::PromptContext {
+            cwd: "/loaded".into(),
+            files: vec![rpi_harness::types::PromptContextFile {
+                path: "/loaded/AGENTS.md".into(),
+                content: "captured instructions".into(),
+            }],
+        }),
+        skills: Some(vec![rpi_harness::types::Skill {
+            name: "fixture".into(),
+            description: "fixture skill".into(),
+            content: "skill content".into(),
+            file_path: "/loaded/skill/SKILL.md".into(),
+            disable_model_invocation: Some(false),
+        }]),
+        ..Default::default()
+    };
+    harness.set_resources(resources).await.unwrap();
+    let mut detached = harness.get_resources().await.unwrap();
+    detached.prompt_context.as_mut().unwrap().files[0].content = "later modification".into();
+    harness.prompt_text("fixture", vec![]).await.unwrap();
+    let seen = hooks.0.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0]["cwd"], "/loaded");
+    assert_eq!(
+        seen[0]["contextFiles"][0]["content"],
+        "captured instructions"
+    );
+    assert_eq!(seen[0]["skills"][0]["filePath"], "/loaded/skill/SKILL.md");
+    assert!(seen[0]["selectedTools"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("read")));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn message_end_modifications_precede_settlement_and_reach_the_run_result() {
     struct Edit;
     impl AgentEmitter for Edit {
