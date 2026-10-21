@@ -10,9 +10,9 @@ pub struct ChildHarness {
     pub execution_scope: Arc<rpi_agent::tool_execution_scope::ToolExecutionScope>,
 }
 
-struct ChildTool {
-    tool: Arc<dyn rpi_agent::AgentTool>,
-    scope: Arc<rpi_agent::tool_execution_scope::ToolExecutionScope>,
+pub(super) struct ChildTool {
+    pub(super) tool: Arc<dyn rpi_agent::AgentTool>,
+    pub(super) scope: Arc<rpi_agent::tool_execution_scope::ToolExecutionScope>,
 }
 #[async_trait::async_trait]
 impl rpi_agent::AgentTool for ChildTool {
@@ -172,10 +172,12 @@ impl AgentHarness {
                 scope: execution_scope.clone(),
             });
         }
-        let active_tool_names = tools
+        let active_tool_names: Vec<String> = tools
             .iter()
             .map(|tool| tool.tool.schema().name.clone())
             .collect();
+        let mut resources = snap.resources;
+        resources.tool_registration.ceiling = Some(active_tool_names.clone());
         let scope = snap.child_scope;
         let parent_signal = snap.parent_signal;
         let steering_mode = snap.steering_queue.lock().unwrap().mode;
@@ -186,7 +188,7 @@ impl AgentHarness {
             tools,
             active_tool_names,
             system_prompt: snap.system_prompt,
-            resources: snap.resources,
+            resources,
             stream_options: snap.stream_options,
             retry: snap.retry,
             compaction: snap.compaction,
@@ -265,6 +267,13 @@ impl AgentHarness {
             models: snap.models,
             stream_options: snap.stream_options,
             retry: snap.retry,
+            resources: AgentHarnessResources {
+                tool_registration: crate::types::ToolRegistrationPolicy {
+                    disabled: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
             // No transform/projector/permission hooks from the parent: those
             // can append main-task instructions or acquire its lane.
             system_prompt: Some(format!(

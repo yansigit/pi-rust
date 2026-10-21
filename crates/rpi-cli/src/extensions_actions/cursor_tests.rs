@@ -51,7 +51,7 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
         BTreeMap::new(),
         Default::default(),
     );
-    host.set_native_mode("print");
+    host.set_native_mode("tui");
     host.set_native_project_trust(false, true);
     let bridge = rpi_extensions::ActionBridge::new(Handle::current(), Arc::new(host));
     let extensions = rpi_extensions::load_session(
@@ -165,6 +165,34 @@ async fn installed_cursor_registers_commands_tools_and_streams_without_ambient_a
     )
     .await;
     assert_eq!(result, None);
+    let bound = harness.inspect_tools().unwrap();
+    for name in [
+        "read", "bash", "edit", "write", "grep", "find", "ls", "cursor",
+    ] {
+        assert!(
+            bound
+                .iter()
+                .any(|tool| tool["name"] == name && tool["active"] == true),
+            "missing dynamic binding: {name}"
+        );
+    }
+    std::fs::write(cwd.path().join("binding.txt"), "before").unwrap();
+    for (id, expected_error) in [("cursor-replay-missing", true), ("ordinary", false)] {
+        let call = serde_json::from_value(json!({"id":id,"name":"edit","arguments":{"path":"binding.txt","oldText":"before","newText":"beforeafter"}})).unwrap();
+        assert_eq!(
+            harness
+                .invoke_tool(call, Default::default())
+                .await
+                .unwrap()
+                .is_error,
+            expected_error
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(cwd.path().join("binding.txt")).unwrap(),
+        "beforeafter"
+    );
+
     let files = vec![rpi_harness::context_files::ContextFile {
         path: cwd.path().join("project&one/AGENTS.md"),
         content: "captured native instructions".into(),

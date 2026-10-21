@@ -5,6 +5,75 @@ use rpi_ai::{AssistantMessage, ToolCall};
 use serde_json::{json, Value};
 
 impl AgentHarness {
+    /// Atomically publish host-owned bindings. Foreign tools cannot be replaced.
+    pub fn publish_native_tools(
+        &self,
+        owner: &str,
+        tools: Vec<HarnessTool>,
+    ) -> HarnessResult<Value> {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.closed {
+            return Err(HarnessError::closed());
+        }
+        let mut next = inner.tools.clone();
+        let mut active = inner.active_tool_names.clone();
+        let mut registered = Vec::new();
+        for mut tool in tools {
+            let name = tool.tool.schema().name.clone();
+            if !inner.resources.tool_registration.permits(&name) {
+                continue;
+            }
+            tool.native_owner = Some(owner.into());
+            if let Some(scope) = &inner.execution_scope {
+                tool.tool = Arc::new(child::ChildTool {
+                    tool: tool.tool,
+                    scope: scope.clone(),
+                });
+            }
+            if let Some(existing) = next.iter_mut().find(|t| t.tool.schema().name == name) {
+                if existing.native_owner.as_deref() != Some(owner)
+                    && existing.source_info.as_ref().map(|info| &info["source"])
+                        != Some(&json!("builtin"))
+                {
+                    return Err(HarnessError::io(format!(
+                        "tool {name} belongs to another registration"
+                    )));
+                }
+                *existing = tool;
+            } else {
+                next.push(tool);
+                if inner.resources.tool_registration.allow.is_none() {
+                    active.push(name.clone());
+                }
+            }
+            registered.push(name);
+        }
+        if next
+            .iter()
+            .filter(|t| t.native_owner.as_deref() == Some(owner))
+            .count()
+            > 256
+        {
+            return Err(HarnessError::io(
+                "native tool registration capacity exhausted",
+            ));
+        }
+        if inner.resources.tool_registration.allow.is_some() {
+            for tool in &next {
+                let name = &tool.tool.schema().name;
+                if inner.resources.tool_registration.permits(name) && !active.contains(name) {
+                    active.push(name.clone());
+                }
+            }
+        }
+        inner.select_tools(active, Value::Null)?;
+        inner.tools = next;
+        Ok(
+            json!({"registered":registered,"tools":inner.active_tool_names,
+            "selection":{"revision":inner.tool_selection_revision.to_string(),"state":inner.tool_selection_state}}),
+        )
+    }
+
     /// Commit presentation state and executable selection together; state never grants tool access.
     pub fn select_native_tools(&self, names: Vec<String>, state: Value) -> HarnessResult<Value> {
         if serde_json::to_vec(&state)
@@ -44,6 +113,11 @@ impl AgentHarness {
     }
 
     pub fn inspect_tools(&self) -> HarnessResult<Vec<Value>> {
+        self.inspect_native_tools(None)
+    }
+
+    /// Ownership is private to the invoking extension, never a provider descriptor.
+    pub fn inspect_native_tools(&self, owner: Option<&str>) -> HarnessResult<Vec<Value>> {
         let snapshot = self.snapshot_config()?;
         Ok(snapshot
             .tools
@@ -52,6 +126,9 @@ impl AgentHarness {
                 let schema = tool.tool.schema();
                 let mut info = serde_json::to_value(schema).expect("tool schema serializes");
                 info["label"] = json!(tool.tool.label());
+                if owner.is_some() && tool.native_owner.as_deref() == owner {
+                    info["ownedBinding"] = json!(true);
+                }
                 info["exposure"] = json!("direct");
                 if let Some(snippet) = tool.tool.prompt_snippet() {
                     info["promptSnippet"] = json!(snippet);

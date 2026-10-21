@@ -53,6 +53,7 @@ pub mod model_registry;
 pub mod modes;
 mod native_dialogs;
 mod native_sessions;
+mod native_tools;
 pub mod packages;
 pub mod prebuilt_extensions;
 mod prebuilt_release;

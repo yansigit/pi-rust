@@ -85,7 +85,10 @@ account/Fabric implementations remain pending.
 the existing tool pipeline, plus inert recorded activity that survives stream and
 history serialization. Recovery cannot execute a recorded call, including when a
 same-named tool declares safe reexecution. [Tool evidence](host-tools-results.json)
-records host checks; retained Cursor/MCP and live tool acceptance remain pending.
+records host checks. [Dynamic binding evidence](host-tool-bindings-results.json)
+adds owned builtin/recorded declarations, child ceilings, exact activation order
+and installed Cursor edit/replay checks; complete Cursor/MCP and live acceptance
+remain pending.
 
 [Native dialogs](native-dialogs.md) add private awaited replies, searchable stable
 account IDs, nested settings actions and validated login inputs to both terminal

@@ -309,6 +309,7 @@ pub(crate) extern "C" fn request(
                     "tools.registrationPolicy",
                     "tools.selectionState",
                     "tools.boundedProgress",
+                    "tools.hostBindings",
                     "providers.scopedCallbacks",
                     "providers.childCatalogs",
                     "sessions.location",

@@ -165,8 +165,8 @@ duplicates; changing a child's selection leaves its parent unchanged.
 `tools.registrationPolicy` adds `toolRegistration` to native context snapshots:
 `{"disabled":false,"allow":null,"deny":[]}`. These are the CLI's actual
 registration filters, captured at startup/reload and inherited by children.
-Worker-owned presentation declarations apply the same filters without becoming
-executable host tools. A native package that relies on either capability must
+Native tool declarations apply the same filters. Child snapshots also carry a
+`ceiling` containing only the inherited tool names; it cannot grant new authority. A native package that relies on either capability must
 require it. No C ABI layouts or workspace versions change.
 
 `tools.selectionState` returns a committed `{tools,selection:{revision,state}}`
@@ -190,3 +190,48 @@ awaits capacity. Terminal delivery remains separate. Cancellation releases block
 and retains accepted partials for terminal draining; consumer drop releases the
 queued items. Both paths keep the invocation/library alive through the sole
 destroy call.
+
+
+`tools.hostBindings` adds an awaited `tools.publish` operation for direct tools:
+
+```json
+{"port":"tools","action":"publish","tools":[{
+  "name":"read","label":"Read","description":"Read a file",
+  "parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]},
+  "binding":{"kind":"builtin","name":"read"},
+  "recordedCallPrefix":"recorded-","recordedError":"Missing recording"
+}]}
+```
+
+The binding can select `read`, `bash`, `edit`, `write`, `grep`, `find` or `ls`,
+and its declaration name must match that builtin. A binding of
+`{"kind":"recorded","error":"Missing activity"}` has no executable delegate.
+Optional `recordedCallPrefix` and `recordedError` must appear together; a matching
+call without a recording fails before executing. Completed recordings still use
+the existing inert presentation path. Prompt metadata and execution mode use the
+same names as static native metadata.
+
+Publication validates the whole batch before committing. The receipt contains
+`registered` names, active `tools`, and the committed `selection` revision.
+Each request allows 128 declarations/1 MiB; an owner may retain 256 bindings.
+Policy filtering is applied by the host. A registration can replace a builtin or
+its own earlier binding, never another extension's tool. The host stamps ownership
+from the callback's plugin, generation and session, not request JSON. Private
+inspection includes `ownedBinding:true` for the invoking owner's bindings;
+ordinary inspection does not disclose that marker.
+
+Pi 1.3.0 registration semantics activate new tools, retain existing inactive
+choices, and reactivate permitted tools in registry order when an explicit
+allowlist exists. Child ceilings are independent of that activation rule. Side
+questions cannot register tools. Child publication targets only that child and
+retains its execution scope; reload replaces the registry. Builtins and dynamic
+bindings share the session's execution environment and mutation queues across
+reload. Bindings with `prepareArguments:true` apply the builtin's preparation before
+schema validation (Pi 1.3 edit compatibility). Older schemas validate their legacy
+fields first and adapt arguments immediately before execution.
+
+Rust callers constructing `HarnessTool` or `ToolRegistrationPolicy` literals must
+coordinate the added ownership/ceiling fields with the maintainer release process.
+C ABI structures and workspace versions are unchanged. Cursor requires this
+capability and uses host registrations for both builtin wrappers and recorded
+activity; it no longer adds tools to a provider request's context.

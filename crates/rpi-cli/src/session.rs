@@ -50,10 +50,7 @@ use rpi_harness::types::{
 };
 #[cfg(windows)]
 use rpi_tools::create_powershell_tool;
-use rpi_tools::{
-    create_bash_tool, create_edit_tool, create_read_tool, create_write_tool, ExecutionToolContext,
-    MutationQueueRegistry, OsExecutionEnv,
-};
+use rpi_tools::{ExecutionToolContext, MutationQueueRegistry, OsExecutionEnv};
 
 use crate::args::Args;
 use crate::docs_tool::create_docs_tool;
@@ -411,7 +408,7 @@ pub async fn build_prepared(
     drop(initialization_runtime);
 
     // ---- Execution env + tools ----
-    let env = Arc::new(OsExecutionEnv::with_cwd(cwd.to_path_buf()));
+    let env = action_host.execution_env();
     let env_dyn: Arc<dyn rpi_tools::ExecutionEnv> = env.clone();
     let mut_env: Arc<dyn rpi_tools::MutatingEnv> = env.clone();
     let _registry = Arc::new(MutationQueueRegistry::new());
@@ -908,6 +905,7 @@ pub async fn build_prepared(
     // site — passing it into `reload_extension_resources` keeps this structfree
     // of a harness back-reference so it can be `Clone` into the reload callback).
     let reload_context = ReloadContext {
+        execution_env: env,
         extension_session: extension_session_cell,
         action_bridge: Arc::new(Mutex::new(Some(Arc::clone(&action_bridge)))),
         tool_context,
@@ -1096,6 +1094,7 @@ pub type ActionBridgeCell = Arc<Mutex<Option<Arc<rpi_extensions::ActionBridge>>>
 /// reload callback without borrowing the harness).
 #[derive(Clone)]
 pub struct ReloadContext {
+    execution_env: Arc<OsExecutionEnv>,
     provider_runtime: Arc<std::sync::RwLock<Arc<crate::provider_runtime::ProviderRuntime>>>,
     /// The live extension-session cell (swapped on reload).
     pub extension_session: ExtensionSessionCell,
@@ -1417,7 +1416,11 @@ where
                 &_cell,
                 Arc::new(harness.clone()),
             );
-            Arc::new(action_host.with_catalog_handle(ctx.catalog.clone()))
+            Arc::new(
+                action_host
+                    .with_catalog_handle(ctx.catalog.clone())
+                    .with_execution_env(ctx.execution_env.clone()),
+            )
         }
     };
 
@@ -1632,7 +1635,7 @@ where
         .unwrap_or_default();
 
     // ---- 4. Re-run the Part-A loaders (same precedence + --no-* gates) ----
-    let env = Arc::new(rpi_tools::OsExecutionEnv::with_cwd(ctx.cwd.clone()));
+    let env = ctx.execution_env.clone();
     let env_dyn: Arc<dyn rpi_tools::ExecutionEnv> = env.clone();
 
     let mut skills: Vec<rpi_harness::types::Skill> = Vec::new();
@@ -2220,23 +2223,33 @@ fn build_tools(ctx: &ExecutionToolContext, args: &Args) -> Vec<HarnessTool> {
     let mut all: Vec<(&'static str, HarnessTool)> = vec![
         (
             "read",
-            HarnessTool::new(create_read_tool(
+            HarnessTool::new(crate::native_tools::builtin(
                 ctx,
-                Some(rpi_tools::tools::read::ReadToolOptions {
-                    image_processor: Some(Arc::new(
-                        rpi_tools::image_processing::InlineImageProcessor,
-                    )),
-                    ..Default::default()
-                }),
+                crate::native_tools::Builtin::Read,
             ))
             .with_replay(ToolReplay::Safe),
         ),
         (
             "bash",
-            HarnessTool::new(create_bash_tool(ctx, Some(bash_options()))),
+            HarnessTool::new(crate::native_tools::builtin(
+                ctx,
+                crate::native_tools::Builtin::Bash,
+            )),
         ),
-        ("edit", HarnessTool::new(create_edit_tool(ctx))),
-        ("write", HarnessTool::new(create_write_tool(ctx))),
+        (
+            "edit",
+            HarnessTool::new(crate::native_tools::builtin(
+                ctx,
+                crate::native_tools::Builtin::Edit,
+            )),
+        ),
+        (
+            "write",
+            HarnessTool::new(crate::native_tools::builtin(
+                ctx,
+                crate::native_tools::Builtin::Write,
+            )),
+        ),
         (
             "docs",
             HarnessTool::new(create_docs_tool()).with_replay(ToolReplay::Safe),
@@ -2316,6 +2329,7 @@ pub(crate) fn tool_name_allowed(name: &str, args: &Args) -> bool {
 
 fn tool_registration_policy(args: &Args) -> rpi_harness::types::ToolRegistrationPolicy {
     rpi_harness::types::ToolRegistrationPolicy {
+        ceiling: None,
         disabled: args.no_tools,
         allow: args.tools.clone(),
         deny: args.exclude_tools.clone().unwrap_or_default(),

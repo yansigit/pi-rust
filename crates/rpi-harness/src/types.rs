@@ -128,6 +128,24 @@ pub struct ToolRegistrationPolicy {
     pub disabled: bool,
     pub allow: Option<Vec<String>>,
     pub deny: Vec<String>,
+    /// Inherited authority, independent of explicit allowlist activation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ceiling: Option<Vec<String>>,
+}
+
+impl ToolRegistrationPolicy {
+    pub fn permits(&self, name: &str) -> bool {
+        !self.disabled
+            && self
+                .allow
+                .as_ref()
+                .map_or(true, |names| names.iter().any(|n| n == name))
+            && !self.deny.iter().any(|n| n == name)
+            && self
+                .ceiling
+                .as_ref()
+                .map_or(true, |names| names.iter().any(|n| n == name))
+    }
 }
 
 impl AgentHarnessResources {
@@ -169,6 +187,7 @@ pub struct HarnessTool {
     pub replay: ToolReplay,
     /// Host-owned provenance for native tool inspection; never provider input.
     pub source_info: Option<serde_json::Value>,
+    pub(crate) native_owner: Option<String>,
 }
 
 impl HarnessTool {
@@ -177,6 +196,7 @@ impl HarnessTool {
             tool,
             replay: ToolReplay::default(),
             source_info: None,
+            native_owner: None,
         }
     }
     pub fn with_replay(mut self, replay: ToolReplay) -> Self {

@@ -1,0 +1,44 @@
+{
+  "status": "Dynamic host builtin and recorded bindings verified on Linux",
+  "compiler": "Rust 1.78.0, warnings denied",
+  "checks": {
+    "nativeBindings": {
+      "log": "/tmp/rpi-host-tool-bindings.log",
+      "sha256": "c9318d8d8eb0341f5a4e3ad31e7e822ea5abfa1bb9a95eedc58de4af49b82bf7",
+      "passed": 4
+    },
+    "childRegressions": {
+      "log": "/tmp/rpi-host-tool-binding-children.log",
+      "sha256": "9c9b9684189f4b926d9986d0c6c1f0612225ec72d157c548bc72ee87d0d3440e",
+      "passed": 11
+    },
+    "sessionAndReload": {
+      "log": "/tmp/rpi-host-tool-bindings-session.log",
+      "sha256": "f4d2445f02728f1704857755144aeacdc025f06d9db4b44aec4a0214ffff3db2",
+      "passed": 44
+    },
+    "workspace": {
+      "log": "/tmp/rpi-host-tool-bindings-workspace.log",
+      "sha256": "2f8d22c785470f5a6c53075e84e1d96e7dfc275494a4bad953c7ee7bce6f3165"
+    },
+    "installedCursorLibrary": {
+      "log": "/tmp/rpi-cursor-tool-bindings-dll-final.log",
+      "sha256": "e0111477a4f8ed2a5da14844e1c40e03a1fd02cd9551f96f4285890d16380673",
+      "passed": 4
+    }
+  },
+  "assertions": [
+    "Atomic publication validates bounded declarations and retains host-stamped ownership",
+    "Foreign extension bindings, invalid aliases, malformed recording guards and capacity overflow cannot mutate the registry",
+    "Explicit allowlists reactivate in registry order; child ceilings cannot expand authority; side questions remain tool-free",
+    "New bindings share the host environment and file mutation queues; child calls retain their scope",
+    "Both legacy and prepared edit schemas execute once; recordings and missing-recording identifiers execute zero times",
+    "Installed Cursor registers all eight dynamic wrappers with no pre-existing builtins, executes an ordinary edit, refuses a missing recorded edit, inherits bindings in a fresh child, and reaps on reload/shutdown/crash"
+  ],
+  "review": "Manual exact-diff review covered validation, declaration capacity, authority aliases, owner and generation isolation, child limits, preparation order, mutation-queue ownership, commit receipts and shutdown. No remaining material findings. No C ABI layout or workspace version changes; Rust source additions are documented for release coordination.",
+  "notTested": [
+    "macOS and Windows native execution",
+    "Live Cursor inference, MCP execution and complete SDK replay behavior",
+    "Complete lifecycle parity"
+  ]
+}

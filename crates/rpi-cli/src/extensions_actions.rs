@@ -75,6 +75,7 @@ pub struct HarnessActionHost {
     /// The session cwd — `new_session`/`fork`/`switch_session` need it to
     /// locate the session dir.
     cwd: PathBuf,
+    execution_env: Arc<rpi_tools::OsExecutionEnv>,
     /// Parsed unknown long flags retained for extension consumption.
     cli_flags: BTreeMap<String, serde_json::Value>,
     native_mode: RwLock<Option<&'static str>>,
@@ -112,6 +113,7 @@ impl HarnessActionHost {
                 harness: Arc::clone(&harness),
                 catalog: Arc::new(RwLock::new(catalog)),
                 provider_runtimes: RwLock::new(BTreeMap::new()),
+                execution_env: Arc::new(rpi_tools::OsExecutionEnv::with_cwd(cwd.clone())),
                 cwd,
                 cli_flags,
                 native_mode: RwLock::new(None),
@@ -128,6 +130,13 @@ impl HarnessActionHost {
 
     pub(crate) fn catalog_handle(&self) -> Arc<RwLock<Vec<rpi_ai::Model>>> {
         self.catalog.clone()
+    }
+    pub(crate) fn execution_env(&self) -> Arc<rpi_tools::OsExecutionEnv> {
+        self.execution_env.clone()
+    }
+    pub(crate) fn with_execution_env(mut self, env: Arc<rpi_tools::OsExecutionEnv>) -> Self {
+        self.execution_env = env;
+        self
     }
     pub(crate) fn with_catalog_handle(mut self, catalog: Arc<RwLock<Vec<rpi_ai::Model>>>) -> Self {
         self.catalog = catalog;
@@ -494,9 +503,23 @@ impl RuntimeActionHost for HarnessActionHost {
                         .map_err(|e| e.to_string())
                 }
                 Some("inspect") => target
-                    .inspect_tools()
+                    .inspect_native_tools(Some(&crate::native_tools::owner_key(&owner)))
                     .map(|tools| serde_json::json!(tools))
                     .map_err(|error| error.to_string()),
+                Some("publish") => {
+                    if signal.is_cancelled() {
+                        return Err("native tool publication cancelled".into());
+                    }
+                    let ctx = rpi_tools::ExecutionToolContext::new(
+                        self.execution_env.clone(),
+                        Some(self.execution_env.clone()),
+                    );
+                    let tools =
+                        crate::native_tools::declarations(args["tools"].clone(), &owner, &ctx)?;
+                    target
+                        .publish_native_tools(&crate::native_tools::owner_key(&owner), tools)
+                        .map_err(|error| error.to_string())
+                }
                 Some("invoke" | "present") => {
                     let call: rpi_ai::ToolCall = serde_json::from_value(args["call"].clone())
                         .map_err(|_| "invalid native tool call")?;
