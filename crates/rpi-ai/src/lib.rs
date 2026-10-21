@@ -27,6 +27,7 @@ pub mod provider;
 pub mod provider_wire;
 pub mod providers;
 pub mod schema;
+#[cfg(feature = "providers")]
 pub(crate) mod strict_schema;
 pub mod types;
 

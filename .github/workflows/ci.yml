@@ -11,6 +11,23 @@ permissions:
   contents: read
 
 jobs:
+  msrv:
+    name: Supported Rust 1.78
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUSTFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.78.0'
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked
+      - run: cargo check -p rpi-plugin-sdk --no-default-features --locked
+      - run: cargo check -p rpi-plugin-sdk --features provider --locked
+      - run: cargo check -p rpi-ai --no-default-features --locked
+
   windows-installer:
     name: Windows installer (${{ matrix.shell }})
     runs-on: windows-latest

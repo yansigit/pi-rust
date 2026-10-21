@@ -1,0 +1,21 @@
+{
+  "status": "full-workspace-compile-passed",
+  "toolchain": "rustc 1.78.0",
+  "platform": "linux",
+  "command": "RUSTFLAGS='-D warnings' cargo +1.78.0 check --workspace --all-targets --locked",
+  "log": "/tmp/rpi-msrv-workspace-check-4.log",
+  "sha256": "9eddfe2e854a3f6f37ee4969e5dd3fe42288fbab39f7256a694ff7b50ba86872",
+  "lockSha256": "9adb7f4507e594666896b30b503cb0317060aac641456fd3b45d0cde26513c58",
+  "declaredRustVersionChanged": false,
+  "workspaceVersionsChanged": false,
+  "changes": [
+    "Resolve previously incompatible locked dependencies with Cargo rust-version fallback, updating only the incompatible package set and required transitive changes.",
+    "Replace is_none_or, LazyLock, dangling_mut and repeat_n with equivalent APIs supported by Rust 1.78.",
+    "Compile strict-schema helpers only with their provider consumers.",
+    "Add CI compilation on Rust 1.78, including the standalone SDK and its provider feature."
+  ],
+  "remainingVerification": [
+    "Complete tests against the adjusted lockfile",
+    "macOS and Windows execution"
+  ]
+}
