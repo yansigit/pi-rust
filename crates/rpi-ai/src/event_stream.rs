@@ -19,9 +19,32 @@ struct QueuedEvent {
     _payload: OwnedSemaphorePermit,
 }
 
+#[cfg(not(test))]
+type TerminalReceiver = oneshot::Receiver<AssistantMessageEvent>;
+
+#[cfg(test)]
+struct TerminalReceiver {
+    inner: oneshot::Receiver<AssistantMessageEvent>,
+    before_poll: Option<Box<dyn FnOnce() + Send>>,
+}
+
+#[cfg(test)]
+impl std::future::Future for TerminalReceiver {
+    type Output = Result<AssistantMessageEvent, oneshot::error::RecvError>;
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Self::Output> {
+        if let Some(before_poll) = self.before_poll.take() {
+            before_poll();
+        }
+        std::pin::Pin::new(&mut self.inner).poll(cx)
+    }
+}
+
 pub struct AssistantMessageEventStream {
     rx: mpsc::Receiver<QueuedEvent>,
-    terminal_rx: Option<oneshot::Receiver<AssistantMessageEvent>>,
+    terminal_rx: Option<TerminalReceiver>,
     result_rx: Option<oneshot::Receiver<AssistantMessage>>,
     cancellation: CancellationToken,
     done: bool,
@@ -33,22 +56,12 @@ impl AssistantMessageEventStream {
         if self.done {
             return None;
         }
-        if let Some(terminal) = &mut self.terminal_rx {
-            tokio::select! {
-                biased;
-                event = self.rx.recv() => {
-                    if let Some(event) = event { return Some(event.event); }
-                }
-                event = terminal => {
-                    self.done = true;
-                    return event.ok();
-                }
-            }
-        } else {
-            return None;
+        if let Some(event) = self.rx.recv().await {
+            return Some(event.event);
         }
+        let terminal = self.terminal_rx.as_mut()?.await.ok();
         self.done = true;
-        self.terminal_rx.take().unwrap().await.ok()
+        terminal
     }
 
     /// Discard intermediates so a producer blocked on capacity can finish.
@@ -85,7 +98,7 @@ impl std::fmt::Display for RecvError {
 impl std::error::Error for RecvError {}
 
 pub struct AssistantMessageEventStreamProducer {
-    tx: mpsc::Sender<QueuedEvent>,
+    tx: Option<mpsc::Sender<QueuedEvent>>,
     terminal_tx: Option<oneshot::Sender<AssistantMessageEvent>>,
     result_tx: Option<oneshot::Sender<AssistantMessage>>,
     payload: Arc<Semaphore>,
@@ -192,8 +205,13 @@ impl AssistantMessageEventStreamProducer {
             if let Some(tx) = self.result_tx.take() {
                 let _ = tx.send(message);
             }
-            return self.terminal_tx.take().unwrap().send(event).is_ok();
+            let delivered = self.terminal_tx.take().unwrap().send(event).is_ok();
+            // Closing the FIFO orders every queued event before the terminal,
+            // even when publication races a consumer polling an empty queue.
+            self.tx.take();
+            return delivered;
         }
+        let tx = self.tx.as_ref().unwrap();
         let weight = event
             .accounted_payload_bytes()
             .max(1)
@@ -201,13 +219,13 @@ impl AssistantMessageEventStreamProducer {
         tokio::select! {
             biased;
             _ = self.cancellation.cancelled() => false,
-            _ = self.tx.closed() => false,
+            _ = tx.closed() => false,
             permit = self.payload.clone().acquire_many_owned(weight) => {
                 let payload = permit.expect("payload semaphore remains open");
                 tokio::select! {
                     biased;
                     _ = self.cancellation.cancelled() => false,
-                    permit = self.tx.reserve() => {
+                    permit = tx.reserve() => {
                         let Ok(permit) = permit else { return false; };
                         self.committed = Some(match &event {
                             AssistantMessageEvent::Start { partial }
@@ -261,11 +279,16 @@ pub fn create_assistant_message_event_stream_with_limits(
     assert!(capacity > 0 && payload_bytes > 0 && payload_bytes <= u32::MAX as usize);
     let (tx, rx) = mpsc::channel(capacity);
     let (terminal_tx, terminal_rx) = oneshot::channel();
+    #[cfg(test)]
+    let terminal_rx = TerminalReceiver {
+        inner: terminal_rx,
+        before_poll: None,
+    };
     let (result_tx, result_rx) = oneshot::channel();
     let cancellation = parent.child_token();
     (
         AssistantMessageEventStreamProducer {
-            tx,
+            tx: Some(tx),
             terminal_tx: Some(terminal_tx),
             result_tx: Some(result_tx),
             payload: Arc::new(Semaphore::new(payload_bytes)),
@@ -632,5 +655,56 @@ mod tests {
             Some(AssistantMessageEvent::Done { .. })
         ));
         assert!(stream.result().await.unwrap().error_message.is_none());
+    }
+    #[tokio::test]
+    async fn terminal_publication_between_channel_polls_cannot_overtake_an_event() {
+        use std::sync::Mutex;
+        use std::task::Poll;
+
+        let (producer, mut stream) = create_assistant_message_event_stream();
+        let publication = Arc::new(Mutex::new(Some(producer)));
+        let publish = |publication: &Mutex<Option<AssistantMessageEventStreamProducer>>| {
+            if let Some(mut producer) = publication.lock().unwrap().take() {
+                futures::executor::block_on(async {
+                    assert!(producer.push(text_event("last ordinary event")).await);
+                    assert!(producer.push(done_event()).await);
+                });
+            }
+        };
+        let during_terminal_poll = publication.clone();
+        stream.terminal_rx.as_mut().unwrap().before_poll = Some(Box::new(move || {
+            // Reproduce publication after the FIFO was polled empty, but
+            // before the old select polled the independent terminal receiver.
+            publish(&during_terminal_poll);
+        }));
+        let mut next = Box::pin(stream.next());
+        let first_poll = futures::poll!(&mut next);
+        // A consumer draining only the FIFO never polls the terminal early.
+        // Publish now if that receive correctly remained pending.
+        publish(&publication);
+        let event = match first_poll {
+            Poll::Ready(event) => event,
+            Poll::Pending => next.as_mut().await,
+        };
+        drop(next);
+        assert_eq!(event, Some(text_event("last ordinary event")));
+        assert!(stream.next().await.unwrap().is_terminal());
+        assert!(stream.next().await.is_none());
+        assert!(stream.result().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn cancelling_next_while_producer_closes_keeps_the_terminal() {
+        let (mut producer, mut stream) = create_assistant_message_event_stream();
+        // Producer fields can drop on another thread between ordinary-channel
+        // closure and terminal publication/closure. Hold that interval open.
+        drop(producer.tx.take());
+        let mut pending = Box::pin(stream.next());
+        assert!(futures::poll!(&mut pending).is_pending());
+        drop(pending);
+        assert!(producer.push(done_event()).await);
+        assert!(stream.next().await.unwrap().is_terminal());
+        assert!(stream.next().await.is_none());
+        assert!(stream.result().await.is_ok());
     }
 }
