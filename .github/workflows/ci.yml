@@ -112,7 +112,7 @@ jobs:
           python3 scripts/test_release_channels.py
 
   windows-plugin-lifecycle:
-    name: Windows plugin ABI and ownership
+    name: Windows plugin ABI and DLL lifecycle
     runs-on: windows-latest
     timeout-minutes: 20
     env:
@@ -123,7 +123,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Negotiate old and new ABI tables
         run: cargo test -p rpi-plugin-sdk --features provider --locked
-      - name: Check plugin tool ownership
+      - name: Check DLL shutdown and tool ownership
         run: cargo test -p rpi-extensions --lib --features rpi-ai/providers --locked
 
   release:

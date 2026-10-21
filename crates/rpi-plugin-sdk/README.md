@@ -333,3 +333,15 @@ if shutdown fails, it logs and retains the DLL and host context for the process
 lifetime. It never uses a timeout to unload live code. Older hosts use the
 context helper's request-scoped runtime/client fallback. Existing `Factory`,
 `register`, `drive`, and `export_provider!` remain available.
+
+Run the offline runtime/client construction comparison with:
+
+```sh
+cargo test -p rpi-plugin-sdk --features provider --release benchmark_context_resources -- --ignored --nocapture
+```
+
+The fixture drives actual context requests with a local faux provider and HTTP
+client construction/cache lookup, without network requests. It reports runtime
+and client builds plus request p50/p95 for scoped/shared resources, sequential
+calls and four concurrent accounts; every response checks account isolation.
+Timing includes request driving and is diagnostic, without pass/fail thresholds.

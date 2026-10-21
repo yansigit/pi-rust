@@ -3,6 +3,24 @@ use super::*;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Condvar, Mutex};
 
+#[cfg(test)]
+thread_local! {
+    // Enabled only on benchmark threads, so parallel unit tests cannot affect counts.
+    static RESOURCE_BUILDS: std::cell::Cell<Option<(usize, usize)>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn record_resource_build(runtime: bool) {
+    RESOURCE_BUILDS.with(|counts| {
+        if let Some((runtimes, clients)) = counts.get() {
+            counts.set(Some((
+                runtimes + usize::from(runtime),
+                clients + usize::from(!runtime),
+            )));
+        }
+    });
+}
+
 pub type ContextFactory =
     fn(&ProviderContext, &Model, &SimpleStreamOptions) -> Result<Arc<dyn Provider>, String>;
 
@@ -56,6 +74,8 @@ impl ProviderContext {
             return Ok(client.clone());
         }
         let client = rpi_ai::http::build_client(base_url, None, None)?;
+        #[cfg(test)]
+        record_resource_build(false);
         if resources.clients.len() == 16 {
             resources.clients.pop_front();
         }
@@ -100,6 +120,8 @@ impl ProviderContext {
                     .build()
                     .map_err(|error| error.to_string())?,
             );
+            #[cfg(test)]
+            record_resource_build(true);
         }
         if self
             .state
@@ -281,6 +303,8 @@ pub unsafe fn drive_with_context(
             else {
                 return 1;
             };
+            #[cfg(test)]
+            record_resource_build(true);
             runtime.block_on(future)
         };
         let json = serde_json::to_value(message)
@@ -469,5 +493,119 @@ mod tests {
         assert_eq!(context.resources.lock().unwrap().clients.len(), 1);
         drop(request);
         context.finish_shutdown();
+    }
+    #[test]
+    #[ignore = "offline resource benchmark; run with --ignored --nocapture"]
+    fn benchmark_context_resources() {
+        fn factory(
+            context: &ProviderContext,
+            model: &Model,
+            options: &SimpleStreamOptions,
+        ) -> Result<Arc<dyn Provider>, String> {
+            // Exercise real client creation/cache lookup without network variability.
+            let _client = context.client(&model.base_url)?;
+            Ok(rpi_ai::providers::faux::FauxProvider::new(
+                rpi_ai::providers::faux::FauxScript::new()
+                    .with_text(options.api_key.as_deref().unwrap()),
+            ))
+        }
+        fn call(context: usize, account: usize) -> Duration {
+            let key = format!("account-{account}");
+            let request = serde_json::json!({
+                "model": Model::new("m", "M", rpi_ai::Api::Faux, "benchmark", "http://127.0.0.1:9"),
+                "context": rpi_ai::Context::new(vec![]),
+                "options": {"apiKey": key}
+            })
+            .to_string();
+            let mut out = StbString::empty();
+            let start = std::time::Instant::now();
+            let rc = unsafe {
+                drive_with_context(
+                    factory,
+                    context as *mut c_void,
+                    StbStringRef::from_str(&request),
+                    None,
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                    &mut out,
+                )
+            };
+            let elapsed = start.elapsed();
+            assert_eq!(rc, 0);
+            let owned = unsafe {
+                crate::callbacks::OwnedString::from_raw(out, Some(crate::callbacks::free_string))
+            };
+            let message: AssistantMessage = serde_json::from_str(&owned.to_string_lossy()).unwrap();
+            assert!(
+                matches!(message.content.as_slice(), [rpi_ai::Content::Text(text)] if text.text == key)
+            );
+            elapsed
+        }
+        const REQUESTS: usize = 200;
+        const THREADS: usize = 4;
+        for concurrent in [false, true] {
+            for shared in [false, true] {
+                let context = ProviderContext::new();
+                let pointer = if shared {
+                    &context as *const ProviderContext as usize
+                } else {
+                    0
+                };
+                let start = std::time::Instant::now();
+                let (mut samples, runtimes, clients) = if concurrent {
+                    std::thread::scope(|scope| {
+                        let barrier = Arc::new(std::sync::Barrier::new(THREADS));
+                        let mut workers = Vec::new();
+                        for account in 0..THREADS {
+                            let barrier = barrier.clone();
+                            workers.push(scope.spawn(move || {
+                                RESOURCE_BUILDS.with(|counts| counts.set(Some((0, 0))));
+                                barrier.wait();
+                                let samples = (0..REQUESTS / THREADS)
+                                    .map(|_| call(pointer, account))
+                                    .collect::<Vec<_>>();
+                                let (runtimes, clients) =
+                                    RESOURCE_BUILDS.with(|counts| counts.take().unwrap());
+                                (samples, runtimes, clients)
+                            }));
+                        }
+                        let mut samples = Vec::new();
+                        let (mut runtimes, mut clients) = (0, 0);
+                        for worker in workers {
+                            let (mut durations, runtime_count, client_count) =
+                                worker.join().unwrap();
+                            samples.append(&mut durations);
+                            runtimes += runtime_count;
+                            clients += client_count;
+                        }
+                        (samples, runtimes, clients)
+                    })
+                } else {
+                    RESOURCE_BUILDS.with(|counts| counts.set(Some((0, 0))));
+                    let samples = (0..REQUESTS)
+                        .map(|account| call(pointer, account % THREADS))
+                        .collect::<Vec<_>>();
+                    let (runtimes, clients) = RESOURCE_BUILDS.with(|counts| counts.take().unwrap());
+                    (samples, runtimes, clients)
+                };
+                let elapsed = start.elapsed();
+                let expected = if shared { 1 } else { REQUESTS };
+                assert_eq!((runtimes, clients), (expected, expected));
+                samples.sort_unstable();
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "benchmark": "context_resources", "fixture": "faux_with_client_cache", "network": false, "shared": shared,
+                        "concurrent": concurrent, "requests": REQUESTS,
+                        "threads": if concurrent { THREADS } else { 1 },
+                        "runtime_builds": runtimes, "client_builds": clients,
+                        "elapsed_us": elapsed.as_micros(),
+                        "request_p50_us": samples[REQUESTS / 2].as_micros(),
+                        "request_p95_us": samples[REQUESTS * 95 / 100].as_micros()
+                    })
+                );
+                context.finish_shutdown();
+            }
+        }
     }
 }
