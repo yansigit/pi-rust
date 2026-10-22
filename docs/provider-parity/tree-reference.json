@@ -1,0 +1,334 @@
+{
+  "reference": "Pi 1.3.0",
+  "projection": "Navigation hooks, target selection, extension summaries, labels and editor text; default summarization is tested separately",
+  "rows": [
+    {
+      "mode": "same",
+      "events": [],
+      "mutations": [],
+      "leaf": "left",
+      "result": {
+        "cancelled": false
+      }
+    },
+    {
+      "mode": "missing",
+      "events": [],
+      "mutations": [],
+      "leaf": "left",
+      "error": "Entry absent not found"
+    },
+    {
+      "mode": "assistant",
+      "events": [
+        {
+          "type": "session_before_tree",
+          "preparation": {
+            "targetId": "target",
+            "oldLeafId": "left",
+            "commonAncestorId": "root",
+            "entriesToSummarize": [
+              "left"
+            ],
+            "userWantsSummary": false,
+            "customInstructions": "original",
+            "label": "original label"
+          }
+        },
+        {
+          "type": "session_tree",
+          "newLeafId": "target",
+          "oldLeafId": "left"
+        }
+      ],
+      "mutations": [
+        {
+          "type": "branch",
+          "id": "target"
+        },
+        {
+          "type": "label",
+          "id": "target",
+          "label": "original label"
+        }
+      ],
+      "leaf": "target",
+      "result": {
+        "cancelled": false
+      }
+    },
+    {
+      "mode": "user",
+      "events": [
+        {
+          "type": "session_before_tree",
+          "preparation": {
+            "targetId": "user",
+            "oldLeafId": "left",
+            "commonAncestorId": "root",
+            "entriesToSummarize": [
+              "left"
+            ],
+            "userWantsSummary": false,
+            "customInstructions": "original",
+            "label": "original label"
+          }
+        },
+        {
+          "type": "session_tree",
+          "newLeafId": "root",
+          "oldLeafId": "left"
+        }
+      ],
+      "mutations": [
+        {
+          "type": "branch",
+          "id": "root"
+        },
+        {
+          "type": "label",
+          "id": "user",
+          "label": "original label"
+        }
+      ],
+      "leaf": "root",
+      "result": {
+        "editorText": "edit this",
+        "cancelled": false
+      }
+    },
+    {
+      "mode": "custom",
+      "events": [
+        {
+          "type": "session_before_tree",
+          "preparation": {
+            "targetId": "custom",
+            "oldLeafId": "left",
+            "commonAncestorId": "root",
+            "entriesToSummarize": [
+              "left"
+            ],
+            "userWantsSummary": false,
+            "customInstructions": "original",
+            "label": "original label"
+          }
+        },
+        {
+          "type": "session_tree",
+          "newLeafId": "root",
+          "oldLeafId": "left"
+        }
+      ],
+      "mutations": [
+        {
+          "type": "branch",
+          "id": "root"
+        },
+        {
+          "type": "label",
+          "id": "custom",
+          "label": "original label"
+        }
+      ],
+      "leaf": "root",
+      "result": {
+        "editorText": "edit custom",
+        "cancelled": false
+      }
+    },
+    {
+      "mode": "cancel",
+      "events": [
+        {
+          "type": "session_before_tree",
+          "preparation": {
+            "targetId": "target",
+            "oldLeafId": "left",
+            "commonAncestorId": "root",
+            "entriesToSummarize": [
+              "left"
+            ],
+            "userWantsSummary": false,
+            "customInstructions": "original",
+            "label": "original label"
+          }
+        }
+      ],
+      "mutations": [],
+      "leaf": "left",
+      "result": {
+        "cancelled": true
+      }
+    },
+    {
+      "mode": "override",
+      "events": [
+        {
+          "type": "session_before_tree",
+          "preparation": {
+            "targetId": "target",
+            "oldLeafId": "left",
+            "commonAncestorId": "root",
+            "entriesToSummarize": [
+              "left"
+            ],
+            "userWantsSummary": true,
+            "customInstructions": "original",
+            "label": "original label"
+          }
+        },
+        {
+          "type": "session_tree",
+          "newLeafId": "summary",
+          "oldLeafId": "left",
+          "summaryEntry": {
+            "type": "branch_summary",
+            "id": "summary",
+            "parentId": "target",
+            "fromId": "left",
+            "summary": "retained summary",
+            "details": {
+              "fixture": true
+            },
+            "fromHook": true
+          },
+          "fromExtension": true
+        }
+      ],
+      "mutations": [
+        {
+          "type": "branch_summary",
+          "id": "summary",
+          "parentId": "target",
+          "fromId": "left",
+          "summary": "retained summary",
+          "details": {
+            "fixture": true
+          },
+          "fromHook": true
+        },
+        {
+          "type": "label",
+          "id": "summary",
+          "label": "summary label"
+        }
+      ],
+      "leaf": "summary",
+      "result": {
+        "cancelled": false,
+        "summaryEntry": {
+          "type": "branch_summary",
+          "id": "summary",
+          "parentId": "target",
+          "fromId": "left",
+          "summary": "retained summary",
+          "details": {
+            "fixture": true
+          },
+          "fromHook": true
+        }
+      }
+    },
+    {
+      "mode": "ignoredOverride",
+      "events": [
+        {
+          "type": "session_before_tree",
+          "preparation": {
+            "targetId": "target",
+            "oldLeafId": "left",
+            "commonAncestorId": "root",
+            "entriesToSummarize": [
+              "left"
+            ],
+            "userWantsSummary": false,
+            "customInstructions": "original",
+            "label": "original label"
+          }
+        },
+        {
+          "type": "session_tree",
+          "newLeafId": "target",
+          "oldLeafId": "left"
+        }
+      ],
+      "mutations": [
+        {
+          "type": "branch",
+          "id": "target"
+        },
+        {
+          "type": "label",
+          "id": "target",
+          "label": "summary label"
+        }
+      ],
+      "leaf": "target",
+      "result": {
+        "cancelled": false
+      }
+    },
+    {
+      "mode": "overrideLabel",
+      "events": [
+        {
+          "type": "session_before_tree",
+          "preparation": {
+            "targetId": "target",
+            "oldLeafId": "left",
+            "commonAncestorId": "root",
+            "entriesToSummarize": [
+              "left"
+            ],
+            "userWantsSummary": false,
+            "customInstructions": "original",
+            "label": "original label"
+          }
+        },
+        {
+          "type": "session_tree",
+          "newLeafId": "target",
+          "oldLeafId": "left"
+        }
+      ],
+      "mutations": [
+        {
+          "type": "branch",
+          "id": "target"
+        },
+        {
+          "type": "label",
+          "id": "target",
+          "label": "changed"
+        }
+      ],
+      "leaf": "target",
+      "result": {
+        "cancelled": false
+      }
+    },
+    {
+      "mode": "hookError",
+      "events": [
+        {
+          "type": "session_before_tree",
+          "preparation": {
+            "targetId": "target",
+            "oldLeafId": "left",
+            "commonAncestorId": "root",
+            "entriesToSummarize": [
+              "left"
+            ],
+            "userWantsSummary": false,
+            "customInstructions": "original",
+            "label": "original label"
+          }
+        }
+      ],
+      "mutations": [],
+      "leaf": "left",
+      "error": "fixture hook failure"
+    }
+  ]
+}
