@@ -74,3 +74,42 @@ Existing polling dialogs and C ABI layouts remain unchanged.
 
 This supplies H09 host controls. Complete account/login/virtual-provider command
 traces and persisted outcomes remain part of the three package acceptance suites.
+
+## TUI provider-auth callers (H01)
+
+The interactive TUI now drives registered native provider authentication through
+the same awaited dialog port as every other terminal caller. `/login` (the
+provider menu, `/login <provider>` without a key, and the provider-scoped
+arguments) checks `NativeProviderAuth::from_session` first; a native
+registration runs `NativeProviderAuth::login`/`ProviderAuthentication::request`
+on the session runtime and presents each `AuthInteraction` as a declarative
+control. Host API-key providers (the compatibility `ApiKeyAuthentication`
+fallback) use the same driver, so the `/login` menu no longer opens an inline
+masked input for either case:
+
+- `input` becomes `kind: "input"` with `masked` from `secret`, the optional
+  message and URL as its description, and a re-prompt when a required value is
+  empty (the provider's original `allowEmpty` policy is preserved).
+- `select` becomes a searchable `kind: "select"` whose stable `value` is the
+  provider's choice ID, so re-opened submenus restore the highlighted method.
+- `wait` reports its message and awaits the provider's `pollAfterMs` with the
+  flow's cancellation token.
+- Multiple methods present a method `select` before login.
+
+The prompt is a `ui_dialog_request` on the session's `UiDialogMailbox`; the TUI
+key loop renders it with `NativeDialogView`, and the RPC terminal renders the
+same request. Both answer with the same validated reply envelope, so scripted
+choices, messages and persisted outcomes are identical across terminal modes.
+Host API-key registrations use the same presentation callback; legacy OAuth
+registrations keep their existing extension request form. Credentials are
+committed only through the shared locked `CompatibilityCredentialStore`, and a
+successful commit asks the main loop to reload the provider catalog.
+
+Cancellation releases the pending prompt in every case: Esc on the dialog
+cancels the mailbox request, the flow id (and a reload that invalidates the
+owning registry) cancels the awaiting token, and TUI shutdown detaches the
+mailbox. The prompt's drop guard also cancels a request whose login task is
+aborted, so no orphan control survives a session replacement. `Esc` during a
+provider round-trip without a visible dialog still ends the flow through the
+existing provider-auth slot, now shared with native login.
+

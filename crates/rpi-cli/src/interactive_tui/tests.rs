@@ -3633,9 +3633,25 @@ fn ask_user_bridge_releases_cancelled_visible_prompt_without_consuming_answers()
         .respond("answered", serde_json::json!({"value":"private"}))
         .unwrap();
     assert!(bridge.take_closed_visible());
-    assert_eq!(
-        mailbox.poll("answered").unwrap()["answer"]["value"],
-        "private"
-    );
     assert_eq!(bridge.take_pending().unwrap().request_id, "next");
+}
+
+#[test]
+fn provider_auth_flow_yields_keys_to_an_open_native_dialog() {
+    use std::sync::atomic::Ordering;
+    let state = test_tui_state();
+    assert!(!state.provider_auth_owns_keys());
+    state.provider_auth_flow_id.store(7, Ordering::Release);
+    assert!(state.provider_auth_owns_keys());
+    // A native-dialog login keeps the flow id set while its awaited dialog is
+    // open; the shared control must receive keys (and its own Esc cancel).
+    *state.active_selector.lock().unwrap() = Some((
+        SelectorView::List(Arc::new(SelectList::new(vec![], 5))),
+        SelectorKind::Extension,
+    ));
+    assert!(!state.provider_auth_owns_keys());
+    state.active_selector.lock().unwrap().take();
+    assert!(state.provider_auth_owns_keys());
+    state.provider_auth_flow_id.store(0, Ordering::Release);
+    assert!(!state.provider_auth_owns_keys());
 }

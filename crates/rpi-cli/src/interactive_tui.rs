@@ -50,6 +50,7 @@ use rendering::*;
 mod panels;
 mod pet;
 mod side_questions;
+mod auth;
 
 #[cfg(test)]
 mod tests;
@@ -2066,11 +2067,10 @@ pub async fn interactive_tui(
 
             // OAuth begin/exchange/revoke owns the input slot even while the
             // provider call is running. Do not let keys leak into the prompt.
-            if state_for_key
-                .provider_auth_flow_id
-                .load(std::sync::atomic::Ordering::Acquire)
-                != 0
-            {
+            // A native-dialog login (auth.rs) also raises this flow id, but its
+            // awaited dialog is an open selector: keep routing keys there so the
+            // shared control validates and cancels the prompt itself.
+            if state_for_key.provider_auth_owns_keys() {
                 if key.code == KeyCode::Esc && key.modifiers == KeyModifiers::NONE {
                     finish_provider_login(
                         &state_for_key,
@@ -2078,7 +2078,7 @@ pub async fn interactive_tui(
                         &editor_for_key,
                         &tui_for_key,
                     );
-                    add_note_message(&state_for_key.chat_container, "OAuth flow cancelled.");
+                    add_note_message(&state_for_key.chat_container, "Provider login cancelled.");
                 }
                 tui_for_key.request_render_reusing_scroll_content();
                 continue;
