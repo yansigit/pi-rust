@@ -138,3 +138,20 @@ unsafe check-then-write fallback. No C ABI or workspace version changes.
 appends and reopen; `m5c_jsonl_atomic_publish` injects synchronization, partial
 append and cancellation faults. The tree operation's hook and summary wiring
 is a separate change; this primitive alone does not establish tree parity.
+
+## Branch summary generation
+
+`generate_branch_summary` now matches Pi 1.3.0's `generateBranchSummary`
+request and outcome rules: `maxTokens` is `min(4096, model.maxTokens)` (4096
+when unbounded), no reasoning option is sent, empty custom instructions fall
+back to the default prompt, and `length` stops or tool calls fail instead of
+persisting an incomplete summary. Empty error messages report `Unknown error`.
+`BranchSummaryEntry.fromHook` round-trips through JSONL, SQLite provisioning
+and memory; extension-supplied summaries do not seed file-tracking details for
+later summaries. Malformed `fromHook` values are rejected.
+
+`check-branch-summary-reference.mjs` regenerates
+`branch-summary-reference.json` from the pinned Pi 1.3.0 install (16 traces);
+`generated_summaries_match_pi_reference_requests_and_failures` compares every
+request and result. Numbers compare by value, since JavaScript records `0` for
+Rust's `0.0`. Tree navigation hook and summary dispatch remain pending.

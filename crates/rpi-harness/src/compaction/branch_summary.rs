@@ -12,7 +12,6 @@ use std::collections::BTreeSet;
 
 use rpi_agent::message::AgentMessage;
 use rpi_ai::types::{Content, Context, Message, StopReason, Usage, UserContent, UserMessage};
-use rpi_ai::ThinkingLevel;
 use serde::{Deserialize, Serialize};
 
 use crate::compaction::compaction::{
@@ -83,19 +82,6 @@ pub struct GenerateBranchSummaryOptions {
 impl GenerateBranchSummaryOptions {
     /// Default reserve tokens (mirrors TS `reserveTokens = 16384`).
     pub const DEFAULT_RESERVE_TOKENS: i64 = 16384;
-}
-
-impl Default for GenerateBranchSummaryOptions {
-    fn default() -> Self {
-        // `reserve_tokens` is resolved at call time; `replace_instructions`
-        // defaults false. `llm` has no default — callers must populate it, so
-        // this Default is a convenience that panics-free leaves `llm` to be
-        // built explicitly. We do NOT impl a usable Default for `CompactionLlm
-        // Options` (it has no sensible default), so this impl is intentionally
-        // minimal — tests/callers construct `GenerateBranchSummaryOptions`
-        // struct-literal with a real `llm`.
-        unreachable!("GenerateBranchSummaryOptions must be constructed struct-literal with `llm`")
-    }
 }
 
 /// `getMessageFromEntry` for branch summarization. Mirrors the local helper in
@@ -210,6 +196,9 @@ pub fn prepare_branch_entries(entries: &[Entry], token_budget: i64) -> BranchPre
     // Seed file ops from prior branch_summary details.
     for entry in entries {
         if let Entry::BranchSummary(b) = entry {
+            if b.from_hook == Some(true) {
+                continue;
+            }
             if let Some(details_value) = &b.details {
                 if let Some(arr) = details_value.get("readFiles").and_then(|v| v.as_array()) {
                     for f in arr {
@@ -243,7 +232,7 @@ pub fn prepare_branch_entries(entries: &[Entry], token_budget: i64) -> BranchPre
             let tokens = estimate_tokens(&message);
             if total_tokens + tokens > token_budget {
                 if matches!(entry, Entry::Compaction(_) | Entry::BranchSummary(_))
-                    && total_tokens < (token_budget as f64 * 0.9) as i64
+                    && (total_tokens as f64) < token_budget as f64 * 0.9
                 {
                     messages.insert(0, message);
                     total_tokens += tokens;
@@ -283,11 +272,19 @@ const BRANCH_SUMMARY_PROMPT: &str = "Create a structured summary of this convers
 /// `generateBranchSummary`. Mirrors TS: budget = `context_window − reserve`
 /// (context_window 0 → 128000); empty messages → `"No content to summarize"`;
 /// single user message with the conversation+instructions prompt; `maxTokens:
-/// 2048`; prepend `BRANCH_SUMMARY_PREAMBLE`; append file-op tags; map
+/// min(4096, model.maxTokens)`; prepend `BRANCH_SUMMARY_PREAMBLE`; append file-op tags; map
 /// `aborted`/`error` to `BranchSummaryError`.
 pub async fn generate_branch_summary(
     entries: &[Entry],
     options: &GenerateBranchSummaryOptions,
+) -> Result<BranchSummaryResult, BranchSummaryError> {
+    generate_branch_summary_at(entries, options, now_ms()).await
+}
+
+async fn generate_branch_summary_at(
+    entries: &[Entry],
+    options: &GenerateBranchSummaryOptions,
+    timestamp: i64,
 ) -> Result<BranchSummaryResult, BranchSummaryError> {
     let context_window = if options.llm.model.context_window > 0 {
         options.llm.model.context_window as i64
@@ -311,7 +308,11 @@ pub async fn generate_branch_summary(
     let conversation_text = serialize_conversation(&llm_messages);
 
     let instructions: String = match (
-        &options.llm.custom_instructions,
+        options
+            .llm
+            .custom_instructions
+            .as_ref()
+            .filter(|text| !text.is_empty()),
         options.replace_instructions,
     ) {
         (Some(ci), true) => ci.clone(),
@@ -323,7 +324,7 @@ pub async fn generate_branch_summary(
 
     let summarization_messages = vec![Message::User(UserMessage::new(
         UserContent::Blocks(vec![Content::text(prompt_text)]),
-        now_ms(),
+        timestamp,
     ))];
     let context = Context {
         system_prompt: Some(SUMMARIZATION_SYSTEM_PROMPT.to_string()),
@@ -334,14 +335,11 @@ pub async fn generate_branch_summary(
     let mut req_opts = rpi_ai::SimpleStreamOptions::default();
     req_opts.api_key = options.llm.api_key.clone();
     req_opts.signal = options.llm.signal.clone();
-    req_opts.max_tokens = Some(2048);
-    if options.llm.model.reasoning {
-        if let Some(tl) = options.llm.thinking_level {
-            if tl != ThinkingLevel::Off {
-                req_opts.reasoning = Some(tl);
-            }
-        }
-    }
+    req_opts.max_tokens = Some(if options.llm.model.max_tokens > 0 {
+        4096.min(options.llm.model.max_tokens)
+    } else {
+        4096
+    });
 
     let response = complete_simple_with_retries(
         options.llm.provider.clone(),
@@ -362,9 +360,27 @@ pub async fn generate_branch_summary(
     }
     if response.stop_reason == StopReason::Error {
         return Err(BranchSummaryError::summarization_failed(format!(
-            "Branch summary failed: {}",
-            response.error_message.as_deref().unwrap_or("Unknown error")
+            "Branch summarization failed: {}",
+            response
+                .error_message
+                .as_deref()
+                .filter(|error| !error.is_empty())
+                .unwrap_or("Unknown error")
         )));
+    }
+    if response.stop_reason == StopReason::Length {
+        return Err(BranchSummaryError::summarization_failed(
+            "Branch summarization failed: generation hit the token cap and the summary is incomplete",
+        ));
+    }
+    if response
+        .content
+        .iter()
+        .any(|block| matches!(block, Content::ToolCall(_)))
+    {
+        return Err(BranchSummaryError::summarization_failed(
+            "Branch summarization attempted to call a tool",
+        ));
     }
 
     let mut summary = Content::text_only(&response.content, "\n");
@@ -401,6 +417,208 @@ impl GenerateBranchSummaryOptions {
 mod tests {
     use super::*;
     use crate::session::types::EntryBase;
+
+    #[tokio::test]
+    async fn generated_summaries_match_pi_reference_requests_and_failures() {
+        use rpi_ai::types::{AssistantMessage, AssistantMessageEvent, DoneReason, ErrorReason};
+        use rpi_ai::{Model, Provider, SimpleStreamOptions};
+        use std::sync::{Arc, Mutex};
+        struct Capture {
+            mode: String,
+            model: Model,
+            requests: Mutex<Vec<serde_json::Value>>,
+        }
+        #[async_trait::async_trait]
+        impl Provider for Capture {
+            fn id(&self) -> &str {
+                "fixture"
+            }
+            fn models(&self) -> &[Model] {
+                std::slice::from_ref(&self.model)
+            }
+            async fn stream_simple(
+                &self,
+                model: &Model,
+                context: &Context,
+                options: &SimpleStreamOptions,
+            ) -> rpi_ai::AssistantMessageEventStream {
+                let routing_id =
+                    uuid::Uuid::parse_str(options.session_id.as_deref().unwrap()).unwrap();
+                assert_eq!(routing_id.get_version_num(), 7);
+                assert!(context.tools.is_empty());
+                let mut messages = vec![
+                    serde_json::json!({"role":"system","content":context.system_prompt,"timestamp":0}),
+                ];
+                messages.extend(
+                    context
+                        .messages
+                        .iter()
+                        .map(|message| serde_json::to_value(message).unwrap()),
+                );
+                let cache_retention = match options.cache_retention {
+                    rpi_ai::CacheRetention::None => "none",
+                    rpi_ai::CacheRetention::Short => "short",
+                    rpi_ai::CacheRetention::Long => "long",
+                };
+                self.requests.lock().unwrap().push(serde_json::json!({
+                    "context":{"messages":messages}, "maxTokens":options.max_tokens,
+                    "cacheRetention":cache_retention, "reasoning":options.reasoning,
+                }));
+                let mut response = AssistantMessage::empty(
+                    model.api.clone(),
+                    "fixture",
+                    "fixture",
+                    1000,
+                );
+                response.content = if self.mode == "tool" {
+                    vec![Content::tool_call("call", "write", serde_json::json!({}))]
+                } else {
+                    vec![Content::text("summary text")]
+                };
+                response.usage = Usage::zero();
+                response.usage.input = 1;
+                response.usage.output = 2;
+                response.usage.total_tokens = 3;
+                response.stop_reason = match self.mode.as_str() {
+                    "error" | "emptyError" => StopReason::Error,
+                    "aborted" => StopReason::Aborted,
+                    "length" => StopReason::Length,
+                    _ => StopReason::Stop,
+                };
+                response.error_message = match self.mode.as_str() {
+                    "error" => Some("fixture failure".into()),
+                    "emptyError" => Some(String::new()),
+                    _ => None,
+                };
+                let event = match response.stop_reason {
+                    StopReason::Error => AssistantMessageEvent::Error {
+                        reason: ErrorReason::Error,
+                        error: response,
+                    },
+                    StopReason::Aborted => AssistantMessageEvent::Error {
+                        reason: ErrorReason::Aborted,
+                        error: response,
+                    },
+                    StopReason::Length => AssistantMessageEvent::Done {
+                        reason: DoneReason::Length,
+                        message: response,
+                    },
+                    _ => AssistantMessageEvent::Done {
+                        reason: DoneReason::Stop,
+                        message: response,
+                    },
+                };
+                let (mut tx, stream) =
+                    rpi_ai::event_stream::create_assistant_message_event_stream();
+                assert!(tx.push(event).await);
+                stream
+            }
+        }
+        let reference: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../docs/provider-parity/branch-summary-reference.json"
+        ))
+        .unwrap();
+        for row in reference["rows"].as_array().unwrap() {
+            let mode = row["mode"].as_str().unwrap();
+            let faux = rpi_ai::providers::faux::FauxProvider::new(
+                rpi_ai::providers::faux::FauxScript::new(),
+            );
+            let mut model = faux.models()[0].clone();
+            model.context_window = 128000;
+            model.reasoning = true;
+            model.max_tokens = match mode {
+                "small" => 512,
+                "unlimited" => 0,
+                _ => 8192,
+            };
+            let provider = Arc::new(Capture {
+                mode: mode.into(),
+                model: model.clone(),
+                requests: Mutex::new(Vec::new()),
+            });
+            let mut options = GenerateBranchSummaryOptions::new(CompactionLlmOptions {
+                provider: provider.clone(),
+                model,
+                api_key: None,
+                signal: tokio_util::sync::CancellationToken::new(),
+                thinking_level: Some(rpi_ai::ThinkingLevel::High),
+                retry: None,
+                custom_instructions: match mode {
+                    "emptyInstructions" | "emptyReplace" => Some(String::new()),
+                    "focus" | "replace" => Some("Keep the commands".into()),
+                    _ => None,
+                },
+            });
+            options.replace_instructions = matches!(mode, "replace" | "emptyReplace");
+            if mode == "grace" {
+                options.reserve_tokens = 128000 - 3;
+            }
+            let mut entries = if mode == "emptyEntries" {
+                vec![]
+            } else {
+                vec![user_msg(
+                    if mode == "grace" {
+                        "12345678"
+                    } else {
+                        "Summarize this branch"
+                    },
+                    1000,
+                )]
+            };
+            if matches!(mode, "priorNative" | "priorHook" | "grace") {
+                let value = serde_json::json!({"type":"branch_summary","id":"prior","parentId":null,"seq":1,"timestamp":1000,
+                    "fromId":"origin","summary":"older summary","fromHook":mode == "priorHook",
+                    "details":{"readFiles":["/r"],"modifiedFiles":["/m"]}});
+                let entry: Entry = serde_json::from_value(value.clone()).unwrap();
+                assert_eq!(serde_json::to_value(&entry).unwrap(), value);
+                let provisioned = crate::session::types::provisioned_from_entry(&entry);
+                assert_eq!(
+                    crate::session::types::provisioned_into_entry(provisioned, 1, None, 1000),
+                    entry
+                );
+                let mut invalid = value;
+                invalid["fromHook"] = "true".into();
+                assert!(serde_json::from_value::<Entry>(invalid).is_err());
+                entries.insert(0, entry);
+            }
+            let actual = match generate_branch_summary_at(&entries, &options, 1000).await {
+                Ok(result) if result.usage.is_none() => {
+                    serde_json::json!({"summary":result.summary})
+                }
+                Ok(result) => serde_json::json!({"summary":result.summary,"usage":result.usage,
+                    "readFiles":result.read_files,"modifiedFiles":result.modified_files}),
+                Err(error)
+                    if error.code
+                        == crate::compaction::compaction::CompactionErrorCode::Aborted =>
+                {
+                    serde_json::json!({"aborted":true})
+                }
+                Err(error) => serde_json::json!({"error":error.message}),
+            };
+            assert_eq!(js_numbers(actual), js_numbers(row["result"].clone()), "{mode}: result");
+            assert_eq!(
+                js_numbers(serde_json::json!(*provider.requests.lock().unwrap())),
+                js_numbers(row["requests"].clone()),
+                "{mode}: request"
+            );
+        }
+    }
+
+    /// JavaScript has one number type, so the reference records `0` where Rust
+    /// serializes `0.0`. Compare numbers by value, not by JSON representation.
+    fn js_numbers(value: serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Number(n) => n
+                .as_f64()
+                .and_then(serde_json::Number::from_f64)
+                .map_or(serde_json::Value::Number(n), serde_json::Value::Number),
+            serde_json::Value::Array(items) => items.into_iter().map(js_numbers).collect(),
+            serde_json::Value::Object(map) => serde_json::Value::Object(
+                map.into_iter().map(|(k, v)| (k, js_numbers(v))).collect(),
+            ),
+            other => other,
+        }
+    }
 
     fn user_msg(text: &str, seq: u64) -> Entry {
         Entry::Message(crate::session::types::MessageEntry {
@@ -459,6 +677,7 @@ mod tests {
             summary: "s".into(),
             details: Some(details),
             usage: None,
+            from_hook: None,
         });
         let p = prepare_branch_entries(&[b], 0);
         assert!(p.file_ops.read.contains("/r"));

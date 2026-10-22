@@ -337,6 +337,7 @@ mod tests {
             summary: summary.into(),
             details: None,
             usage: None,
+            from_hook: None,
         })
     }
 
