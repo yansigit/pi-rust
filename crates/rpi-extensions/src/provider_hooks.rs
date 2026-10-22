@@ -25,6 +25,7 @@ impl ExtensionProviderHooks {
             EventTag::SessionCompact,
             EventTag::SessionCompactFailed,
             EventTag::SessionBeforeTree,
+            EventTag::SessionTreeFailed,
             EventTag::SessionTree,
             EventTag::Context,
             EventTag::BeforeProviderRequest,
@@ -81,6 +82,7 @@ impl ProviderHooks for ExtensionProviderHooks {
             "session_compact_failed" => EventTag::SessionCompactFailed,
             "session_before_tree" => EventTag::SessionBeforeTree,
             "session_tree" => EventTag::SessionTree,
+            "session_tree_failed" => EventTag::SessionTreeFailed,
             _ => return Err("unsupported lifecycle event".into()),
         };
         crate::result_events::dispatch(

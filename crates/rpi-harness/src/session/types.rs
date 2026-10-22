@@ -1335,6 +1335,17 @@ pub trait SessionStorage: Send + Sync {
         ))
     }
 
+    /// The lane's current branch revision and leaf, for a later
+    /// [`Self::move_lane_at_revision`]. Backends may answer without a full snapshot.
+    async fn branch_revision(&self, lane: &str) -> SessionResult<BranchRevision> {
+        self.snapshot()
+            .await?
+            .branches
+            .into_iter()
+            .find(|branch| branch.lane == lane)
+            .ok_or_else(|| crate::error::SessionError::storage(format!("unknown lane {lane}")))
+    }
+
     /// Move only the captured branch generation and await the backend's durability barrier.
     /// In-memory storage remains ephemeral, as reported by `sync`.
     /// Ordinary appends preserve this authority; another lane move revokes it.

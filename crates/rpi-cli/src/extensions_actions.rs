@@ -847,26 +847,25 @@ impl RuntimeActionHost for HarnessActionHost {
 
     async fn navigate_tree(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
         let target_id = arg_str_opt(&args, "targetId");
-        let summarize = arg_bool(&args, "summarize");
-        let custom = arg_str_opt(&args, "customInstructions");
-        let label = arg_str_opt(&args, "label");
+        let options = rpi_harness::agent_harness::NavigateTreeOptions {
+            summarize: arg_bool(&args, "summarize"),
+            custom_instructions: arg_str_opt(&args, "customInstructions"),
+            replace_instructions: args.get("replaceInstructions").and_then(|v| v.as_bool()),
+            label: arg_str_opt(&args, "label"),
+        };
         let lane = self.harness()?.lane("main");
         let result = lane
-            .navigate_tree(
-                target_id.as_deref(),
-                summarize,
-                custom.as_deref(),
-                label.as_deref(),
-            )
+            .navigate_tree_with(target_id.as_deref(), options)
             .await
             .map_err(|e| e.to_string())?;
-        let status = match &result.outcome {
-            NavigationOutcome::Completed { .. } => "completed",
-            NavigationOutcome::Declined { .. } => "declined",
-            NavigationOutcome::Aborted { .. } => "aborted",
-            NavigationOutcome::Failed { .. } => "failed",
+        // Pi resolves `{cancelled}` and rejects when navigation throws.
+        let (status, cancelled) = match &result.outcome {
+            NavigationOutcome::Completed { .. } => ("completed", false),
+            NavigationOutcome::Declined { .. } => ("declined", true),
+            NavigationOutcome::Aborted { .. } => ("aborted", true),
+            NavigationOutcome::Failed { error, .. } => return Err(error.message.clone()),
         };
-        Ok(serde_json::json!({ "runId": result.run_id, "status": status }))
+        Ok(serde_json::json!({ "runId": result.run_id, "status": status, "cancelled": cancelled }))
     }
 
     async fn switch_session(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {

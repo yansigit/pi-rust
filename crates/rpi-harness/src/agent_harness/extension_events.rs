@@ -3,9 +3,9 @@ use super::*;
 use crate::compaction::{CompactResult, CompactionError, CompactionPreparation};
 use rpi_ai::{identity::RequestIdentity, ProviderHooks};
 
-struct SummaryProvider {
-    provider: Arc<dyn AiProvider>,
-    hooks: Arc<dyn ProviderHooks>,
+pub(super) struct SummaryProvider {
+    pub(super) provider: Arc<dyn AiProvider>,
+    pub(super) hooks: Arc<dyn ProviderHooks>,
 }
 #[async_trait::async_trait]
 impl AiProvider for SummaryProvider {

@@ -144,14 +144,17 @@ pub enum ModelSelectionSource {
     Restore,
 }
 
-/// `NavigationOutcome`. Mirrors TS `NavigationOutcome`. v1 only emits
-/// `Declined` on a no-op navigation (the real branch navigation loop is
-/// deferred).
+/// `NavigationOutcome`. Pi's `navigateTree` result `{cancelled, aborted?,
+/// editorText?, summaryEntry?}`: `Completed` is `cancelled: false` (including the
+/// same-leaf no-op), `Declined` is a hook cancellation, `Aborted` an aborted
+/// default summary, and `Failed` an error Pi would throw.
 #[derive(Debug, Clone)]
 pub enum NavigationOutcome {
     Completed {
         new_leaf_id: Option<String>,
         summary_entry: Option<Entry>,
+        /// Text of a selected user or custom message, for the editor.
+        editor_text: Option<String>,
     },
     Declined {
         leaf_id: Option<String>,
@@ -178,6 +181,15 @@ pub struct RunResult {
 pub struct CompactionResult {
     pub run_id: String,
     pub outcome: CompactionOutcome,
+}
+
+/// Options of Pi's `navigateTree(targetId, options)`.
+#[derive(Debug, Clone, Default)]
+pub struct NavigateTreeOptions {
+    pub summarize: bool,
+    pub custom_instructions: Option<String>,
+    pub replace_instructions: Option<bool>,
+    pub label: Option<String>,
 }
 
 /// Result of `navigate_tree`. Mirrors TS `NavigationResult`.
@@ -378,6 +390,22 @@ pub trait AgentLane: Send + Sync {
         summarize: bool,
         custom_instructions: Option<&str>,
         label: Option<&str>,
+    ) -> HarnessResult<NavigationResult> {
+        self.navigate_tree_with(
+            target_id,
+            NavigateTreeOptions {
+                summarize,
+                custom_instructions: custom_instructions.map(str::to_owned),
+                replace_instructions: None,
+                label: label.map(str::to_owned),
+            },
+        )
+        .await
+    }
+    async fn navigate_tree_with(
+        &self,
+        target_id: Option<&str>,
+        options: NavigateTreeOptions,
     ) -> HarnessResult<NavigationResult>;
 
     async fn abort(&self) -> HarnessResult<AbortResult>;
@@ -628,6 +656,8 @@ struct HarnessInner {
     stream_options: AgentHarnessStreamOptions,
     retry: RetryPolicy,
     compaction: CompactionSettings,
+    /// `branchSummary.reserveTokens`; `None` uses the summarizer's default.
+    branch_summary_reserve_tokens: Option<i64>,
     /// v1 leaves the harness in `Automatic` driving mode; the field is kept so
     /// the contract mirrors TS `AgentHarnessOptions.drive`.
     #[allow(dead_code)]
@@ -700,6 +730,7 @@ pub struct AgentHarness {
 
 mod child;
 mod extension_events;
+mod navigation;
 mod native_tools;
 pub use child::ChildHarness;
 mod weak;
@@ -805,6 +836,7 @@ impl AgentHarness {
             stream_options: options.stream_options,
             retry: options.retry,
             compaction: options.compaction,
+            branch_summary_reserve_tokens: None,
             driving: options.drive,
             tool_execution: options.tool_execution,
             system_prompt: options.system_prompt,
@@ -2287,6 +2319,11 @@ impl AgentHarness {
     /// `ExtensionProviderHooks` fires `before_request`/`after_response` inside
     /// the `StreamFn` closure). `/reload` builds a fresh hooks adapter over the
     /// reloaded registry snapshot.
+    /// Settings `branchSummary.reserveTokens` for tree-navigation summaries.
+    pub fn set_branch_summary_reserve_tokens(&self, tokens: Option<i64>) {
+        self.inner.lock().unwrap().branch_summary_reserve_tokens = tokens;
+    }
+
     pub async fn set_provider_hooks(
         &self,
         hooks: Option<Arc<dyn rpi_ai::ProviderHooks>>,
@@ -4859,47 +4896,16 @@ impl AgentLane for AgentHarness {
         }
     }
 
-    async fn navigate_tree(
+    async fn navigate_tree_with(
         &self,
         target_id: Option<&str>,
-        _summarize: bool,
-        _custom_instructions: Option<&str>,
-        _label: Option<&str>,
+        options: NavigateTreeOptions,
     ) -> HarnessResult<NavigationResult> {
-        let run_id = self.session.id_generator().next();
-        let target = target_id.filter(|id| !id.is_empty());
-        match self.session.move_lane(&self.lane, target).await {
-            Ok(()) => {
-                let leaf = self
-                    .session
-                    .view(&self.lane)
-                    .get_leaf_id()
-                    .await
-                    .map_err(session_to_harness_err)?;
-                Ok(NavigationResult {
-                    run_id,
-                    outcome: NavigationOutcome::Completed {
-                        new_leaf_id: leaf,
-                        summary_entry: None,
-                    },
-                })
-            }
-            Err(error) => Ok(NavigationResult {
-                run_id,
-                outcome: NavigationOutcome::Failed {
-                    leaf_id: self
-                        .session
-                        .view(&self.lane)
-                        .get_leaf_id()
-                        .await
-                        .ok()
-                        .flatten(),
-                    error: OperationError {
-                        code: "navigation_failed".into(),
-                        message: error.to_string(),
-                    },
-                },
-            }),
+        let scope = self.inner.lock().unwrap().execution_scope.clone();
+        let operation = self.navigate_core(target_id, options);
+        match scope {
+            Some(scope) => scope.run(operation).await,
+            None => operation.await,
         }
     }
 
@@ -5453,16 +5459,12 @@ impl AgentLane for LaneHandle {
         self.runner().compact(custom_instructions).await
     }
 
-    async fn navigate_tree(
+    async fn navigate_tree_with(
         &self,
         target_id: Option<&str>,
-        summarize: bool,
-        custom_instructions: Option<&str>,
-        label: Option<&str>,
+        options: NavigateTreeOptions,
     ) -> HarnessResult<NavigationResult> {
-        self.runner()
-            .navigate_tree(target_id, summarize, custom_instructions, label)
-            .await
+        self.runner().navigate_tree_with(target_id, options).await
     }
 
     async fn abort(&self) -> HarnessResult<AbortResult> {

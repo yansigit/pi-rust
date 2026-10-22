@@ -155,3 +155,48 @@ later summaries. Malformed `fromHook` values are rejected.
 `generated_summaries_match_pi_reference_requests_and_failures` compares every
 request and result. Numbers compare by value, since JavaScript records `0` for
 Rust's `0.0`. Tree navigation hook and summary dispatch remain pending.
+
+## Tree navigation
+
+`AgentLane::navigate_tree_with(target, NavigateTreeOptions)` implements Pi
+1.3.0 `AgentSession.navigateTree`; the four-argument `navigate_tree` remains and
+delegates with `replaceInstructions` unset. Navigation is an admitted operation,
+so it is refused while a run or compaction is active, and `abort` cancels an
+in-progress summary. In order:
+
+- A target equal to the current leaf completes without events. A missing entry
+  fails with Pi's `Entry <id> not found` before any hook.
+- `session_before_tree` receives Pi's preparation (`targetId`, `oldLeafId`,
+  `commonAncestorId`, the entries to summarize, `userWantsSummary`, and any
+  `customInstructions`/`replaceInstructions`/`label`) with operation identity
+  `purpose: "tree"` and the navigation's cancellation signal. A returned
+  `cancel` declines; a summary is used only when summarizing; defined
+  instruction and label overrides replace the requested values; a hook error
+  fails the navigation.
+- Otherwise a requested summary uses `generate_branch_summary` with the session
+  model, retry settings and `branchSummary.reserveTokens`. An aborted summary
+  reports `Aborted`; other failures report `Failed`.
+- A user message or `custom` message target moves the branch to its parent and
+  returns its text as `editor_text`; any other target becomes the leaf.
+- The move is `move_lane_at_revision` against the revision captured at
+  admission. A summary is committed at the new position (`fromId` is the old
+  leaf or `root`, `fromHook` records an extension summary), and the label goes
+  to the summary entry, else to the target. The active tool set is restored from
+  the new branch's latest `active_tools` entry, as Pi restores tools from the
+  transcript.
+- `session_tree` carries `newLeafId`, `oldLeafId` and, with a summary,
+  `summaryEntry` and `fromExtension`.
+
+Pi emits nothing after a cancelled or failed `session_before_tree`. Native
+extensions that track the operation (Cursor ends its `"tree"` operation on
+`session_tree`) instead receive the rpi-only `session_tree_failed`
+(`EventTag::SessionTreeFailed = 38`, appended; `EVENT_TAG_COUNT` is 39) with
+`targetId`, `oldLeafId`, `cancelled`, `aborted` and an optional `error`. It is
+sent only when the before hook ran. The extension action reports Pi's
+`cancelled` and rejects when Pi's `navigateTree` would throw.
+
+`crates/rpi-harness/tests/tree_reference.rs` replays all ten Pi traces in
+`tree-reference.json` (events, mutations, final leaf, result or error, shared
+operation identity and the terminal event) and separately covers a generated
+default summary and an abort mid-summary. Interactive selector prompts
+(`branchSummary.skipPrompt`, editor text placement) are separate caller work.

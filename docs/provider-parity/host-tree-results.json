@@ -1,0 +1,43 @@
+{
+  "status": "Tree navigation lifecycle verified against Pi 1.3.0 traces on Linux; interactive selector prompt flow remains pending",
+  "reference": "Pi 1.3.0 AgentSession.navigateTree (check-tree-reference.mjs)",
+  "fixture": {
+    "path": "docs/provider-parity/tree-reference.json",
+    "sha256": "03e1f3b2dad5bf49d56abc007b1181a3def2705278cdf1807728b5cd92504a5e",
+    "traces": 10
+  },
+  "compiler": "Rust 1.78.0 workspace check with warnings denied; tests on Rust 1.95.0",
+  "checks": {
+    "treeReference": "crates/rpi-harness/tests/tree_reference.rs (10 Pi traces + default summary + abort)",
+    "touchedCrates": {
+      "crates": [
+        "rpi-harness",
+        "rpi-extensions",
+        "rpi-plugin-sdk",
+        "rpi-cli"
+      ],
+      "passed": 1342,
+      "failed": 0,
+      "logSha256": "d417fde0b8746dd2176dbd12c31192b34553f832e6d69dc403088534b29169a2"
+    }
+  },
+  "mutationCheck": [
+    "label value",
+    "editorText",
+    "fromHook"
+  ],
+  "assertions": [
+    "Same-leaf no-op and missing-entry error precede hooks",
+    "session_before_tree preparation, signal and tree operation identity",
+    "Hook cancel, summary only when summarizing, instruction/label overrides and propagated hook errors",
+    "User/custom targets move to the parent and return editor text",
+    "Revision-guarded move, branch summary at the target with fromHook, label placement",
+    "session_tree payload; session_tree_failed only after a before hook without session_tree",
+    "Default summary and abort mid-summary"
+  ],
+  "abi": "EventTag::SessionTreeFailed = 38 appended; EVENT_TAG_COUNT 39; existing discriminants unchanged",
+  "notTested": [
+    "Interactive tree selector summary prompt and editor placement",
+    "macOS and Windows execution"
+  ]
+}
