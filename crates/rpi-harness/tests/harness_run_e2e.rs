@@ -4188,6 +4188,25 @@ async fn compaction_hooks_acknowledge_commits_and_preserve_failure_identity() {
             )))
             .await
             .unwrap();
+        // Pi 1.3.0's `prepareCompaction` returns undefined when the kept range
+        // covers the whole session, and the manual path then declines before any
+        // hook. Give the fixture enough history to summarize so the hook modes
+        // below still exercise the real path.
+        for (index, text) in [
+            "middle context ".repeat(3_200),
+            "recent context ".repeat(3_200),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            harness
+                .append_message(AgentMessage::User(UserMessage::new(
+                    UserContent::Text(text),
+                    43 + index as i64,
+                )))
+                .await
+                .unwrap();
+        }
         let result = harness.compact(None).await.unwrap();
         let events = hooks.events.lock().unwrap().clone();
         assert_eq!(events.len(), 2);
