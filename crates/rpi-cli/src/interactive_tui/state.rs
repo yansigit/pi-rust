@@ -62,6 +62,8 @@ pub(super) enum SelectorKind {
     Settings,
     /// `/tree` — navigate to an existing entry in the current session.
     Tree,
+    /// `/tree` — the "Summarize branch?" follow-up selector.
+    TreeSummary,
     /// Extension-provided selector; uses the same keyboard contract.
     Extension,
 }
