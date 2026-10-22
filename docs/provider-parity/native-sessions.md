@@ -198,5 +198,34 @@ sent only when the before hook ran. The extension action reports Pi's
 `crates/rpi-harness/tests/tree_reference.rs` replays all ten Pi traces in
 `tree-reference.json` (events, mutations, final leaf, result or error, shared
 operation identity and the terminal event) and separately covers a generated
-default summary and an abort mid-summary. Interactive selector prompts
-(`branchSummary.skipPrompt`, editor text placement) are separate caller work.
+default summary and an abort mid-summary.
+
+### Interactive tree selector prompt
+
+`crates/rpi-cli/src/interactive_tui/tree_ui.rs` implements the Pi 1.3.0
+interactive caller (`interactive-mode.js:4660-4720`). `/tree` opens the session
+entry selector; choosing the current leaf short-circuits with "Already at this
+point". Otherwise the caller asks "Summarize branch?" with Pi's three answers
+("No summary", "Summarize", "Summarize with custom prompt"), honours
+`branchSummary.skipPrompt` by navigating without a summary, and opens the
+multi-line "Custom summarization instructions" editor for the third answer.
+Escape walks back one level: the editor returns to the summary selector, and the
+summary selector re-opens the tree selector with the same entry highlighted.
+
+The answer becomes `NavigateTreeOptions` (`summarize`, `customInstructions`),
+so the harness emits `session_before_tree` and `session_tree` for the dialog
+path exactly as for a direct call. An aborted summary shows "Branch
+summarization cancelled" and re-opens the tree selector; a hook-declined
+navigation shows "Navigation cancelled"; a failed navigation shows the harness
+error after the terminal `session_tree_failed` event. A user or custom-message
+target fills the editor from `editorText` only when the draft is empty, and the
+transcript is reloaded from the new branch. Repeated navigation is guarded by
+the same compaction/navigation check Pi performs after its dialogs.
+
+`crates/rpi-cli/src/interactive_tui/tree_ui/tests.rs` covers the selector
+answers, the custom editor submit/cancel paths, Escape retries, the skip
+preference, editor placement and the outcome statuses (11 tests).
+`crates/rpi-cli/tests/tree_ui.rs` drives the runtime action the dialogs call
+with the same option combinations and asserts the hook payloads plus the
+terminal event for cancelled and failed trees (6 tests). The ten Pi traces
+remain covered by `tree_reference.rs`.
