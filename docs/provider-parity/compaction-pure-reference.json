@@ -1,0 +1,6631 @@
+{
+  "reference": "Pi 1.3.0",
+  "upstream": {
+    "pi-coding-agent/dist/core/compaction/compaction.js": "573f0321e9a93a4e8dca8c327f6459082ac438d1bc8b6c3c171d90894dd1543c",
+    "pi-coding-agent/dist/core/compaction/branch-summarization.js": "0327aead9ce78dab3c3c7e54779b5974ec41bcb769dd3024f0c61edcd9ebea7e",
+    "pi-coding-agent/dist/core/compaction/utils.js": "c7e234cf33528670658080b0c2f599f40a70459565c6c2a71d4a27cb0e4c5cfb",
+    "pi-coding-agent/dist/core/session-manager.js": "046b6a1109ac3f0ed893bb85bf0648709362fa926a5da75761216cf2fcf9d926",
+    "pi-coding-agent/dist/core/messages.js": "8688b3f6eb28865f779cac998bd4754d1a4f08703200dfe0dd5a799aa0d42ef6"
+  },
+  "projection": [
+    {
+      "name": "linear",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "again",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "a1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "assistant",
+                "api": "fixture",
+                "provider": "fixture",
+                "model": "fixture",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hello"
+                  }
+                ],
+                "usage": {
+                  "input": 10,
+                  "output": 5,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "totalTokens": 0,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "u2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "again",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "again",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": {
+          "provider": "fixture",
+          "modelId": "fixture"
+        }
+      }
+    },
+    {
+      "name": "settings_and_system",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "model_change",
+          "id": "m1",
+          "parentId": null,
+          "timestamp": 1000,
+          "provider": "fixture",
+          "modelId": "fixture"
+        },
+        {
+          "type": "thinking_level_change",
+          "id": "t1",
+          "parentId": "m1",
+          "timestamp": 1000,
+          "thinkingLevel": "high"
+        },
+        {
+          "type": "message",
+          "id": "s1",
+          "parentId": "t1",
+          "timestamp": 1000,
+          "message": {
+            "role": "system",
+            "content": "system prompt",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": "s1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "m1",
+            "sourceType": "model_change",
+            "messages": []
+          },
+          {
+            "sourceId": "t1",
+            "sourceType": "thinking_level_change",
+            "messages": []
+          },
+          {
+            "sourceId": "s1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "system",
+                "content": "system prompt",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "system prompt",
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "high",
+        "model": {
+          "provider": "fixture",
+          "modelId": "fixture"
+        }
+      }
+    },
+    {
+      "name": "branch_leaf",
+      "leaf": {
+        "mode": "id",
+        "id": "b2"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "root",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "left"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "b2",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "right"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "z9",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "unused",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "root",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "b2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "assistant",
+                "api": "fixture",
+                "provider": "fixture",
+                "model": "fixture",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "right"
+                  }
+                ],
+                "usage": {
+                  "input": 10,
+                  "output": 5,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "totalTokens": 0,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "root",
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "right"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": {
+          "provider": "fixture",
+          "modelId": "fixture"
+        }
+      }
+    },
+    {
+      "name": "empty_entries",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [],
+      "result": {
+        "entries": [],
+        "messages": [],
+        "thinkingLevel": "off",
+        "model": null
+      }
+    },
+    {
+      "name": "explicit_null_leaf",
+      "leaf": {
+        "mode": "explicit"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [],
+        "messages": [],
+        "thinkingLevel": "off",
+        "model": null
+      }
+    },
+    {
+      "name": "compaction_boundary",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "old",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "old answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "kept",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u2",
+          "timestamp": 1000,
+          "summary": "summary one",
+          "firstKeptEntryId": "u2",
+          "tokensBefore": 123
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "c1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "after"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "c1",
+            "sourceType": "compaction",
+            "messages": [
+              {
+                "role": "compactionSummary",
+                "summary": "summary one",
+                "tokensBefore": 123,
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "u2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "kept",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "a2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "assistant",
+                "api": "fixture",
+                "provider": "fixture",
+                "model": "fixture",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "after"
+                  }
+                ],
+                "usage": {
+                  "input": 10,
+                  "output": 5,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "totalTokens": 0,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "compactionSummary",
+            "summary": "summary one",
+            "tokensBefore": 123,
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "kept",
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "after"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": {
+          "provider": "fixture",
+          "modelId": "fixture"
+        }
+      }
+    },
+    {
+      "name": "older_compaction_retained",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "old",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c0",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "summary": "summary zero",
+          "firstKeptEntryId": "u1",
+          "tokensBefore": 123
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "c0",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "kept",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u2",
+          "timestamp": 1000,
+          "summary": "summary one",
+          "firstKeptEntryId": "c0",
+          "tokensBefore": 123
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "c1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "after"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "c1",
+            "sourceType": "compaction",
+            "messages": [
+              {
+                "role": "compactionSummary",
+                "summary": "summary one",
+                "tokensBefore": 123,
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "c0",
+            "sourceType": "compaction",
+            "messages": []
+          },
+          {
+            "sourceId": "u2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "kept",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "a2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "assistant",
+                "api": "fixture",
+                "provider": "fixture",
+                "model": "fixture",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "after"
+                  }
+                ],
+                "usage": {
+                  "input": 10,
+                  "output": 5,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "totalTokens": 0,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "compactionSummary",
+            "summary": "summary one",
+            "tokensBefore": 123,
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "kept",
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "after"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": {
+          "provider": "fixture",
+          "modelId": "fixture"
+        }
+      }
+    },
+    {
+      "name": "compaction_system_message",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "old",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "summary": "summary",
+          "firstKeptEntryId": "u1",
+          "tokensBefore": 123,
+          "systemMessage": {
+            "role": "system",
+            "content": "replayed system",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "c1",
+            "sourceType": "compaction",
+            "messages": [
+              {
+                "role": "system",
+                "content": "replayed system",
+                "timestamp": 1000
+              },
+              {
+                "role": "compactionSummary",
+                "summary": "summary",
+                "tokensBefore": 123,
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "old",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "replayed system",
+            "timestamp": 1000
+          },
+          {
+            "role": "compactionSummary",
+            "summary": "summary",
+            "tokensBefore": 123,
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "old",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": null
+      }
+    },
+    {
+      "name": "context_edits",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "prompt",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              },
+              {
+                "type": "toolCall",
+                "id": "call-read",
+                "name": "read",
+                "arguments": {
+                  "path": "/a"
+                }
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "r1",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "toolResult",
+            "toolCallId": "call-read",
+            "toolName": "read",
+            "content": [
+              {
+                "type": "text",
+                "text": "file body"
+              }
+            ],
+            "isError": false,
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "context_edit",
+          "id": "e1",
+          "parentId": "r1",
+          "timestamp": 1000,
+          "targetId": "u1",
+          "replacement": {
+            "content": [
+              {
+                "type": "text",
+                "text": "edited prompt"
+              }
+            ]
+          }
+        },
+        {
+          "type": "context_edit",
+          "id": "e2",
+          "parentId": "e1",
+          "timestamp": 1000,
+          "targetId": "a1",
+          "replacement": {
+            "content": "edited answer"
+          }
+        },
+        {
+          "type": "context_edit",
+          "id": "e3",
+          "parentId": "e2",
+          "timestamp": 1000,
+          "targetId": "r1",
+          "replacement": {
+            "content": "edited result"
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "e3",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "next",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "edited prompt"
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "a1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "assistant",
+                "api": "fixture",
+                "provider": "fixture",
+                "model": "fixture",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "edited answer"
+                  }
+                ],
+                "usage": {
+                  "input": 10,
+                  "output": 5,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "totalTokens": 0,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "r1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "toolResult",
+                "toolCallId": "call-read",
+                "toolName": "read",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "edited result"
+                  }
+                ],
+                "isError": false,
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "e1",
+            "sourceType": "context_edit",
+            "messages": []
+          },
+          {
+            "sourceId": "e2",
+            "sourceType": "context_edit",
+            "messages": []
+          },
+          {
+            "sourceId": "e3",
+            "sourceType": "context_edit",
+            "messages": []
+          },
+          {
+            "sourceId": "u2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "next",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "edited prompt"
+              }
+            ],
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "edited answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          },
+          {
+            "role": "toolResult",
+            "toolCallId": "call-read",
+            "toolName": "read",
+            "content": [
+              {
+                "type": "text",
+                "text": "edited result"
+              }
+            ],
+            "isError": false,
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "next",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": {
+          "provider": "fixture",
+          "modelId": "fixture"
+        }
+      }
+    },
+    {
+      "name": "context_edit_omission",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "prompt",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "context_edit",
+          "id": "e1",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "targetId": "a1",
+          "replacement": null
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "e1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "next",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "prompt",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "a1",
+            "sourceType": "message",
+            "messages": []
+          },
+          {
+            "sourceId": "e1",
+            "sourceType": "context_edit",
+            "messages": []
+          },
+          {
+            "sourceId": "u2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "next",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "prompt",
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "next",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": {
+          "provider": "fixture",
+          "modelId": "fixture"
+        }
+      }
+    },
+    {
+      "name": "branch_summary_and_custom",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "branch_summary",
+          "id": "b1",
+          "parentId": null,
+          "timestamp": 1000,
+          "summary": "left branch summary",
+          "fromId": "origin"
+        },
+        {
+          "type": "branch_summary",
+          "id": "b2",
+          "parentId": "b1",
+          "timestamp": 1000,
+          "summary": "",
+          "fromId": "origin"
+        },
+        {
+          "type": "custom_message",
+          "id": "cm1",
+          "parentId": "b2",
+          "timestamp": 1000,
+          "customType": "note",
+          "content": "custom body",
+          "display": true
+        },
+        {
+          "type": "custom_message",
+          "id": "cm2",
+          "parentId": "cm1",
+          "timestamp": 1000,
+          "customType": "note",
+          "content": null,
+          "display": true,
+          "details": {
+            "k": 1
+          }
+        },
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": "cm2",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "b1",
+            "sourceType": "branch_summary",
+            "messages": [
+              {
+                "role": "branchSummary",
+                "summary": "left branch summary",
+                "fromId": "origin",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "b2",
+            "sourceType": "branch_summary",
+            "messages": []
+          },
+          {
+            "sourceId": "cm1",
+            "sourceType": "custom_message",
+            "messages": [
+              {
+                "role": "custom",
+                "customType": "note",
+                "content": "custom body",
+                "display": true,
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "cm2",
+            "sourceType": "custom_message",
+            "messages": [
+              {
+                "role": "custom",
+                "customType": "note",
+                "content": [],
+                "display": true,
+                "details": {
+                  "k": 1
+                },
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "branchSummary",
+            "summary": "left branch summary",
+            "fromId": "origin",
+            "timestamp": 1000
+          },
+          {
+            "role": "custom",
+            "customType": "note",
+            "content": "custom body",
+            "display": true,
+            "timestamp": 1000
+          },
+          {
+            "role": "custom",
+            "customType": "note",
+            "content": [],
+            "display": true,
+            "details": {
+              "k": 1
+            },
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": null
+      }
+    },
+    {
+      "name": "null_message_content",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "s1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "system",
+            "content": null,
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": "s1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": null,
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": null,
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "s1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "system",
+                "content": "",
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": [],
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "a1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "assistant",
+                "api": "fixture",
+                "provider": "fixture",
+                "model": "fixture",
+                "content": [],
+                "usage": {
+                  "input": 1,
+                  "output": 1,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "totalTokens": 0,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "",
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": [],
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [],
+            "usage": {
+              "input": 1,
+              "output": 1,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": {
+          "provider": "fixture",
+          "modelId": "fixture"
+        }
+      }
+    },
+    {
+      "name": "display_only_entries",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "custom",
+          "id": "c1",
+          "parentId": null,
+          "timestamp": 1000,
+          "customType": "state",
+          "data": {
+            "a": 1
+          }
+        },
+        {
+          "type": "label",
+          "id": "l1",
+          "parentId": "c1",
+          "timestamp": 1000,
+          "label": "checkpoint"
+        },
+        {
+          "type": "session_info",
+          "id": "i1",
+          "parentId": "l1",
+          "timestamp": 1000,
+          "name": "named"
+        },
+        {
+          "type": "active_tools_change",
+          "id": "at1",
+          "parentId": "i1",
+          "timestamp": 1000,
+          "toolNames": [
+            "read"
+          ]
+        },
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": "at1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "c1",
+            "sourceType": "custom",
+            "messages": []
+          },
+          {
+            "sourceId": "l1",
+            "sourceType": "label",
+            "messages": []
+          },
+          {
+            "sourceId": "i1",
+            "sourceType": "session_info",
+            "messages": []
+          },
+          {
+            "sourceId": "at1",
+            "sourceType": "active_tools_change",
+            "messages": []
+          },
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": null
+      }
+    },
+    {
+      "name": "system_tools_replay",
+      "leaf": {
+        "mode": "default"
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "s1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "system",
+            "content": "base prompt",
+            "sections": {
+              "skills": "one",
+              "notes": null
+            },
+            "toolsAdded": [
+              {
+                "name": "read",
+                "description": "reads"
+              }
+            ],
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "s2",
+          "parentId": "s1",
+          "timestamp": 1000,
+          "message": {
+            "role": "system",
+            "content": "more prompt",
+            "sections": {
+              "skills": "two"
+            },
+            "toolsAdded": [
+              {
+                "name": "write",
+                "description": "writes"
+              }
+            ],
+            "toolsRemoved": [
+              {
+                "name": "read"
+              }
+            ],
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": "s2",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "entries": [
+          {
+            "sourceId": "s1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "system",
+                "content": "base prompt",
+                "sections": {
+                  "skills": "one",
+                  "notes": null
+                },
+                "toolsAdded": [
+                  {
+                    "name": "read",
+                    "description": "reads"
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "s2",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "system",
+                "content": "more prompt",
+                "sections": {
+                  "skills": "two"
+                },
+                "toolsAdded": [
+                  {
+                    "name": "write",
+                    "description": "writes"
+                  }
+                ],
+                "toolsRemoved": [
+                  {
+                    "name": "read"
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          {
+            "sourceId": "u1",
+            "sourceType": "message",
+            "messages": [
+              {
+                "role": "user",
+                "content": "hi",
+                "timestamp": 1000
+              }
+            ]
+          }
+        ],
+        "messages": [
+          {
+            "role": "system",
+            "content": "base prompt",
+            "sections": {
+              "skills": "one",
+              "notes": null
+            },
+            "toolsAdded": [
+              {
+                "name": "read",
+                "description": "reads"
+              }
+            ],
+            "timestamp": 1000
+          },
+          {
+            "role": "system",
+            "content": "more prompt",
+            "sections": {
+              "skills": "two"
+            },
+            "toolsAdded": [
+              {
+                "name": "write",
+                "description": "writes"
+              }
+            ],
+            "toolsRemoved": [
+              {
+                "name": "read"
+              }
+            ],
+            "timestamp": 1000
+          },
+          {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        ],
+        "thinkingLevel": "off",
+        "model": null
+      }
+    }
+  ],
+  "tokens": {
+    "estimateTokens": [
+      {
+        "name": "user_text",
+        "message": {
+          "role": "user",
+          "content": "abcd",
+          "timestamp": 0
+        },
+        "result": 1
+      },
+      {
+        "name": "user_unicode",
+        "message": {
+          "role": "user",
+          "content": "😀한글",
+          "timestamp": 0
+        },
+        "result": 1
+      },
+      {
+        "name": "user_blocks",
+        "message": {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "abcd"
+            },
+            {
+              "type": "image",
+              "data": "x"
+            }
+          ],
+          "timestamp": 0
+        },
+        "result": 1201
+      },
+      {
+        "name": "assistant_mixed",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [
+            {
+              "type": "text",
+              "text": "abcd"
+            },
+            {
+              "type": "thinking",
+              "thinking": "efgh"
+            },
+            {
+              "type": "toolCall",
+              "id": "call-read",
+              "name": "read",
+              "arguments": {
+                "path": "/a",
+                "n": [
+                  1,
+                  2
+                ]
+              }
+            }
+          ],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "timestamp": 0
+        },
+        "result": 9
+      },
+      {
+        "name": "assistant_tool_args_unicode",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [
+            {
+              "type": "toolCall",
+              "id": "call-edit",
+              "name": "edit",
+              "arguments": {
+                "path": "/é",
+                "text": "\"quoted\"\nline"
+              }
+            }
+          ],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "timestamp": 0
+        },
+        "result": 11
+      },
+      {
+        "name": "system_sections",
+        "message": {
+          "role": "system",
+          "content": "abcd",
+          "sections": {
+            "a": "efgh",
+            "b": null,
+            "c": "ij"
+          },
+          "toolsAdded": {
+            "read": {
+              "description": "reads"
+            }
+          },
+          "timestamp": 0
+        },
+        "result": 11
+      },
+      {
+        "name": "tool_result",
+        "message": {
+          "role": "toolResult",
+          "toolCallId": "c",
+          "toolName": "read",
+          "content": [
+            {
+              "type": "text",
+              "text": "12345678"
+            }
+          ],
+          "isError": false,
+          "timestamp": 0
+        },
+        "result": 2
+      },
+      {
+        "name": "bash_execution",
+        "message": {
+          "role": "bashExecution",
+          "command": "echo hi",
+          "output": "hi",
+          "cancelled": false,
+          "exitCode": 0,
+          "timestamp": 0
+        },
+        "result": 3
+      },
+      {
+        "name": "custom",
+        "message": {
+          "role": "custom",
+          "customType": "note",
+          "content": [
+            {
+              "type": "text",
+              "text": "1234"
+            }
+          ],
+          "display": true,
+          "timestamp": 0
+        },
+        "result": 1
+      },
+      {
+        "name": "branch_summary",
+        "message": {
+          "role": "branchSummary",
+          "summary": "12345678",
+          "fromId": "x",
+          "timestamp": 0
+        },
+        "result": 2
+      },
+      {
+        "name": "compaction_summary",
+        "message": {
+          "role": "compactionSummary",
+          "summary": "1234",
+          "tokensBefore": 5,
+          "timestamp": 0
+        },
+        "result": 1
+      }
+    ],
+    "estimateContextTokens": [
+      {
+        "name": "no_usage",
+        "messages": [
+          {
+            "role": "user",
+            "content": "12345678",
+            "timestamp": 0
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "1234"
+              }
+            ],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 0
+          }
+        ],
+        "result": {
+          "tokens": 3,
+          "usageTokens": 0,
+          "trailingTokens": 3,
+          "lastUsageIndex": null
+        }
+      },
+      {
+        "name": "usage_and_trailing",
+        "messages": [
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "1234"
+              }
+            ],
+            "usage": {
+              "input": 100,
+              "output": 20,
+              "cacheRead": 5,
+              "cacheWrite": 5,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 0
+          },
+          {
+            "role": "user",
+            "content": "12345678",
+            "timestamp": 0
+          },
+          {
+            "role": "user",
+            "content": "1234",
+            "timestamp": 0
+          }
+        ],
+        "result": {
+          "tokens": 133,
+          "usageTokens": 130,
+          "trailingTokens": 3,
+          "lastUsageIndex": 0
+        }
+      },
+      {
+        "name": "skips_aborted_error_zero",
+        "messages": [
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "1234"
+              }
+            ],
+            "usage": {
+              "input": 100,
+              "output": 20,
+              "cacheRead": 5,
+              "cacheWrite": 5,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "aborted",
+            "timestamp": 0
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "1234"
+              }
+            ],
+            "usage": {
+              "input": 100,
+              "output": 20,
+              "cacheRead": 5,
+              "cacheWrite": 5,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 0
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "1234"
+              }
+            ],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 0
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "1234"
+              }
+            ],
+            "usage": {
+              "input": 100,
+              "output": 20,
+              "cacheRead": 5,
+              "cacheWrite": 5,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 0
+          },
+          {
+            "role": "user",
+            "content": "12345678",
+            "timestamp": 0
+          }
+        ],
+        "result": {
+          "tokens": 132,
+          "usageTokens": 130,
+          "trailingTokens": 2,
+          "lastUsageIndex": 3
+        }
+      }
+    ],
+    "estimateProjectedContextTokens": [
+      {
+        "name": "fresh_usage",
+        "entries": [
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": "u1",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                }
+              ],
+              "usage": {
+                "input": 100,
+                "output": 20,
+                "cacheRead": 5,
+                "cacheWrite": 5,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "branchEntryIds": [
+          "u1",
+          "a1",
+          "u2"
+        ],
+        "branchEntries": [
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": "u1",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                }
+              ],
+              "usage": {
+                "input": 100,
+                "output": 20,
+                "cacheRead": 5,
+                "cacheWrite": 5,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "tokens": 131,
+          "usageTokens": 130,
+          "trailingTokens": 1,
+          "lastUsageIndex": 1
+        }
+      },
+      {
+        "name": "usage_before_compaction",
+        "entries": [
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                }
+              ],
+              "usage": {
+                "input": 100,
+                "output": 20,
+                "cacheRead": 5,
+                "cacheWrite": 5,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "compaction",
+            "id": "c1",
+            "parentId": "u2",
+            "timestamp": 1000,
+            "summary": "summary",
+            "firstKeptEntryId": "u2",
+            "tokensBefore": 123
+          }
+        ],
+        "branchEntryIds": [
+          "a1",
+          "u2",
+          "c1"
+        ],
+        "branchEntries": [
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                }
+              ],
+              "usage": {
+                "input": 100,
+                "output": 20,
+                "cacheRead": 5,
+                "cacheWrite": 5,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "compaction",
+            "id": "c1",
+            "parentId": "u2",
+            "timestamp": 1000,
+            "summary": "summary",
+            "firstKeptEntryId": "u2",
+            "tokensBefore": 123
+          }
+        ],
+        "result": {
+          "tokens": 4,
+          "usageTokens": 0,
+          "trailingTokens": 4,
+          "lastUsageIndex": null
+        }
+      },
+      {
+        "name": "usage_before_context_edit",
+        "entries": [
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                }
+              ],
+              "usage": {
+                "input": 100,
+                "output": 20,
+                "cacheRead": 5,
+                "cacheWrite": 5,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "context_edit",
+            "id": "e1",
+            "parentId": "u2",
+            "timestamp": 1000,
+            "targetId": "a1",
+            "replacement": {
+              "content": "edited"
+            }
+          }
+        ],
+        "branchEntryIds": [
+          "a1",
+          "u2",
+          "e1"
+        ],
+        "branchEntries": [
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                }
+              ],
+              "usage": {
+                "input": 100,
+                "output": 20,
+                "cacheRead": 5,
+                "cacheWrite": 5,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "context_edit",
+            "id": "e1",
+            "parentId": "u2",
+            "timestamp": 1000,
+            "targetId": "a1",
+            "replacement": {
+              "content": "edited"
+            }
+          }
+        ],
+        "result": {
+          "tokens": 4,
+          "usageTokens": 0,
+          "trailingTokens": 4,
+          "lastUsageIndex": null
+        }
+      },
+      {
+        "name": "usage_after_edit_of_other",
+        "entries": [
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": "u1",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                }
+              ],
+              "usage": {
+                "input": 100,
+                "output": 20,
+                "cacheRead": 5,
+                "cacheWrite": 5,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "context_edit",
+            "id": "e1",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "targetId": "u1",
+            "replacement": {
+              "content": "edited"
+            }
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "e1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "branchEntryIds": [
+          "u1",
+          "a1",
+          "e1",
+          "u2"
+        ],
+        "branchEntries": [
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": "u1",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                }
+              ],
+              "usage": {
+                "input": 100,
+                "output": 20,
+                "cacheRead": 5,
+                "cacheWrite": 5,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "context_edit",
+            "id": "e1",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "targetId": "u1",
+            "replacement": {
+              "content": "edited"
+            }
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "e1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "tokens": 4,
+          "usageTokens": 0,
+          "trailingTokens": 4,
+          "lastUsageIndex": null
+        }
+      },
+      {
+        "name": "no_usage_system_included",
+        "entries": [
+          {
+            "type": "message",
+            "id": "s1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "system",
+              "content": "system text",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": "s1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "branchEntryIds": [
+          "s1",
+          "u1"
+        ],
+        "branchEntries": [
+          {
+            "type": "message",
+            "id": "s1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "system",
+              "content": "system text",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": "s1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "tokens": 5,
+          "usageTokens": 0,
+          "trailingTokens": 5,
+          "lastUsageIndex": null
+        }
+      },
+      {
+        "name": "no_usage_system_replay",
+        "entries": [
+          {
+            "type": "message",
+            "id": "s1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "system",
+              "content": "base",
+              "sections": {
+                "a": "one",
+                "b": null
+              },
+              "toolsAdded": [
+                {
+                  "name": "read",
+                  "description": "reads"
+                }
+              ],
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "s2",
+            "parentId": "s1",
+            "timestamp": 1000,
+            "message": {
+              "role": "system",
+              "content": "more",
+              "sections": {
+                "a": "two"
+              },
+              "toolsAdded": [
+                {
+                  "name": "write",
+                  "description": "writes"
+                }
+              ],
+              "toolsRemoved": [
+                {
+                  "name": "read"
+                }
+              ],
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": "s2",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "branchEntryIds": [
+          "s1",
+          "s2",
+          "u1"
+        ],
+        "branchEntries": [
+          {
+            "type": "message",
+            "id": "s1",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "system",
+              "content": "base",
+              "sections": {
+                "a": "one",
+                "b": null
+              },
+              "toolsAdded": [
+                {
+                  "name": "read",
+                  "description": "reads"
+                }
+              ],
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "s2",
+            "parentId": "s1",
+            "timestamp": 1000,
+            "message": {
+              "role": "system",
+              "content": "more",
+              "sections": {
+                "a": "two"
+              },
+              "toolsAdded": [
+                {
+                  "name": "write",
+                  "description": "writes"
+                }
+              ],
+              "toolsRemoved": [
+                {
+                  "name": "read"
+                }
+              ],
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": "s2",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "tokens": 15,
+          "usageTokens": 0,
+          "trailingTokens": 15,
+          "lastUsageIndex": null
+        }
+      }
+    ]
+  },
+  "prepare": [
+    {
+      "name": "empty",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 20
+      },
+      "entries": [],
+      "result": null
+    },
+    {
+      "name": "already_compacted",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 20
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "summary": "summary",
+          "firstKeptEntryId": "u1",
+          "tokensBefore": 123
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "cut_at_assistant_split",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 8
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "u2",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u3",
+          "parentId": "a2",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a2",
+        "messagesToSummarize": [
+          {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        ],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 19,
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 8
+        }
+      }
+    },
+    {
+      "name": "split_turn",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a2",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 15,
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    },
+    {
+      "name": "split_turn_empty_history",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 1
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a1",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 15,
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 1
+        }
+      }
+    },
+    {
+      "name": "previous_compaction",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "summary": "prior summary",
+          "firstKeptEntryId": "u2",
+          "tokensBefore": 123,
+          "details": {
+            "readFiles": [
+              "/read"
+            ],
+            "modifiedFiles": [
+              "/mod"
+            ]
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "c1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "u2",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u3",
+          "parentId": "a2",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a2",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 17,
+        "previousSummary": "prior summary",
+        "fileOps": {
+          "read": [
+            "/read"
+          ],
+          "written": [],
+          "edited": [
+            "/mod"
+          ]
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    },
+    {
+      "name": "previous_compaction_from_hook",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "summary": "prior summary",
+          "firstKeptEntryId": "u2",
+          "tokensBefore": 123,
+          "fromHook": true,
+          "details": {
+            "readFiles": [
+              "/read"
+            ],
+            "modifiedFiles": [
+              "/mod"
+            ]
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "c1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "u2",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a2",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 15,
+        "previousSummary": "prior summary",
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    },
+    {
+      "name": "file_ops_from_tools",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 2
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "call-read",
+                "name": "read",
+                "arguments": {
+                  "path": "/r"
+                }
+              },
+              {
+                "type": "toolCall",
+                "id": "call-write",
+                "name": "write",
+                "arguments": {
+                  "path": "/w"
+                }
+              },
+              {
+                "type": "toolCall",
+                "id": "call-edit",
+                "name": "edit",
+                "arguments": {
+                  "path": "/e"
+                }
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "r1",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "toolResult",
+            "toolCallId": "call-read",
+            "toolName": "read",
+            "content": [
+              {
+                "type": "text",
+                "text": "body"
+              }
+            ],
+            "isError": false,
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "r1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "call-edit",
+                "name": "edit",
+                "arguments": {
+                  "path": "/r"
+                }
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "a2",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "u2",
+        "messagesToSummarize": [
+          {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "call-read",
+                "name": "read",
+                "arguments": {
+                  "path": "/r"
+                }
+              },
+              {
+                "type": "toolCall",
+                "id": "call-write",
+                "name": "write",
+                "arguments": {
+                  "path": "/w"
+                }
+              },
+              {
+                "type": "toolCall",
+                "id": "call-edit",
+                "name": "edit",
+                "arguments": {
+                  "path": "/e"
+                }
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          },
+          {
+            "role": "toolResult",
+            "toolCallId": "call-read",
+            "toolName": "read",
+            "content": [
+              {
+                "type": "text",
+                "text": "body"
+              }
+            ],
+            "isError": false,
+            "timestamp": 1000
+          },
+          {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "call-edit",
+                "name": "edit",
+                "arguments": {
+                  "path": "/r"
+                }
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        ],
+        "turnPrefixMessages": [],
+        "isSplitTurn": false,
+        "tokensBefore": 19,
+        "fileOps": {
+          "read": [
+            "/r"
+          ],
+          "written": [
+            "/w"
+          ],
+          "edited": [
+            "/e",
+            "/r"
+          ]
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 2
+        }
+      }
+    },
+    {
+      "name": "recovery_omission_advance",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "context_edit",
+          "id": "e1",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "targetId": "a1",
+          "replacement": null
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a1",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 8,
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    },
+    {
+      "name": "recovery_omission_external_replacement",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "context_edit",
+          "id": "e1",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "targetId": "a1",
+          "replacement": null
+        },
+        {
+          "type": "context_edit",
+          "id": "e2",
+          "parentId": "e1",
+          "timestamp": 1000,
+          "targetId": "u1",
+          "replacement": {
+            "content": "replaced"
+          }
+        }
+      ],
+      "result": null
+    },
+    {
+      "name": "metadata_before_cut",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "model_change",
+          "id": "m1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "provider": "fixture",
+          "modelId": "fixture"
+        },
+        {
+          "type": "thinking_level_change",
+          "id": "t1",
+          "parentId": "m1",
+          "timestamp": 1000,
+          "thinkingLevel": "high"
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "t1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "m1",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 8,
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    },
+    {
+      "name": "branch_summary_message",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "branch_summary",
+          "id": "b1",
+          "parentId": null,
+          "timestamp": 1000,
+          "summary": "xxxxxxxxxxxxxxxx",
+          "fromId": "origin"
+        },
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": "b1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a1",
+        "messagesToSummarize": [
+          {
+            "role": "branchSummary",
+            "summary": "xxxxxxxxxxxxxxxx",
+            "fromId": "origin",
+            "timestamp": 1000
+          }
+        ],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 15,
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    },
+    {
+      "name": "system_message_kept_out_of_summary",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "s1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "system",
+            "content": "system prompt",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": "s1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a1",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 15,
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    },
+    {
+      "name": "tool_result_only_tail",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 2
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "toolCall",
+                "id": "call-read",
+                "name": "read",
+                "arguments": {
+                  "path": "/r"
+                }
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "r1",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "toolResult",
+            "toolCallId": "call-read",
+            "toolName": "read",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "isError": false,
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a1",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 23,
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 2
+        }
+      }
+    },
+    {
+      "name": "previous_compaction_missing_kept",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "summary": "prior summary",
+          "firstKeptEntryId": "missing",
+          "tokensBefore": 123,
+          "details": {
+            "readFiles": [
+              "/read"
+            ],
+            "modifiedFiles": []
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "c1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "u2",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a2",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 15,
+        "previousSummary": "prior summary",
+        "fileOps": {
+          "read": [
+            "/read"
+          ],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    },
+    {
+      "name": "retain_none_previous_compaction",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 16384,
+        "keepRecentTokens": 4
+      },
+      "entries": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "summary": "prior summary",
+          "firstKeptEntryId": "c1",
+          "tokensBefore": 123
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "c1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a2",
+          "parentId": "u2",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "xxxxxxxxxxxxxxxxxxxxxxxx"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "u3",
+          "parentId": "a2",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "result": {
+        "firstKeptEntryId": "a2",
+        "messagesToSummarize": [],
+        "turnPrefixMessages": [
+          {
+            "role": "user",
+            "content": "xxxxxxxx",
+            "timestamp": 1000
+          }
+        ],
+        "isSplitTurn": true,
+        "tokensBefore": 17,
+        "previousSummary": "prior summary",
+        "fileOps": {
+          "read": [],
+          "written": [],
+          "edited": []
+        },
+        "settings": {
+          "enabled": true,
+          "reserveTokens": 16384,
+          "keepRecentTokens": 4
+        }
+      }
+    }
+  ],
+  "branch": {
+    "collect": [
+      {
+        "name": "to_sibling",
+        "oldLeafId": "d",
+        "targetId": "f",
+        "entries": [
+          {
+            "type": "message",
+            "id": "a",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "root",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "b",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "c",
+            "parentId": "b",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "left two"
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "d",
+            "parentId": "c",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left three",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "e",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "f",
+            "parentId": "e",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right two",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "entries": [
+            {
+              "type": "message",
+              "id": "b",
+              "parentId": "a",
+              "timestamp": 1000,
+              "message": {
+                "role": "user",
+                "content": "left one",
+                "timestamp": 1000
+              }
+            },
+            {
+              "type": "message",
+              "id": "c",
+              "parentId": "b",
+              "timestamp": 1000,
+              "message": {
+                "role": "assistant",
+                "api": "fixture",
+                "provider": "fixture",
+                "model": "fixture",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "left two"
+                  }
+                ],
+                "usage": {
+                  "input": 10,
+                  "output": 5,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "totalTokens": 0,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1000
+              }
+            },
+            {
+              "type": "message",
+              "id": "d",
+              "parentId": "c",
+              "timestamp": 1000,
+              "message": {
+                "role": "user",
+                "content": "left three",
+                "timestamp": 1000
+              }
+            }
+          ],
+          "commonAncestorId": "a"
+        }
+      },
+      {
+        "name": "to_ancestor",
+        "oldLeafId": "d",
+        "targetId": "b",
+        "entries": [
+          {
+            "type": "message",
+            "id": "a",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "root",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "b",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "c",
+            "parentId": "b",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "left two"
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "d",
+            "parentId": "c",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left three",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "e",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "f",
+            "parentId": "e",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right two",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "entries": [
+            {
+              "type": "message",
+              "id": "c",
+              "parentId": "b",
+              "timestamp": 1000,
+              "message": {
+                "role": "assistant",
+                "api": "fixture",
+                "provider": "fixture",
+                "model": "fixture",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "left two"
+                  }
+                ],
+                "usage": {
+                  "input": 10,
+                  "output": 5,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "totalTokens": 0,
+                  "cost": {
+                    "input": 0,
+                    "output": 0,
+                    "cacheRead": 0,
+                    "cacheWrite": 0,
+                    "total": 0
+                  }
+                },
+                "stopReason": "stop",
+                "timestamp": 1000
+              }
+            },
+            {
+              "type": "message",
+              "id": "d",
+              "parentId": "c",
+              "timestamp": 1000,
+              "message": {
+                "role": "user",
+                "content": "left three",
+                "timestamp": 1000
+              }
+            }
+          ],
+          "commonAncestorId": "b"
+        }
+      },
+      {
+        "name": "from_root",
+        "oldLeafId": "a",
+        "targetId": "f",
+        "entries": [
+          {
+            "type": "message",
+            "id": "a",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "root",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "b",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "c",
+            "parentId": "b",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "left two"
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "d",
+            "parentId": "c",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left three",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "e",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "f",
+            "parentId": "e",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right two",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "entries": [],
+          "commonAncestorId": "a"
+        }
+      },
+      {
+        "name": "same_leaf",
+        "oldLeafId": "d",
+        "targetId": "d",
+        "entries": [
+          {
+            "type": "message",
+            "id": "a",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "root",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "b",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "c",
+            "parentId": "b",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "left two"
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "d",
+            "parentId": "c",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left three",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "e",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "f",
+            "parentId": "e",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right two",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "entries": [],
+          "commonAncestorId": "d"
+        }
+      },
+      {
+        "name": "no_old_leaf",
+        "oldLeafId": null,
+        "targetId": "f",
+        "entries": [
+          {
+            "type": "message",
+            "id": "a",
+            "parentId": null,
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "root",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "b",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "c",
+            "parentId": "b",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "left two"
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "d",
+            "parentId": "c",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "left three",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "e",
+            "parentId": "a",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right one",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "f",
+            "parentId": "e",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "right two",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "entries": [],
+          "commonAncestorId": null
+        }
+      }
+    ],
+    "prepare": [
+      {
+        "name": "budget_0",
+        "tokenBudget": 0,
+        "entries": [
+          {
+            "type": "branch_summary",
+            "id": "p1",
+            "parentId": null,
+            "timestamp": 1000,
+            "summary": "prior summary",
+            "fromId": "origin",
+            "details": {
+              "readFiles": [
+                "/r1"
+              ],
+              "modifiedFiles": [
+                "/m1"
+              ]
+            }
+          },
+          {
+            "type": "branch_summary",
+            "id": "p2",
+            "parentId": "p1",
+            "timestamp": 1000,
+            "summary": "hook summary",
+            "fromId": "origin",
+            "fromHook": true,
+            "details": {
+              "readFiles": [
+                "/r2"
+              ],
+              "modifiedFiles": [
+                "/m2"
+              ]
+            }
+          },
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": "p2",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": "u1",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-read",
+                  "name": "read",
+                  "arguments": {
+                    "path": "/r3"
+                  }
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-edit",
+                  "name": "edit",
+                  "arguments": {
+                    "path": "/m3"
+                  }
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "t1",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "toolResult",
+              "toolCallId": "call-read",
+              "toolName": "read",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "ignored tool result"
+                }
+              ],
+              "isError": false,
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "compaction",
+            "id": "c1",
+            "parentId": "t1",
+            "timestamp": 1000,
+            "summary": "compaction summary",
+            "firstKeptEntryId": "u1",
+            "tokensBefore": 123
+          },
+          {
+            "type": "custom_message",
+            "id": "cm1",
+            "parentId": "c1",
+            "timestamp": 1000,
+            "customType": "note",
+            "content": "1234",
+            "display": true
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "cm1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "messages": [
+            {
+              "role": "branchSummary",
+              "summary": "prior summary",
+              "fromId": "origin",
+              "timestamp": 1000
+            },
+            {
+              "role": "branchSummary",
+              "summary": "hook summary",
+              "fromId": "origin",
+              "timestamp": 1000
+            },
+            {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            },
+            {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-read",
+                  "name": "read",
+                  "arguments": {
+                    "path": "/r3"
+                  }
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-edit",
+                  "name": "edit",
+                  "arguments": {
+                    "path": "/m3"
+                  }
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            },
+            {
+              "role": "compactionSummary",
+              "summary": "compaction summary",
+              "tokensBefore": 123,
+              "timestamp": 1000
+            },
+            {
+              "role": "custom",
+              "customType": "note",
+              "content": "1234",
+              "display": true,
+              "timestamp": 1000
+            },
+            {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          ],
+          "fileOps": {
+            "read": [
+              "/r1",
+              "/r3"
+            ],
+            "written": [],
+            "edited": [
+              "/m1",
+              "/m3"
+            ]
+          },
+          "totalTokens": 26
+        }
+      },
+      {
+        "name": "budget_3",
+        "tokenBudget": 3,
+        "entries": [
+          {
+            "type": "branch_summary",
+            "id": "p1",
+            "parentId": null,
+            "timestamp": 1000,
+            "summary": "prior summary",
+            "fromId": "origin",
+            "details": {
+              "readFiles": [
+                "/r1"
+              ],
+              "modifiedFiles": [
+                "/m1"
+              ]
+            }
+          },
+          {
+            "type": "branch_summary",
+            "id": "p2",
+            "parentId": "p1",
+            "timestamp": 1000,
+            "summary": "hook summary",
+            "fromId": "origin",
+            "fromHook": true,
+            "details": {
+              "readFiles": [
+                "/r2"
+              ],
+              "modifiedFiles": [
+                "/m2"
+              ]
+            }
+          },
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": "p2",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": "u1",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-read",
+                  "name": "read",
+                  "arguments": {
+                    "path": "/r3"
+                  }
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-edit",
+                  "name": "edit",
+                  "arguments": {
+                    "path": "/m3"
+                  }
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "t1",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "toolResult",
+              "toolCallId": "call-read",
+              "toolName": "read",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "ignored tool result"
+                }
+              ],
+              "isError": false,
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "compaction",
+            "id": "c1",
+            "parentId": "t1",
+            "timestamp": 1000,
+            "summary": "compaction summary",
+            "firstKeptEntryId": "u1",
+            "tokensBefore": 123
+          },
+          {
+            "type": "custom_message",
+            "id": "cm1",
+            "parentId": "c1",
+            "timestamp": 1000,
+            "customType": "note",
+            "content": "1234",
+            "display": true
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "cm1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "messages": [
+            {
+              "role": "compactionSummary",
+              "summary": "compaction summary",
+              "tokensBefore": 123,
+              "timestamp": 1000
+            },
+            {
+              "role": "custom",
+              "customType": "note",
+              "content": "1234",
+              "display": true,
+              "timestamp": 1000
+            },
+            {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          ],
+          "fileOps": {
+            "read": [
+              "/r1"
+            ],
+            "written": [],
+            "edited": [
+              "/m1"
+            ]
+          },
+          "totalTokens": 7
+        }
+      },
+      {
+        "name": "budget_6",
+        "tokenBudget": 6,
+        "entries": [
+          {
+            "type": "branch_summary",
+            "id": "p1",
+            "parentId": null,
+            "timestamp": 1000,
+            "summary": "prior summary",
+            "fromId": "origin",
+            "details": {
+              "readFiles": [
+                "/r1"
+              ],
+              "modifiedFiles": [
+                "/m1"
+              ]
+            }
+          },
+          {
+            "type": "branch_summary",
+            "id": "p2",
+            "parentId": "p1",
+            "timestamp": 1000,
+            "summary": "hook summary",
+            "fromId": "origin",
+            "fromHook": true,
+            "details": {
+              "readFiles": [
+                "/r2"
+              ],
+              "modifiedFiles": [
+                "/m2"
+              ]
+            }
+          },
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": "p2",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": "u1",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-read",
+                  "name": "read",
+                  "arguments": {
+                    "path": "/r3"
+                  }
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-edit",
+                  "name": "edit",
+                  "arguments": {
+                    "path": "/m3"
+                  }
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "t1",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "toolResult",
+              "toolCallId": "call-read",
+              "toolName": "read",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "ignored tool result"
+                }
+              ],
+              "isError": false,
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "compaction",
+            "id": "c1",
+            "parentId": "t1",
+            "timestamp": 1000,
+            "summary": "compaction summary",
+            "firstKeptEntryId": "u1",
+            "tokensBefore": 123
+          },
+          {
+            "type": "custom_message",
+            "id": "cm1",
+            "parentId": "c1",
+            "timestamp": 1000,
+            "customType": "note",
+            "content": "1234",
+            "display": true
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "cm1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "messages": [
+            {
+              "role": "compactionSummary",
+              "summary": "compaction summary",
+              "tokensBefore": 123,
+              "timestamp": 1000
+            },
+            {
+              "role": "custom",
+              "customType": "note",
+              "content": "1234",
+              "display": true,
+              "timestamp": 1000
+            },
+            {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          ],
+          "fileOps": {
+            "read": [
+              "/r1"
+            ],
+            "written": [],
+            "edited": [
+              "/m1"
+            ]
+          },
+          "totalTokens": 7
+        }
+      },
+      {
+        "name": "budget_1000",
+        "tokenBudget": 1000,
+        "entries": [
+          {
+            "type": "branch_summary",
+            "id": "p1",
+            "parentId": null,
+            "timestamp": 1000,
+            "summary": "prior summary",
+            "fromId": "origin",
+            "details": {
+              "readFiles": [
+                "/r1"
+              ],
+              "modifiedFiles": [
+                "/m1"
+              ]
+            }
+          },
+          {
+            "type": "branch_summary",
+            "id": "p2",
+            "parentId": "p1",
+            "timestamp": 1000,
+            "summary": "hook summary",
+            "fromId": "origin",
+            "fromHook": true,
+            "details": {
+              "readFiles": [
+                "/r2"
+              ],
+              "modifiedFiles": [
+                "/m2"
+              ]
+            }
+          },
+          {
+            "type": "message",
+            "id": "u1",
+            "parentId": "p2",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "a1",
+            "parentId": "u1",
+            "timestamp": 1000,
+            "message": {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-read",
+                  "name": "read",
+                  "arguments": {
+                    "path": "/r3"
+                  }
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-edit",
+                  "name": "edit",
+                  "arguments": {
+                    "path": "/m3"
+                  }
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "message",
+            "id": "t1",
+            "parentId": "a1",
+            "timestamp": 1000,
+            "message": {
+              "role": "toolResult",
+              "toolCallId": "call-read",
+              "toolName": "read",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "ignored tool result"
+                }
+              ],
+              "isError": false,
+              "timestamp": 1000
+            }
+          },
+          {
+            "type": "compaction",
+            "id": "c1",
+            "parentId": "t1",
+            "timestamp": 1000,
+            "summary": "compaction summary",
+            "firstKeptEntryId": "u1",
+            "tokensBefore": 123
+          },
+          {
+            "type": "custom_message",
+            "id": "cm1",
+            "parentId": "c1",
+            "timestamp": 1000,
+            "customType": "note",
+            "content": "1234",
+            "display": true
+          },
+          {
+            "type": "message",
+            "id": "u2",
+            "parentId": "cm1",
+            "timestamp": 1000,
+            "message": {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          }
+        ],
+        "result": {
+          "messages": [
+            {
+              "role": "branchSummary",
+              "summary": "prior summary",
+              "fromId": "origin",
+              "timestamp": 1000
+            },
+            {
+              "role": "branchSummary",
+              "summary": "hook summary",
+              "fromId": "origin",
+              "timestamp": 1000
+            },
+            {
+              "role": "user",
+              "content": "12345678",
+              "timestamp": 1000
+            },
+            {
+              "role": "assistant",
+              "api": "fixture",
+              "provider": "fixture",
+              "model": "fixture",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1234"
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-read",
+                  "name": "read",
+                  "arguments": {
+                    "path": "/r3"
+                  }
+                },
+                {
+                  "type": "toolCall",
+                  "id": "call-edit",
+                  "name": "edit",
+                  "arguments": {
+                    "path": "/m3"
+                  }
+                }
+              ],
+              "usage": {
+                "input": 10,
+                "output": 5,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0,
+                "cost": {
+                  "input": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0,
+                  "total": 0
+                }
+              },
+              "stopReason": "stop",
+              "timestamp": 1000
+            },
+            {
+              "role": "compactionSummary",
+              "summary": "compaction summary",
+              "tokensBefore": 123,
+              "timestamp": 1000
+            },
+            {
+              "role": "custom",
+              "customType": "note",
+              "content": "1234",
+              "display": true,
+              "timestamp": 1000
+            },
+            {
+              "role": "user",
+              "content": "1234",
+              "timestamp": 1000
+            }
+          ],
+          "fileOps": {
+            "read": [
+              "/r1",
+              "/r3"
+            ],
+            "written": [],
+            "edited": [
+              "/m1",
+              "/m3"
+            ]
+          },
+          "totalTokens": 26
+        }
+      }
+    ]
+  },
+  "utils": {
+    "extractFileOps": [
+      {
+        "name": "assistant_calls",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [
+            {
+              "type": "toolCall",
+              "id": "call-read",
+              "name": "read",
+              "arguments": {
+                "path": "/r"
+              }
+            },
+            {
+              "type": "toolCall",
+              "id": "call-write",
+              "name": "write",
+              "arguments": {
+                "path": "/w"
+              }
+            },
+            {
+              "type": "toolCall",
+              "id": "call-edit",
+              "name": "edit",
+              "arguments": {
+                "path": "/e"
+              }
+            }
+          ],
+          "usage": {
+            "input": 10,
+            "output": 5,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "timestamp": 1000
+        },
+        "result": {
+          "read": [
+            "/r"
+          ],
+          "written": [
+            "/w"
+          ],
+          "edited": [
+            "/e"
+          ]
+        }
+      },
+      {
+        "name": "unknown_and_missing_path",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [
+            {
+              "type": "toolCall",
+              "id": "call-bash",
+              "name": "bash",
+              "arguments": {
+                "path": "/b"
+              }
+            },
+            {
+              "type": "toolCall",
+              "id": "call-read",
+              "name": "read",
+              "arguments": {}
+            },
+            {
+              "type": "toolCall",
+              "id": "call-edit",
+              "name": "edit",
+              "arguments": {
+                "path": 3
+              }
+            }
+          ],
+          "usage": {
+            "input": 10,
+            "output": 5,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "timestamp": 1000
+        },
+        "result": {
+          "read": [],
+          "written": [],
+          "edited": []
+        }
+      },
+      {
+        "name": "non_array_content",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": "text",
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "timestamp": 0
+        },
+        "result": {
+          "read": [],
+          "written": [],
+          "edited": []
+        }
+      },
+      {
+        "name": "nested_calls",
+        "message": {
+          "role": "toolResult",
+          "toolCallId": "c",
+          "toolName": "codemode",
+          "content": [],
+          "isError": false,
+          "timestamp": 0,
+          "nestedCalls": {
+            "calls": [
+              {
+                "name": "read",
+                "arguments": {
+                  "path": "/nested"
+                }
+              },
+              {
+                "name": "write",
+                "arguments": {
+                  "path": "/nested-w"
+                }
+              }
+            ]
+          }
+        },
+        "result": {
+          "read": [
+            "/nested"
+          ],
+          "written": [
+            "/nested-w"
+          ],
+          "edited": []
+        }
+      },
+      {
+        "name": "user_message",
+        "message": {
+          "role": "user",
+          "content": "hi",
+          "timestamp": 0
+        },
+        "result": {
+          "read": [],
+          "written": [],
+          "edited": []
+        }
+      }
+    ],
+    "computeFileLists": [
+      {
+        "name": "disjoint",
+        "read": [
+          "/read"
+        ],
+        "written": [
+          "/write"
+        ],
+        "edited": [
+          "/edit"
+        ],
+        "result": {
+          "readFiles": [
+            "/read"
+          ],
+          "modifiedFiles": [
+            "/edit",
+            "/write"
+          ]
+        }
+      },
+      {
+        "name": "read_also_modified",
+        "read": [
+          "/a",
+          "/b"
+        ],
+        "written": [
+          "/b"
+        ],
+        "edited": [
+          "/a"
+        ],
+        "result": {
+          "readFiles": [],
+          "modifiedFiles": [
+            "/a",
+            "/b"
+          ]
+        }
+      },
+      {
+        "name": "duplicates_and_order",
+        "read": [
+          "/z",
+          "/a",
+          "/z"
+        ],
+        "written": [],
+        "edited": [
+          "/m",
+          "/a"
+        ],
+        "result": {
+          "readFiles": [
+            "/z"
+          ],
+          "modifiedFiles": [
+            "/a",
+            "/m"
+          ]
+        }
+      },
+      {
+        "name": "unicode",
+        "read": [
+          "/é",
+          "/a",
+          "/Z"
+        ],
+        "written": [],
+        "edited": [],
+        "result": {
+          "readFiles": [
+            "/Z",
+            "/a",
+            "/é"
+          ],
+          "modifiedFiles": []
+        }
+      },
+      {
+        "name": "empty",
+        "read": [],
+        "written": [],
+        "edited": [],
+        "result": {
+          "readFiles": [],
+          "modifiedFiles": []
+        }
+      }
+    ],
+    "formatFileOperations": [
+      {
+        "name": "both",
+        "readFiles": [
+          "/a",
+          "/b"
+        ],
+        "modifiedFiles": [
+          "/m"
+        ],
+        "result": "\n\n<read-files>\n/a\n/b\n</read-files>\n\n<modified-files>\n/m\n</modified-files>"
+      },
+      {
+        "name": "read_only",
+        "readFiles": [
+          "/a"
+        ],
+        "modifiedFiles": [],
+        "result": "\n\n<read-files>\n/a\n</read-files>"
+      },
+      {
+        "name": "modified_only",
+        "readFiles": [],
+        "modifiedFiles": [
+          "/m"
+        ],
+        "result": "\n\n<modified-files>\n/m\n</modified-files>"
+      },
+      {
+        "name": "empty",
+        "readFiles": [],
+        "modifiedFiles": [],
+        "result": ""
+      }
+    ],
+    "summarizationFailure": [
+      {
+        "name": "error",
+        "response": {
+          "stopReason": "error",
+          "errorMessage": "boom"
+        },
+        "label": "Summarization",
+        "result": "Summarization failed: boom"
+      },
+      {
+        "name": "error_empty_message",
+        "response": {
+          "stopReason": "error",
+          "errorMessage": ""
+        },
+        "label": "Summarization",
+        "result": "Summarization failed: Unknown error"
+      },
+      {
+        "name": "error_missing_message",
+        "response": {
+          "stopReason": "error"
+        },
+        "label": "Turn prefix summarization",
+        "result": "Turn prefix summarization failed: Unknown error"
+      },
+      {
+        "name": "length",
+        "response": {
+          "stopReason": "length"
+        },
+        "label": "Summarization",
+        "result": "Summarization failed: generation hit the token cap and the summary is incomplete"
+      },
+      {
+        "name": "stop",
+        "response": {
+          "stopReason": "stop"
+        },
+        "label": "Summarization",
+        "result": null
+      },
+      {
+        "name": "aborted",
+        "response": {
+          "stopReason": "aborted"
+        },
+        "label": "Branch summarization",
+        "result": null
+      }
+    ]
+  }
+}

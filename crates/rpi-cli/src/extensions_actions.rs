@@ -89,6 +89,10 @@ pub struct HarnessActionHost {
     children: crate::child_agents::ChildAgents,
     side_questions: crate::side_questions::SideQuestions,
     sessions: Arc<crate::native_sessions::SessionPorts>,
+    /// Extension cells for Pi's session replacement lifecycle. Set after the
+    /// host is constructed (the cells come from extension discovery); `None`
+    /// in hosts built without extensions, where replacement is a plain swap.
+    lifecycle: RwLock<Option<crate::session::SessionLifecycleCells>>,
     #[allow(dead_code)]
     runtime: Handle,
 }
@@ -122,10 +126,48 @@ impl HarnessActionHost {
                 children: crate::child_agents::ChildAgents::default(),
                 side_questions: crate::side_questions::SideQuestions::default(),
                 sessions: Arc::new(crate::native_sessions::SessionPorts::default()),
+                lifecycle: RwLock::new(None),
                 runtime,
             },
             harness,
         )
+    }
+
+    /// Attach the live extension cells used for `session_before_switch`,
+    /// `session_before_fork`, `session_shutdown` and `session_start` during a
+    /// session replacement. Called once by [`crate::session::build_prepared`].
+    pub(crate) fn set_session_lifecycle(&self, lifecycle: crate::session::SessionLifecycleCells) {
+        *self.lifecycle.write().unwrap() = Some(lifecycle);
+    }
+
+    /// Swap the session the harness serves, running Pi's replacement lifecycle
+    /// when the extension cells are attached.
+    async fn replace_session(
+        &self,
+        harness: &AgentHarness,
+        session: Session,
+        reason: crate::session::SessionReplacementReason,
+        fork_entry_id: Option<&str>,
+    ) -> Result<crate::session::SessionReplacement, String> {
+        let lane = harness.lane("main");
+        let lifecycle = self.lifecycle.read().unwrap().clone();
+        let Some(cells) = lifecycle else {
+            crate::session::set_active_session(harness, session, Some(&self.tool_context)).await?;
+            return Ok(crate::session::SessionReplacement::Replaced);
+        };
+        crate::session::replace_active_session(
+            &crate::session::SessionReplacementContext {
+                harness,
+                lane: lane.as_ref(),
+                extension_session: &cells.extension_session,
+                action_bridge: &cells.action_bridge,
+                tool_context: &self.tool_context,
+            },
+            session,
+            reason,
+            fork_entry_id,
+        )
+        .await
     }
 
     pub(crate) fn catalog_handle(&self) -> Arc<RwLock<Vec<rpi_ai::Model>>> {
@@ -830,18 +872,49 @@ impl RuntimeActionHost for HarnessActionHost {
             .await
             .map_err(|e| format!("create session: {e}"))?;
         let id = session.storage().metadata().id.clone();
-        crate::session::set_active_session(&harness, session, Some(&self.tool_context)).await?;
+        match self
+            .replace_session(
+                &harness,
+                session,
+                crate::session::SessionReplacementReason::New,
+                None,
+            )
+            .await?
+        {
+            crate::session::SessionReplacement::Replaced => {}
+            crate::session::SessionReplacement::Cancelled { reason } => {
+                return Err(format!("New session cancelled: {reason}"))
+            }
+        }
         Ok(serde_json::json!({ "sessionId": id }))
     }
 
     async fn fork(&self, _args: serde_json::Value) -> Result<serde_json::Value, String> {
         let harness = self.harness()?;
         let cwd_str = self.cwd.to_string_lossy().to_string();
+        let leaf = harness
+            .lane("main")
+            .get_leaf_id()
+            .await
+            .map_err(|e| e.to_string())?;
         let new_session = crate::session::fork_session_storage(&harness, &cwd_str)
             .await
             .map_err(|e| format!("fork session: {e}"))?;
         let id = new_session.storage().metadata().id.clone();
-        crate::session::set_active_session(&harness, new_session, Some(&self.tool_context)).await?;
+        match self
+            .replace_session(
+                &harness,
+                new_session,
+                crate::session::SessionReplacementReason::Fork,
+                leaf.as_deref(),
+            )
+            .await?
+        {
+            crate::session::SessionReplacement::Replaced => {}
+            crate::session::SessionReplacement::Cancelled { reason } => {
+                return Err(format!("Fork cancelled: {reason}"))
+            }
+        }
         Ok(serde_json::json!({ "sessionId": id }))
     }
 
@@ -876,7 +949,20 @@ impl RuntimeActionHost for HarnessActionHost {
             .await
             .map_err(|e| e.to_string())?;
         let new_id = new_session.storage().metadata().id.clone();
-        crate::session::set_active_session(&harness, new_session, Some(&self.tool_context)).await?;
+        match self
+            .replace_session(
+                &harness,
+                new_session,
+                crate::session::SessionReplacementReason::Resume,
+                None,
+            )
+            .await?
+        {
+            crate::session::SessionReplacement::Replaced => {}
+            crate::session::SessionReplacement::Cancelled { reason } => {
+                return Err(format!("Session switch cancelled: {reason}"))
+            }
+        }
         Ok(serde_json::json!({ "sessionId": new_id }))
     }
 

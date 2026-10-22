@@ -144,6 +144,7 @@ impl SessionPorts {
             String,
         >,
     ) -> Result<Value, String> {
+        let mut current_storage = Some(current_storage);
         let signal = signal.child_token();
         let _cancel = signal.clone().drop_guard();
         let object = args.as_object_mut().ok_or("invalid session request")?;
@@ -158,7 +159,10 @@ impl SessionPorts {
         let scope = current_scope();
         check_signal(&signal, &scope, persistence)?;
         let storage = if matches!(request, Request::Capture { .. }) {
-            let (storage, options) = current_storage()?;
+            let resolve = current_storage
+                .take()
+                .ok_or("missing session storage resolver")?;
+            let (storage, options) = resolve()?;
             if rpi_ai::identity::current()
                 .and_then(|identity| identity.session_id)
                 .is_some_and(|id| id != storage.metadata().id)
@@ -166,6 +170,19 @@ impl SessionPorts {
                 return Err("session changed before origin capture".into());
             }
             Some((storage, options))
+        } else {
+            None
+        };
+        // Late journal entries are the one write that may follow a fork into
+        // the session it inherited the history from (see `inherited_journal`).
+        // Every other operation keeps using the captured storage, so this
+        // lookup is best-effort: a host without an active session is not an
+        // error for an origin-bound request.
+        let inherited_current = if matches!(request, Request::JournalAppend { .. }) {
+            current_storage
+                .take()
+                .and_then(|resolve| resolve().ok())
+                .map(|(storage, _)| storage)
         } else {
             None
         };
@@ -182,7 +199,15 @@ impl SessionPorts {
         let task = tokio::spawn(async move {
             let _active = active;
             ports
-                .execute(owner, request, scope, work_signal, storage, persistence)
+                .execute(
+                    owner,
+                    request,
+                    scope,
+                    work_signal,
+                    storage,
+                    persistence,
+                    inherited_current,
+                )
                 .await
         });
         // Once an append begins, dropping/cancelling the waiter cannot discard its commit.
@@ -200,6 +225,7 @@ impl SessionPorts {
         signal: CancellationToken,
         storage: Option<(Arc<dyn SessionStorage>, SessionContextBuildOptions)>,
         persistence: bool,
+        inherited_current: Option<Arc<dyn SessionStorage>>,
     ) -> Result<Value, String> {
         check_signal(&signal, &scope, persistence)?;
         if let Request::Capture { lane } = request {
@@ -307,16 +333,29 @@ impl SessionPorts {
             | Request::JournalAppend {
                 custom_type, data, ..
             } => {
+                // A late journal entry may be inherited by the fork the session
+                // became. Authority comes from the recorded parent link plus the
+                // anchor's presence in the active history — never from request
+                // JSON — and only for this anchored write.
+                let inherited = if journal {
+                    inherited_journal(&origin, inherited_current.as_ref(), anchor.as_deref()).await
+                } else {
+                    None
+                };
+                let (target_storage, branch_revision) = match &inherited {
+                    Some((storage, revision)) => (storage.clone(), *revision),
+                    None => (origin.storage.clone(), origin.branch_revision),
+                };
                 let target = if journal {
                     AppendTarget::Origin {
                         lane: origin.lane.clone(),
-                        branch_revision: origin.branch_revision,
+                        branch_revision,
                         anchor_id: anchor.clone(),
                     }
                 } else {
                     AppendTarget::Current {
                         lane: origin.lane.clone(),
-                        branch_revision: origin.branch_revision,
+                        branch_revision,
                     }
                 };
                 if custom_type.is_empty()
@@ -333,8 +372,7 @@ impl SessionPorts {
                     id: uuid::Uuid::new_v4().to_string(),
                     kind: ProvisionedKind::Custom { custom_type, data },
                 };
-                let receipt = origin
-                    .storage
+                let receipt = target_storage
                     .commit_entry(entry, target)
                     .await
                     .map_err(|e| e.to_string())?;
@@ -344,6 +382,38 @@ impl SessionPorts {
             _ => unreachable!(),
         }
     }
+}
+
+/// Resolve the storage an inherited, anchored journal write belongs to.
+///
+/// Returns `Some((storage, branch revision))` only when the active session (a)
+/// names the origin's captured session as its parent and (b) actually contains
+/// the origin's anchor entry. That is "history authority": the fork inherited
+/// the journal the origin wrote, so a late anchored entry continues there.
+/// Anything else — an unrelated session, a missing anchor, a read — keeps the
+/// captured storage, so a plugin cannot widen its authority through a request.
+async fn inherited_journal(
+    origin: &Origin,
+    current: Option<&Arc<dyn SessionStorage>>,
+    anchor: Option<&str>,
+) -> Option<(Arc<dyn SessionStorage>, u64)> {
+    let current = current?;
+    let anchor = anchor?;
+    let captured = origin.storage.metadata().id;
+    if current.metadata().id == captured
+        || current.metadata().parent_session_id.as_deref() != Some(captured.as_str())
+    {
+        return None;
+    }
+    let snapshot = current.snapshot().await.ok()?;
+    if !snapshot.entries.iter().any(|entry| entry.id() == anchor) {
+        return None;
+    }
+    let branch = snapshot
+        .branches
+        .iter()
+        .find(|branch| branch.lane == origin.lane)?;
+    Some((current.clone(), branch.revision))
 }
 
 fn project_view(
