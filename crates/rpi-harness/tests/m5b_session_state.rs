@@ -122,6 +122,7 @@ fn branch_summary_entry(id: &str, seq: u64) -> Entry {
         summary: "summary".to_string(),
         details: None,
         usage: None,
+        from_hook: None,
     })
 }
 

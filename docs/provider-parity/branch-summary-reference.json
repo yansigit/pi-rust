@@ -1,0 +1,661 @@
+{
+  "reference": "Pi 1.3.0",
+  "projection": "Summary prompt, request options and terminal outcome; generated routing IDs are checked for UUIDv7 shape, not captured",
+  "rows": [
+    {
+      "mode": "default",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [],
+        "modifiedFiles": []
+      }
+    },
+    {
+      "mode": "small",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 512,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [],
+        "modifiedFiles": []
+      }
+    },
+    {
+      "mode": "unlimited",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [],
+        "modifiedFiles": []
+      }
+    },
+    {
+      "mode": "emptyInstructions",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [],
+        "modifiedFiles": []
+      }
+    },
+    {
+      "mode": "focus",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.\n\nAdditional focus: Keep the commands"
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [],
+        "modifiedFiles": []
+      }
+    },
+    {
+      "mode": "replace",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nKeep the commands"
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [],
+        "modifiedFiles": []
+      }
+    },
+    {
+      "mode": "emptyReplace",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [],
+        "modifiedFiles": []
+      }
+    },
+    {
+      "mode": "length",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "error": "Branch summarization failed: generation hit the token cap and the summary is incomplete"
+      }
+    },
+    {
+      "mode": "error",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "error": "Branch summarization failed: fixture failure"
+      }
+    },
+    {
+      "mode": "emptyError",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "error": "Branch summarization failed: Unknown error"
+      }
+    },
+    {
+      "mode": "tool",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "error": "Branch summarization attempted to call a tool"
+      }
+    },
+    {
+      "mode": "aborted",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "aborted": true
+      }
+    },
+    {
+      "mode": "emptyEntries",
+      "requests": [],
+      "result": {
+        "summary": "No content to summarize"
+      }
+    },
+    {
+      "mode": "priorNative",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nolder summary</summary>\n\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text\n\n<read-files>\n/r\n</read-files>\n\n<modified-files>\n/m\n</modified-files>",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [
+          "/r"
+        ],
+        "modifiedFiles": [
+          "/m"
+        ]
+      }
+    },
+    {
+      "mode": "priorHook",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nolder summary</summary>\n\n[User]: Summarize this branch\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [],
+        "modifiedFiles": []
+      }
+    },
+    {
+      "mode": "grace",
+      "requests": [
+        {
+          "context": {
+            "messages": [
+              {
+                "role": "system",
+                "content": "You are a context summarization assistant. Your task is to read a conversation between a user and an AI assistant, then produce a structured summary following the exact format specified.\n\nDo NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.",
+                "timestamp": 0
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<conversation>\n[User]: The following is a summary of a branch that this conversation came back from:\n\n<summary>\nolder summary</summary>\n\n[User]: 12345678\n</conversation>\n\nCreate a structured summary of this conversation branch for context when returning later.\n\nUse this EXACT format:\n\n## Goal\n[What was the user trying to accomplish in this branch?]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Work that was started but not finished]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [What should happen next to continue this work]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+                  }
+                ],
+                "timestamp": 1000
+              }
+            ]
+          },
+          "maxTokens": 4096,
+          "cacheRetention": "none",
+          "reasoning": null
+        }
+      ],
+      "result": {
+        "summary": "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\nsummary text\n\n<read-files>\n/r\n</read-files>\n\n<modified-files>\n/m\n</modified-files>",
+        "usage": {
+          "input": 1,
+          "output": 2,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 3,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "readFiles": [
+          "/r"
+        ],
+        "modifiedFiles": [
+          "/m"
+        ]
+      }
+    }
+  ]
+}
