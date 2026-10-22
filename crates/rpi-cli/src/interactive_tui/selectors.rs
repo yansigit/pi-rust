@@ -628,7 +628,7 @@ pub(super) fn open_provider_selector(
     );
 }
 
-/// Pick a provider for `/login`, then run its OAuth or API-key flow.
+/// Pick a provider for `/login`, then run its native, OAuth or API-key flow.
 pub(super) fn open_login_provider_selector(
     state: &Arc<TuiState>,
     editor_container: &Arc<Container>,
@@ -636,6 +636,7 @@ pub(super) fn open_login_provider_selector(
     tui: &Arc<TuiAltScreen>,
     extension_session: &crate::session::ExtensionSessionCell,
     tx: &mpsc::UnboundedSender<TuiMessage>,
+    ctx: &CommandContext,
 ) {
     let manifests = current_provider_manifests(extension_session);
     let oauth_providers = current_oauth_providers(extension_session);
@@ -655,8 +656,20 @@ pub(super) fn open_login_provider_selector(
     let tui_sel = tui.clone();
     let tx_sel = tx.clone();
     let extension_session_sel = extension_session.clone();
+    let ctx_sel = ctx.clone();
+    let oauth_providers_sel = oauth_providers.clone();
     list.on_select(Arc::new(move |item| {
         close_selector(&state_sel, &ec_sel, &editor_sel, &tui_sel);
+        // Native registrations own their method list and prompts; host API-key
+        // providers use the same awaited dialog driver. Legacy OAuth keeps its
+        // existing extension request/input form.
+        let legacy_oauth = oauth_providers_sel
+            .iter()
+            .any(|oauth| oauth.id.eq_ignore_ascii_case(&item.value));
+        if !legacy_oauth || super::auth::has_native_auth(&extension_session_sel, &item.value) {
+            super::auth::begin_auth_login(&ctx_sel, &item.value);
+            return;
+        }
         begin_provider_login(
             &state_sel,
             &ec_sel,

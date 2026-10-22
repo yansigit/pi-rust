@@ -475,6 +475,7 @@ impl SlashCommand for LoginCommand {
                 &ctx.tui,
                 &ctx.state.extension_session,
                 &ctx.tx,
+                ctx,
             );
             return;
         }
@@ -506,6 +507,21 @@ impl SlashCommand for LoginCommand {
                     ctx.tui.request_render(false);
                     return;
                 }
+                Some(item)
+                    if super::auth::has_native_auth(
+                        &ctx.state.extension_session,
+                        &item.value,
+                    ) =>
+                {
+                    add_error_message(
+                        &ctx.chat,
+                        &format!(
+                            "Provider '{first}' owns its login method. Use /login to start its interactive login."
+                        ),
+                    );
+                    ctx.tui.request_render(false);
+                    return;
+                }
                 Some(item) => (item.value.clone(), key.to_string()),
                 None => {
                     add_error_message(
@@ -519,13 +535,24 @@ impl SlashCommand for LoginCommand {
                 }
             },
             None => {
-                if login_items
+                if let Some(item) = login_items
                     .iter()
-                    .any(|item| item.value.eq_ignore_ascii_case(first))
+                    .find(|item| item.value.eq_ignore_ascii_case(first))
                 {
+                    let legacy_oauth = oauth_providers
+                        .iter()
+                        .any(|oauth| oauth.id.eq_ignore_ascii_case(&item.value));
+                    if !legacy_oauth
+                        || super::auth::has_native_auth(&ctx.state.extension_session, &item.value)
+                    {
+                        super::auth::begin_auth_login(ctx, &item.value);
+                        return;
+                    }
                     add_error_message(
                         &ctx.chat,
-                        &format!("Missing API key for provider '{first}'."),
+                        &format!(
+                            "Provider '{first}' uses OAuth. Use /login to start its interactive login."
+                        ),
                     );
                     ctx.tui.request_render(false);
                     return;
