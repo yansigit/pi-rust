@@ -23,9 +23,12 @@ fn memory() -> Arc<InMemorySessionStorage> {
     ))
 }
 async fn call(ports: &Arc<SessionPorts>, owner: NativeOwner, args: Value) -> Result<Value, String> {
+    // Origin operations use the captured storage. The one best-effort lookup is
+    // a late journal append's inherited fork; a host with no active session
+    // (this fixture) falls back to the captured storage.
     ports
         .request(owner, args, CancellationToken::new(), || {
-            panic!("origin operations must not resolve the active session")
+            Err("no active session in this fixture".into())
         })
         .await
 }
@@ -370,6 +373,7 @@ async fn persistent_child_completion_stays_origin_bound_after_stop_and_navigatio
             CancellationToken::new(),
             None,
             true,
+            None,
         )
         .await
         .unwrap();
@@ -390,7 +394,8 @@ async fn persistent_child_completion_stays_origin_bound_after_stop_and_navigatio
             Some(child.clone()),
             cancelled,
             None,
-            true
+            true,
+            None,
         )
         .await
         .is_err());
@@ -401,7 +406,8 @@ async fn persistent_child_completion_stays_origin_bound_after_stop_and_navigatio
             Some(child.clone()),
             CancellationToken::new(),
             None,
-            true
+            true,
+            None,
         )
         .await
         .is_err());
@@ -413,7 +419,8 @@ async fn persistent_child_completion_stays_origin_bound_after_stop_and_navigatio
             Some(child),
             CancellationToken::new(),
             None,
-            true
+            true,
+            None,
         )
         .await
         .is_err());
@@ -588,7 +595,7 @@ async fn cancellation_and_shutdown_wait_for_started_commit_and_failed_sync_never
                         owner(),
                         append(&origin, "journalAppend"),
                         signal,
-                        || panic!(),
+                        || Err("no active session in this fixture".into()),
                     )
                     .await
             }
@@ -672,4 +679,115 @@ async fn dropping_a_queued_waiter_cancels_before_the_append_begins() {
     drop(blocked);
     ports.drain(&[owner().id]).await;
     assert!(storage.snapshot().await.unwrap().entries.is_empty());
+}
+
+/// Pi replaces the session runtime on fork; a native writer that captured the
+/// parent's journal must be able to land its late anchored entry in the fork
+/// that inherited the history. Authority is the recorded parent link plus the
+/// anchor's presence, never a caller-selected path.
+#[tokio::test]
+async fn a_late_journal_write_follows_the_fork_that_inherited_the_history() {
+    let ports = Arc::new(SessionPorts::default());
+    let parent = memory();
+    parent
+        .append_entry(
+            ProvisionedEntry {
+                id: "anchor".into(),
+                kind: ProvisionedKind::Custom {
+                    custom_type: "seed".into(),
+                    data: None,
+                },
+            },
+            "main",
+        )
+        .await
+        .unwrap();
+    let parent_dyn: Arc<dyn SessionStorage> = parent.clone();
+
+    let fork = Arc::new(InMemorySessionStorage::new(
+        SessionMetadata {
+            id: "fork".into(),
+            created_at: 0,
+            parent_session_id: Some("original".into()),
+        },
+        Arc::new(FakeClock::new()),
+        Arc::new(CounterIdGenerator::new()),
+    ));
+    fork.append_entry(
+        ProvisionedEntry {
+            id: "anchor".into(),
+            kind: ProvisionedKind::Custom {
+                custom_type: "seed".into(),
+                data: None,
+            },
+        },
+        "main",
+    )
+    .await
+    .unwrap();
+    let fork_dyn: Arc<dyn SessionStorage> = fork.clone();
+
+    let origin = capture(&ports, parent_dyn.clone()).await;
+    let receipt = ports
+        .request(
+            owner(),
+            append(&origin, "journalAppend"),
+            CancellationToken::new(),
+            || Ok((fork_dyn.clone(), SessionContextBuildOptions::default())),
+        )
+        .await
+        .unwrap();
+    assert_eq!(receipt["entry"]["parentId"], "anchor");
+    assert_eq!(fork.snapshot().await.unwrap().entries.len(), 2);
+    // The outgoing journal keeps only its own entry: nothing was written twice.
+    assert_eq!(parent.snapshot().await.unwrap().entries.len(), 1);
+
+    // An unrelated session does not inherit the journal; the same request keeps
+    // targeting the captured storage.
+    let unrelated = Arc::new(InMemorySessionStorage::new(
+        SessionMetadata {
+            id: "other".into(),
+            created_at: 0,
+            parent_session_id: None,
+        },
+        Arc::new(FakeClock::new()),
+        Arc::new(CounterIdGenerator::new()),
+    ));
+    let unrelated_dyn: Arc<dyn SessionStorage> = unrelated.clone();
+    let second = capture(&ports, parent_dyn.clone()).await;
+    ports
+        .request(
+            owner(),
+            append(&second, "journalAppend"),
+            CancellationToken::new(),
+            || Ok((unrelated_dyn.clone(), SessionContextBuildOptions::default())),
+        )
+        .await
+        .unwrap();
+    assert!(unrelated.snapshot().await.unwrap().entries.is_empty());
+    assert_eq!(parent.snapshot().await.unwrap().entries.len(), 2);
+
+    // A fork that does NOT contain the anchor fails closed to the parent.
+    let empty_fork = Arc::new(InMemorySessionStorage::new(
+        SessionMetadata {
+            id: "empty-fork".into(),
+            created_at: 0,
+            parent_session_id: Some("original".into()),
+        },
+        Arc::new(FakeClock::new()),
+        Arc::new(CounterIdGenerator::new()),
+    ));
+    let empty_dyn: Arc<dyn SessionStorage> = empty_fork.clone();
+    let third = capture(&ports, parent_dyn.clone()).await;
+    ports
+        .request(
+            owner(),
+            append(&third, "journalAppend"),
+            CancellationToken::new(),
+            || Ok((empty_dyn.clone(), SessionContextBuildOptions::default())),
+        )
+        .await
+        .unwrap();
+    assert!(empty_fork.snapshot().await.unwrap().entries.is_empty());
+    assert_eq!(parent.snapshot().await.unwrap().entries.len(), 3);
 }
