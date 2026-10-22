@@ -409,8 +409,11 @@ pub(super) fn custom_entry_display_text(
 }
 
 /// Open a selector for the current session's persisted entry tree. Selecting a
-/// message moves the main lane leaf to that entry, then the caller reloads the
-/// visible branch from durable storage.
+/// message hands it to the tree summary flow (`select_tree_entry`), which moves
+/// the main lane leaf after the "Summarize branch?" dialogs.
+///
+/// `initial_selected_id` restores the highlight when the selector is re-opened
+/// after cancelling that summary prompt (Pi's `showTreeSelector(entryId)`).
 pub(super) async fn open_tree_selector(
     harness: &AgentHarness,
     state: &Arc<TuiState>,
@@ -419,6 +422,7 @@ pub(super) async fn open_tree_selector(
     tui: &Arc<TuiAltScreen>,
     chat: &Arc<Container>,
     tx: &mpsc::UnboundedSender<TuiMessage>,
+    initial_selected_id: Option<&str>,
 ) {
     let entries = match harness
         .session()
@@ -459,7 +463,12 @@ pub(super) async fn open_tree_selector(
         tui.request_render(false);
         return;
     }
+    let initial_index =
+        initial_selected_id.and_then(|id| items.iter().position(|item| item.value == id));
     let list = Arc::new(SelectList::new(items, 12));
+    if let Some(index) = initial_index {
+        list.set_selected_index(index);
+    }
     let state_sel = state.clone();
     let ec_sel = editor_container.clone();
     let editor_sel = editor.clone();
