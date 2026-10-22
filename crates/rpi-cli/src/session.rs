@@ -2947,8 +2947,10 @@ pub struct SessionReplacementContext<'a> {
 /// Point the harness at another session using Pi 1.3.0's replacement lifecycle.
 ///
 /// Order (Pi `agent-session-runtime.ts`):
-/// 1. abort + settle the active response, so the outgoing session keeps the
-///    aborted turn's tool results;
+/// 1. require an idle lane. Pi settles the active response first
+///    (`teardownCurrent`); rpi refuses while an operation is active so a plugin
+///    action invoked from that operation cannot deadlock waiting for itself.
+///    Interactive callers abort and wait before calling;
 /// 2. `session_before_switch` (new/resume/import) or `session_before_fork`
 ///    (fork) — a handler can cancel and the old session stays active;
 /// 3. `session_shutdown { reason, targetSessionFile }`;
@@ -2964,8 +2966,18 @@ pub async fn replace_active_session(
     reason: SessionReplacementReason,
     fork_entry_id: Option<&str>,
 ) -> Result<SessionReplacement, String> {
-    let _ = ctx.lane.abort().await;
-    ctx.lane.wait_for_idle().await.map_err(|e| e.to_string())?;
+    if ctx
+        .harness
+        .snapshot()
+        .await
+        .map_err(|e| e.to_string())?
+        .active
+        .is_some()
+    {
+        return Err(
+            "wait for the active operation to finish before replacing the session".into(),
+        );
+    }
 
     let previous_file = ctx
         .harness
