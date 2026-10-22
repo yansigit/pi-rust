@@ -76,8 +76,10 @@ format even though the in-memory decisions match.
 `rpi_cli::session::replace_active_session` implements Pi
 `agent-session-runtime.ts`'s order for `new`/`fork`/`switchSession`:
 
-1. abort and settle the active response (the outgoing session keeps the aborted
-   turn's tool results);
+1. require an idle lane. Pi settles the active response inside `teardownCurrent`;
+   rpi refuses while an operation is active, so a plugin action invoked from
+   that operation cannot deadlock waiting for itself. The TUI callers abort and
+   wait before calling;
 2. `session_before_switch { reason, targetSessionFile }` for new/resume/import,
    or `session_before_fork { reason, entryId, position, targetSessionFile }` for
    a fork — a handler abort cancels the replacement and the old session stays
