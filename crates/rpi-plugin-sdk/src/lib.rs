@@ -687,13 +687,17 @@ pub enum EventTag {
     EditorChange = 36,
     /// A compaction operation failed; identity matches its before event.
     SessionCompactFailed = 37,
+    /// rpi-specific: a tree navigation ended without `session_tree` (cancelled,
+    /// aborted or failed); identity matches its `session_before_tree` event.
+    SessionTreeFailed = 38,
 }
 
-/// Number of event categories — `38` (34 Pi `on()` categories + 1 rpi-specific
+/// Number of event categories — `39` (34 Pi `on()` categories + 1 rpi-specific
 /// [`EventTag::BeforeTuiStart`] + 2 UI prompt events + 1 rpi-specific
-/// [`EventTag::EditorChange`]). A test asserts
-/// `EVENT_TAG_COUNT == 38` so a future edit that adds/removes a tag is caught.
-pub const EVENT_TAG_COUNT: usize = 38;
+/// [`EventTag::EditorChange`] + the compaction and tree failure terminals).
+/// A test asserts `EVENT_TAG_COUNT == 39` so a future edit that adds/removes a
+/// tag is caught.
+pub const EVENT_TAG_COUNT: usize = 39;
 
 /// The application name of the host that loads plugins: `"rpi"`.
 ///
@@ -2003,13 +2007,14 @@ mod tests {
             EventTag::UiPromptEnd,
             EventTag::EditorChange,
             EventTag::SessionCompactFailed,
+            EventTag::SessionTreeFailed,
         ];
         assert_eq!(tags.len(), EVENT_TAG_COUNT);
-        assert_eq!(EVENT_TAG_COUNT, 38);
-        // Distinct discriminants 0..37.
+        assert_eq!(EVENT_TAG_COUNT, 39);
+        // Distinct discriminants 0..38.
         let mut discs: Vec<u32> = tags.iter().map(|t| *t as u32).collect();
         discs.sort();
-        assert_eq!(discs, (0..38).collect::<Vec<u32>>());
+        assert_eq!(discs, (0..39).collect::<Vec<u32>>());
     }
 
     #[test]

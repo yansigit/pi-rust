@@ -844,6 +844,7 @@ pub async fn build_prepared(
 
     let harness = match AgentHarness::create(options).await {
         Ok(h) => {
+            h.set_branch_summary_reserve_tokens(saved_settings.branch_summary_reserve_tokens());
             // Fill the extension action host now that the harness exists
             // (plugin runtime_action calls can then reach it).
             crate::extensions_actions::HarnessActionHost::set_harness(

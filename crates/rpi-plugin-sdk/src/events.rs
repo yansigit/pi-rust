@@ -53,6 +53,7 @@ impl<'a> EventView<'a> {
                 | EventTag::SessionBeforeCompact
                 | EventTag::SessionCompact
                 | EventTag::SessionCompactFailed
+                | EventTag::SessionTreeFailed
                 | EventTag::SessionBeforeTree
                 | EventTag::SessionTree
                 | EventTag::Context

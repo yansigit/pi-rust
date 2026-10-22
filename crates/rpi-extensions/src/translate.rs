@@ -1150,6 +1150,7 @@ fn free_dispatched_event(event: &StablePluginEvent) {
         // events dispatched by the TUI, carry a generic data payload (built by
         // `dispatch_data_event`); free the single StbString.
         T::SessionCompactFailed
+        | T::SessionTreeFailed
         | T::BeforeProviderRequest
         | T::BeforeProviderHeaders
         | T::AfterProviderResponse
