@@ -107,6 +107,7 @@ pub(super) async fn switch_to_session(
     chat: &Arc<Container>,
     state: &Arc<TuiState>,
     tool_context: &rpi_extensions::ToolCallContext,
+    reload_context: &crate::session::ReloadContext,
 ) -> bool {
     if *state.status.lock().unwrap() == RunStatus::Working {
         state.set_status(RunStatus::Aborting);
@@ -119,15 +120,34 @@ pub(super) async fn switch_to_session(
     let cwd_str = cwd.to_string_lossy().to_string();
     match crate::session::open_session_by_id(id, &cwd_str).await {
         Ok(new_session) => {
-            // Route through the funnel so the plugin channels follow the swap;
-            // a bare `set_session` would leave every plugin naming the session
-            // it was serving before this call.
-            if let Err(error) =
-                crate::session::set_active_session(harness, new_session, Some(tool_context)).await
-            {
-                add_error_message(chat, &format!("Could not switch session: {error}"));
-                state.set_status(RunStatus::Idle);
-                return false;
+            // Route through the replacement funnel so the plugin channels
+            // follow the swap and Pi's `session_before_switch` /
+            // `session_shutdown` / `session_start` lifecycle runs around it.
+            let replacement = crate::session::replace_active_session(
+                &crate::session::SessionReplacementContext {
+                    harness,
+                    lane: lane.as_ref(),
+                    extension_session: &reload_context.extension_session,
+                    action_bridge: &reload_context.action_bridge,
+                    tool_context,
+                },
+                new_session,
+                crate::session::SessionReplacementReason::Resume,
+                None,
+            )
+            .await;
+            match replacement {
+                Ok(crate::session::SessionReplacement::Replaced) => {}
+                Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
+                    add_note_message(chat, &format!("Session switch cancelled: {reason}"));
+                    state.set_status(RunStatus::Idle);
+                    return false;
+                }
+                Err(error) => {
+                    add_error_message(chat, &format!("Could not switch session: {error}"));
+                    state.set_status(RunStatus::Idle);
+                    return false;
+                }
             }
             chat.clear();
             add_welcome_message(chat);
@@ -162,6 +182,7 @@ pub(super) async fn import_session(
     chat: &Arc<Container>,
     state: &Arc<TuiState>,
     tool_context: &rpi_extensions::ToolCallContext,
+    reload_context: &crate::session::ReloadContext,
 ) {
     use std::path::Path as FsPath;
 
@@ -187,7 +208,9 @@ pub(super) async fn import_session(
     match std::fs::copy(src, &dest) {
         Ok(_) => {
             let id = fname.strip_suffix(".jsonl").unwrap_or(fname).to_string();
-            if switch_to_session(harness, lane, &id, cwd, chat, state, tool_context).await {
+            if switch_to_session(harness, lane, &id, cwd, chat, state, tool_context, reload_context)
+                .await
+            {
                 add_note_message(chat, &format!("Imported session from {path}"));
             }
         }
@@ -201,6 +224,7 @@ pub(super) async fn fork_session(
     chat: &Arc<Container>,
     state: &Arc<TuiState>,
     tool_context: &rpi_extensions::ToolCallContext,
+    reload_context: &crate::session::ReloadContext,
 ) {
     use rpi_harness::session::jsonl::{JsonlSessionRepo, JsonlSessionRepoOptions};
     use rpi_tools::FileSystem;
@@ -249,11 +273,31 @@ pub(super) async fn fork_session(
         }
     };
     let new_session = rpi_harness::session::session::Session::new(Arc::new(fork_storage), None);
-    if let Err(error) =
-        crate::session::set_active_session(harness, new_session, Some(tool_context)).await
+    let lane = harness.lane("main");
+    let leaf = lane.get_leaf_id().await.ok().flatten();
+    match crate::session::replace_active_session(
+        &crate::session::SessionReplacementContext {
+            harness,
+            lane: lane.as_ref(),
+            extension_session: &reload_context.extension_session,
+            action_bridge: &reload_context.action_bridge,
+            tool_context,
+        },
+        new_session,
+        crate::session::SessionReplacementReason::Fork,
+        leaf.as_deref(),
+    )
+    .await
     {
-        add_error_message(chat, &format!("Could not fork session: {error}"));
-        return;
+        Ok(crate::session::SessionReplacement::Replaced) => {}
+        Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
+            add_note_message(chat, &format!("Fork cancelled: {reason}"));
+            return;
+        }
+        Err(error) => {
+            add_error_message(chat, &format!("Could not fork session: {error}"));
+            return;
+        }
     }
     chat.clear();
     add_welcome_message(chat);
