@@ -43,6 +43,8 @@ mod events;
 use events::*;
 mod selectors;
 use selectors::*;
+mod tree_ui;
+use tree_ui::*;
 mod autocomplete;
 use autocomplete::*;
 mod rendering;
@@ -666,7 +668,12 @@ enum TuiMessage {
     SwitchProvider(String),
     OpenProviderSelector,
     OpenTree,
+    /// Re-open `/tree` with an entry highlighted (cancelled summary prompt).
+    OpenTreeAt(String),
+    /// A tree entry was selected; ask "Summarize branch?" before navigating.
     NavigateTree(String),
+    /// The dialogs decided the navigation options; perform the navigation.
+    TreeNavigate(TreeNavigateRequest),
     Exit,
     /// Clear the transcript (from `/clear`).
     ClearChat,
@@ -2972,58 +2979,56 @@ pub async fn interactive_tui(
                 }
             }
             Some(TuiMessage::OpenTree) => {
-                if *state.status.lock().unwrap() != RunStatus::Idle {
-                    add_note_message(
-                        &chat_container,
-                        "Wait for the current run to finish before opening the tree.",
-                    );
-                    tui.request_render(false);
-                } else {
-                    open_tree_selector(
-                        &harness,
-                        &state,
-                        &editor_container,
-                        &editor,
-                        &tui,
-                        &chat_container,
-                        &tx,
-                    )
-                    .await;
-                }
+                open_tree_selector(
+                    &harness,
+                    &state,
+                    &editor_container,
+                    &editor,
+                    &tui,
+                    &chat_container,
+                    &tx,
+                    None,
+                )
+                .await;
+            }
+            Some(TuiMessage::OpenTreeAt(entry_id)) => {
+                open_tree_selector(
+                    &harness,
+                    &state,
+                    &editor_container,
+                    &editor,
+                    &tui,
+                    &chat_container,
+                    &tx,
+                    Some(&entry_id),
+                )
+                .await;
             }
             Some(TuiMessage::NavigateTree(entry_id)) => {
-                match lane.navigate_tree(Some(&entry_id), false, None, None).await {
-                    Ok(result) => match result.outcome {
-                        rpi_harness::agent_harness::NavigationOutcome::Completed { .. } => {
-                            chat_container.clear();
-                            add_welcome_message(&chat_container);
-                            render_session_history(
-                                &harness,
-                                &chat_container,
-                                state.markdown_transformer(),
-                                Some(state.extension_session.clone()),
-                                state.images_visible(),
-                            )
-                            .await;
-                            add_note_message(
-                                &chat_container,
-                                "Moved to the selected session entry.",
-                            );
-                        }
-                        rpi_harness::agent_harness::NavigationOutcome::Failed { error, .. } => {
-                            add_error_message(&chat_container, &error.message);
-                        }
-                        _ => add_note_message(
-                            &chat_container,
-                            "The selected entry could not be opened.",
-                        ),
-                    },
-                    Err(error) => add_error_message(
-                        &chat_container,
-                        &format!("Could not navigate session tree: {error}"),
-                    ),
-                }
-                tui.request_render(false);
+                select_tree_entry(
+                    &harness,
+                    &lane,
+                    &state,
+                    &editor_container,
+                    &editor,
+                    &tui,
+                    &tx,
+                    &entry_id,
+                )
+                .await;
+            }
+            Some(TuiMessage::TreeNavigate(request)) => {
+                navigate(
+                    &harness,
+                    &lane,
+                    &state,
+                    &editor_container,
+                    &editor,
+                    &tui,
+                    &tx,
+                    request,
+                )
+                .await;
             }
             Some(TuiMessage::ClearChat) => {
                 chat_container.clear();
