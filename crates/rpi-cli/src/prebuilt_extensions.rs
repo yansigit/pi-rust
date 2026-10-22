@@ -11,10 +11,14 @@ use sha2::{Digest, Sha256};
 
 const CRATES_API: &str = "https://crates.io/api/v1/crates";
 const MAX_METADATA: u64 = 8 * 1024 * 1024;
-const MAX_MANIFEST: u64 = 256 * 1024;
+pub(crate) const MAX_MANIFEST: u64 = 256 * 1024;
 const MAX_ARCHIVE: u64 = 256 * 1024 * 1024;
 const MAX_LIBRARY: u64 = 128 * 1024 * 1024;
 const MAX_ENTRIES: usize = 128;
+/// Longest accepted sidecar asset path, in bytes.
+const MAX_ASSET_PATH: usize = 512;
+/// The release manifest is published beside the archive and is never an asset.
+const MANIFEST_FILE: &str = "rpi-extension.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PrebuiltRecord {
@@ -29,6 +33,17 @@ pub struct PrebuiltRecord {
     /// Explicit repository installs discover versions from package-specific tags.
     #[serde(default)]
     pub custom_repository: bool,
+    /// Sidecar files installed beside the library, as declared and verified.
+    /// Empty for legacy single-library manifests, which keeps their records unchanged.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assets: Vec<PrebuiltAsset>,
+}
+
+/// One verified sidecar file, relative to the extension store directory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PrebuiltAsset {
+    pub path: String,
+    pub sha256: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -75,10 +90,20 @@ struct Distribution {
     size: u64,
     sha256: String,
     library: Library,
+    /// Absent is the legacy single-library archive. Present, even empty, means the
+    /// archive must contain exactly the library plus these declared assets.
+    #[serde(default)]
+    assets: Option<Vec<AssetDeclaration>>,
 }
 
 #[derive(Debug, Deserialize)]
 struct Library {
+    path: String,
+    sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct AssetDeclaration {
     path: String,
     sha256: String,
 }
@@ -397,7 +422,90 @@ fn validate_manifest<'a>(
         }
     }
     validate_release_asset_url(&distribution.url, &package.repository, &manifest.tag)?;
+    declared_assets(distribution)?;
     Ok(distribution)
+}
+
+/// Validate the optional `assets` declaration and return it in provenance form.
+/// `None` is the legacy single-library layout.
+fn declared_assets(distribution: &Distribution) -> Result<Option<Vec<PrebuiltAsset>>, String> {
+    let Some(declared) = &distribution.assets else {
+        return Ok(None);
+    };
+    // The library is one archive entry; every asset is another. Directory entries
+    // are counted again when the archive itself is read.
+    if declared.len() + 1 > MAX_ENTRIES {
+        return Err("too many archive entries".into());
+    }
+    let library = distribution.library.path.to_ascii_lowercase();
+    let mut folded: Vec<String> = Vec::with_capacity(declared.len());
+    let mut assets = Vec::with_capacity(declared.len());
+    for asset in declared {
+        validate_asset_path(&asset.path)?;
+        if !is_sha256_hex(&asset.sha256) {
+            return Err("invalid asset SHA-256 in manifest".into());
+        }
+        let key = asset.path.to_ascii_lowercase();
+        // Case-insensitive file systems would alias these names onto one another.
+        if asset_paths_conflict(&key, &library) || asset_paths_conflict(&key, MANIFEST_FILE) {
+            return Err(format!(
+                "asset path `{}` collides with the library or manifest",
+                asset.path
+            ));
+        }
+        if folded.iter().any(|other| asset_paths_conflict(other, &key)) {
+            return Err(format!(
+                "duplicate or overlapping asset path `{}`",
+                asset.path
+            ));
+        }
+        folded.push(key);
+        assets.push(PrebuiltAsset {
+            path: asset.path.clone(),
+            sha256: asset.sha256.clone(),
+        });
+    }
+    Ok(Some(assets))
+}
+
+/// Sidecar paths are relative, forward-slash, and limited to a plain ASCII
+/// alphabet. Components cannot be empty, `.`, `..` or hidden, and no component
+/// may carry a dynamic-library extension because the loader scans the store.
+pub(crate) fn validate_asset_path(value: &str) -> Result<(), String> {
+    let invalid = || format!("invalid asset path `{value}`");
+    if value.is_empty() || value.len() > MAX_ASSET_PATH {
+        return Err(invalid());
+    }
+    for component in value.split('/') {
+        if component.is_empty()
+            || component.starts_with('.')
+            || !component
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+        {
+            return Err(invalid());
+        }
+        if crate::install::is_dynamic_library(Path::new(component)) {
+            return Err(format!(
+                "asset `{value}` has a native library extension and cannot be installed as an asset"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Whether two lowercased store paths name the same file or nest one under the other.
+pub(crate) fn asset_paths_conflict(left: &str, right: &str) -> bool {
+    left == right
+        || left.starts_with(&format!("{right}/"))
+        || right.starts_with(&format!("{left}/"))
+}
+
+fn is_sha256_hex(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 pub(crate) fn validate_release_asset_url(
@@ -592,13 +700,20 @@ fn install_archive_at(
     force: bool,
 ) -> Result<Vec<PathBuf>, String> {
     let distribution = validate_manifest(manifest, package, target)?;
+    let declared = declared_assets(distribution)?;
     if archive.len() as u64 != distribution.size {
         return Err("archive byte length does not match manifest".into());
     }
     check_hash(archive, &distribution.sha256)?;
-    let bytes = extract_library(archive, &distribution.format, &distribution.library.path)?;
-    check_hash(&bytes, &distribution.library.sha256)?;
-    validate_library_target(&bytes, target)?;
+    // Every entry and asset hash is verified here, before the store is touched.
+    let extracted = extract_archive(
+        archive,
+        &distribution.format,
+        &distribution.library.path,
+        declared.as_deref(),
+    )?;
+    check_hash(&extracted.library, &distribution.library.sha256)?;
+    validate_library_target(&extracted.library, target)?;
     let provenance = PrebuiltRecord {
         repository: package.repository.clone(),
         target: target.into(),
@@ -609,10 +724,16 @@ fn install_archive_at(
         archive_sha256: distribution.sha256.clone(),
         library_sha256: distribution.library.sha256.clone(),
         custom_repository: package.custom_repository,
+        assets: declared.unwrap_or_default(),
     };
     let temporary = tempfile::tempdir().map_err(|e| e.to_string())?;
     let artifact = temporary.path().join(&distribution.library.path);
-    std::fs::write(&artifact, bytes).map_err(|e| e.to_string())?;
+    std::fs::write(&artifact, &extracted.library).map_err(|e| e.to_string())?;
+    let assets: Vec<crate::install::NativeAssetFile> = extracted
+        .assets
+        .into_iter()
+        .map(|(path, bytes)| crate::install::NativeAssetFile { path, bytes })
+        .collect();
     let record = crate::install::InstalledNativePackage {
         name: package.name.clone(),
         version: package.version.clone(),
@@ -621,11 +742,12 @@ fn install_archive_at(
         prebuilt: Some(provenance),
         artifacts: Vec::new(),
     };
-    crate::install::install_native_package_at(
+    crate::install::install_native_package_with_assets_at(
         &agent_dir.join("extensions"),
         &agent_dir.join("native-packages.json"),
         record,
         &[artifact],
+        &assets,
         force,
     )
 }
@@ -647,24 +769,124 @@ fn safe_entry_name(name: &str) -> Result<PathBuf, String> {
         .collect())
 }
 
-fn read_library(reader: impl Read) -> Result<Vec<u8>, String> {
+/// Read one archive file under two budgets: the per-file cap and what remains of
+/// the archive-wide expansion cap. Budgets use bytes actually produced, so a
+/// header that understates its size cannot bypass the archive limit.
+fn read_entry(
+    reader: impl Read,
+    read: &mut u64,
+    archive_limit: u64,
+    file_limit: u64,
+    file_error: &str,
+) -> Result<Vec<u8>, String> {
+    let remaining = archive_limit.saturating_sub(*read);
+    let limit = file_limit.min(remaining);
     let mut bytes = Vec::new();
     reader
-        .take(MAX_LIBRARY + 1)
+        .take(limit.saturating_add(1))
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > MAX_LIBRARY {
-        return Err("extracted library exceeds size limit".into());
+    if bytes.len() as u64 > limit {
+        return Err(if limit == remaining {
+            "expanded archive exceeds size limit".into()
+        } else {
+            file_error.into()
+        });
     }
+    *read += bytes.len() as u64;
     Ok(bytes)
 }
 
+/// Strict zip extraction cannot rely on the reader's entry map alone: it keeps one
+/// entry per name and silently drops duplicates. The central directory is read
+/// directly instead, so duplicate names are rejected and every record is counted.
+/// The directory must be the one the end record describes, located at the end of
+/// the archive, so an archive with leading bytes is rejected as malformed.
+fn check_zip_directory(archive: &[u8], entries: usize) -> Result<(), String> {
+    let malformed = || "malformed zip central directory".to_string();
+    let u16_at = |at: usize| {
+        archive
+            .get(at..at + 2)
+            .map(|b| u16::from_le_bytes([b[0], b[1]]) as usize)
+    };
+    let u32_at = |at: usize| {
+        archive
+            .get(at..at + 4)
+            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize)
+    };
+    // The end record is the last signature whose comment length reaches the end of the file.
+    let search_start = archive.len().saturating_sub(22 + u16::MAX as usize);
+    let end = (search_start..archive.len().saturating_sub(21))
+        .rev()
+        .find(|&at| {
+            archive[at..].starts_with(b"PK\x05\x06")
+                && u16_at(at + 20).is_some_and(|comment| at + 22 + comment == archive.len())
+        })
+        .ok_or_else(malformed)?;
+    let total = u16_at(end + 10).ok_or_else(malformed)?;
+    let size = u32_at(end + 12).ok_or_else(malformed)?;
+    let start = u32_at(end + 16).ok_or_else(malformed)?;
+    if total == 0xffff || size == 0xffff_ffff || start == 0xffff_ffff {
+        return Err("zip64 archives are not supported for prebuilt extensions".into());
+    }
+    let stop = start.checked_add(size).ok_or_else(malformed)?;
+    if stop > end {
+        return Err(malformed());
+    }
+    let mut names = Vec::with_capacity(total);
+    let mut at = start;
+    while at < stop {
+        if archive.get(at..at + 4) != Some(b"PK\x01\x02".as_slice()) {
+            return Err(malformed());
+        }
+        let name_len = u16_at(at + 28).ok_or_else(malformed)?;
+        let extra_len = u16_at(at + 30).ok_or_else(malformed)?;
+        let comment_len = u16_at(at + 32).ok_or_else(malformed)?;
+        names.push(
+            archive
+                .get(at + 46..at + 46 + name_len)
+                .ok_or_else(malformed)?,
+        );
+        at += 46 + name_len + extra_len + comment_len;
+    }
+    if at != stop || names.len() != total {
+        return Err(malformed());
+    }
+    names.sort_unstable();
+    if names.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err("duplicate archive entry name".into());
+    }
+    if entries != total {
+        return Err(malformed());
+    }
+    Ok(())
+}
+
+/// Verified archive contents. Assets are returned in manifest order.
+pub(crate) struct ExtractedArchive {
+    pub library: Vec<u8>,
+    pub assets: Vec<(String, Vec<u8>)>,
+}
+
+/// Legacy entry point: only the declared library is read and other entries are ignored.
 pub(crate) fn extract_library(
     archive: &[u8],
     format: &str,
     library: &str,
 ) -> Result<Vec<u8>, String> {
-    let mut found = None;
+    extract_archive(archive, format, library, None).map(|extracted| extracted.library)
+}
+
+/// `declared == None` is the legacy contract: entries other than the library are
+/// ignored. `Some` is strict: every regular file must be the library or a declared
+/// asset, each asset must match its SHA-256, and every declared file must be present.
+pub(crate) fn extract_archive(
+    archive: &[u8],
+    format: &str,
+    library: &str,
+    declared: Option<&[PrebuiltAsset]>,
+) -> Result<ExtractedArchive, String> {
+    let mut files = ArchiveFiles::new(library, declared);
     let mut total = 0u64;
     match format {
         "zip" => {
@@ -672,14 +894,21 @@ pub(crate) fn extract_library(
             if zip.len() > MAX_ENTRIES {
                 return Err("too many archive entries".into());
             }
+            if files.is_strict() {
+                check_zip_directory(archive, zip.len())?;
+            }
             for i in 0..zip.len() {
                 let file = zip.by_index(i).map_err(|e| e.to_string())?;
                 let path = safe_entry_name(file.name())?;
-                if file
-                    .unix_mode()
-                    .is_some_and(|mode| mode & 0o170000 == 0o120000)
-                {
+                let mode = file.unix_mode();
+                if mode.is_some_and(|mode| mode & 0o170000 == 0o120000) {
                     return Err("archive symlinks are not allowed".into());
+                }
+                // Only a strict archive rejects devices and FIFOs; legacy archives keep their old behavior.
+                if files.is_strict()
+                    && mode.is_some_and(|mode| !matches!(mode & 0o170000, 0 | 0o100000 | 0o040000))
+                {
+                    return Err("archive special files are not allowed".into());
                 }
                 total = total
                     .checked_add(file.size())
@@ -687,11 +916,8 @@ pub(crate) fn extract_library(
                 if total > MAX_ARCHIVE {
                     return Err("expanded archive exceeds size limit".into());
                 }
-                if !file.is_dir() && path == Path::new(library) {
-                    if found.is_some() {
-                        return Err("duplicate declared library in archive".into());
-                    }
-                    found = Some(read_library(file)?);
+                if !file.is_dir() {
+                    files.accept(&path, file)?;
                 }
             }
         }
@@ -719,17 +945,93 @@ pub(crate) fn extract_library(
                 if total > MAX_ARCHIVE {
                     return Err("expanded archive exceeds size limit".into());
                 }
-                if kind.is_file() && path == Path::new(library) {
-                    if found.is_some() {
-                        return Err("duplicate declared library in archive".into());
-                    }
-                    found = Some(read_library(file)?);
+                if kind.is_file() {
+                    files.accept(&path, file)?;
                 }
             }
         }
         _ => return Err("unsupported prebuilt archive format".into()),
     }
-    found.ok_or_else(|| format!("archive does not contain the exact declared library {library}"))
+    files.finish()
+}
+
+struct ArchiveFiles<'a> {
+    library: &'a str,
+    declared: Option<&'a [PrebuiltAsset]>,
+    library_bytes: Option<Vec<u8>>,
+    asset_bytes: Vec<Option<Vec<u8>>>,
+    read: u64,
+}
+
+impl<'a> ArchiveFiles<'a> {
+    fn new(library: &'a str, declared: Option<&'a [PrebuiltAsset]>) -> Self {
+        Self {
+            library,
+            declared,
+            library_bytes: None,
+            asset_bytes: vec![None; declared.map_or(0, <[PrebuiltAsset]>::len)],
+            read: 0,
+        }
+    }
+
+    fn is_strict(&self) -> bool {
+        self.declared.is_some()
+    }
+
+    fn accept(&mut self, path: &Path, reader: impl Read) -> Result<(), String> {
+        if path == Path::new(self.library) {
+            if self.library_bytes.is_some() {
+                return Err("duplicate declared library in archive".into());
+            }
+            self.library_bytes = Some(read_entry(
+                reader,
+                &mut self.read,
+                MAX_ARCHIVE,
+                MAX_LIBRARY,
+                "extracted library exceeds size limit",
+            )?);
+            return Ok(());
+        }
+        let Some(declared) = self.declared else {
+            return Ok(());
+        };
+        let key = path.to_str().unwrap_or_default();
+        let Some(index) = declared.iter().position(|asset| asset.path == key) else {
+            return Err(format!("undeclared file in archive: {}", path.display()));
+        };
+        if self.asset_bytes[index].is_some() {
+            return Err(format!("duplicate declared asset in archive: {key}"));
+        }
+        let bytes = read_entry(
+            reader,
+            &mut self.read,
+            MAX_ARCHIVE,
+            MAX_LIBRARY,
+            "extracted asset exceeds size limit",
+        )?;
+        check_hash(&bytes, &declared[index].sha256).map_err(|e| format!("asset {key}: {e}"))?;
+        self.asset_bytes[index] = Some(bytes);
+        Ok(())
+    }
+
+    fn finish(self) -> Result<ExtractedArchive, String> {
+        let library = self.library_bytes.ok_or_else(|| {
+            format!(
+                "archive does not contain the exact declared library {}",
+                self.library
+            )
+        })?;
+        let mut assets = Vec::new();
+        if let Some(declared) = self.declared {
+            for (asset, bytes) in declared.iter().zip(self.asset_bytes) {
+                let bytes = bytes.ok_or_else(|| {
+                    format!("archive does not contain declared asset {}", asset.path)
+                })?;
+                assets.push((asset.path.clone(), bytes));
+            }
+        }
+        Ok(ExtractedArchive { library, assets })
+    }
 }
 
 /// Verify the native object format/architecture without executing downloaded code.
@@ -1398,5 +1700,567 @@ mod tests {
         let response = client.get(url).send().await.unwrap();
         assert!(body_limited(response, 8).await.is_err());
         server.join().unwrap();
+    }
+
+    fn library_for(target: &str) -> &'static str {
+        if target.contains("windows") {
+            "custom_runtime.dll"
+        } else if target.contains("apple") {
+            "libcustom_runtime.dylib"
+        } else {
+            "libcustom_runtime.so"
+        }
+    }
+
+    fn archive_for(target: &str, entries: &[(&str, &[u8])]) -> Vec<u8> {
+        if target.contains("windows") {
+            zip(entries)
+        } else {
+            tgz_with(|tar| {
+                for (name, bytes) in entries {
+                    tar_file(tar, name, bytes);
+                }
+            })
+        }
+    }
+
+    type TarBuilder = tar::Builder<flate2::write::GzEncoder<Vec<u8>>>;
+
+    fn tgz_with(build: impl FnOnce(&mut TarBuilder)) -> Vec<u8> {
+        let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(
+            Vec::new(),
+            flate2::Compression::default(),
+        ));
+        build(&mut tar);
+        tar.into_inner().unwrap().finish().unwrap()
+    }
+
+    fn tar_file(tar: &mut TarBuilder, name: &str, bytes: &[u8]) {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append_data(&mut header, name, bytes).unwrap();
+    }
+
+    /// Writes `name` into the header verbatim, bypassing the writer's path checks.
+    fn tar_file_raw_name(tar: &mut TarBuilder, name: &str, bytes: &[u8]) {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(bytes.len() as u64);
+        header.set_mode(0o644);
+        header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+        header.set_cksum();
+        tar.append(&header, bytes).unwrap();
+    }
+
+    fn tar_link(tar: &mut TarBuilder, name: &str, kind: tar::EntryType, target: &str) {
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(kind);
+        header.set_size(0);
+        header.set_mode(0o777);
+        header.set_cksum();
+        tar.append_link(&mut header, name, target).unwrap();
+    }
+
+    /// A zip whose single entry carries a Unix character-device mode. The writer
+    /// cannot express type bits, so the central directory's external attributes
+    /// are patched after writing.
+    fn zip_with_device_entry(name: &str) -> Vec<u8> {
+        let mut archive = zip(&[(name, b"device")]);
+        let central = archive
+            .windows(4)
+            .position(|window| window == b"PK\x01\x02")
+            .unwrap();
+        let mode: u32 = 0o020644;
+        archive[central + 38..central + 42].copy_from_slice(&(mode << 16).to_le_bytes());
+        archive
+    }
+
+    /// The zip writer refuses duplicate names, so duplicates are made by writing a
+    /// same-length alias and rewriting it in both the local and central headers.
+    fn replace_bytes(bytes: &mut [u8], from: &[u8], to: &[u8]) {
+        assert_eq!(from.len(), to.len());
+        for start in 0..=bytes.len().saturating_sub(from.len()) {
+            if bytes[start..].starts_with(from) {
+                bytes[start..start + to.len()].copy_from_slice(to);
+            }
+        }
+    }
+
+    fn declaration(assets: &[(&str, &[u8])]) -> serde_json::Value {
+        serde_json::Value::Array(
+            assets
+                .iter()
+                .map(|(path, bytes)| serde_json::json!({"path": path, "sha256": hash(bytes)}))
+                .collect(),
+        )
+    }
+
+    /// The fixture manifest for `target`, pointed at `archive` and declaring `assets`.
+    fn manifest_case(
+        target: &str,
+        archive: &[u8],
+        assets: Option<serde_json::Value>,
+    ) -> (ResolvedPackage, serde_json::Value) {
+        let (package, mut value, _) = fixture(target);
+        value["targets"][target]["size"] = serde_json::json!(archive.len());
+        value["targets"][target]["sha256"] = serde_json::json!(hash(archive));
+        if let Some(assets) = assets {
+            value["targets"][target]["assets"] = assets;
+        }
+        (package, value)
+    }
+
+    fn install_case(
+        target: &str,
+        archive: &[u8],
+        assets: Option<serde_json::Value>,
+        agent: &Path,
+    ) -> Result<Vec<PathBuf>, String> {
+        let (package, value) = manifest_case(target, archive, assets);
+        let manifest: Manifest = serde_json::from_value(value.clone()).unwrap();
+        let raw = serde_json::to_vec(&value).unwrap();
+        install_archive_at(&package, &manifest, &raw, archive, target, agent, false)
+    }
+
+    fn assert_rejected(
+        target: &str,
+        archive: &[u8],
+        assets: Option<serde_json::Value>,
+        expected: &str,
+    ) {
+        let agent = tempfile::tempdir().unwrap();
+        let error = install_case(target, archive, assets, agent.path()).unwrap_err();
+        assert!(
+            error.contains(expected),
+            "expected `{expected}` in `{error}`"
+        );
+        assert!(!agent.path().join("extensions").exists(), "{error}");
+        assert!(
+            !agent.path().join("native-packages.json").exists(),
+            "{error}"
+        );
+    }
+
+    const SIDECAR: &[u8] = b"export {};";
+
+    #[test]
+    fn manifests_without_assets_keep_the_single_library_layout() {
+        for target in TARGETS {
+            let (package, value, archive) = fixture(target);
+            assert!(value["targets"][target].get("assets").is_none());
+            let manifest: Manifest = serde_json::from_value(value.clone()).unwrap();
+            assert!(manifest.targets[target].assets.is_none());
+            let agent = tempfile::tempdir().unwrap();
+            let paths = install_archive_at(
+                &package,
+                &manifest,
+                &serde_json::to_vec(&value).unwrap(),
+                &archive,
+                target,
+                agent.path(),
+                false,
+            )
+            .unwrap();
+            assert_eq!(paths.len(), 1, "{target}");
+            let installed: Vec<String> = std::fs::read_dir(agent.path().join("extensions"))
+                .unwrap()
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            assert_eq!(installed, [library_for(target)], "{target}");
+            let registry =
+                std::fs::read_to_string(agent.path().join("native-packages.json")).unwrap();
+            assert!(!registry.contains("assets"), "{registry}");
+        }
+    }
+
+    #[test]
+    fn legacy_archives_still_ignore_undeclared_entries() {
+        let target = TARGETS[1];
+        let library = object(target);
+        let archive = archive_for(
+            target,
+            &[(library_for(target), &library), ("README.md", b"docs")],
+        );
+        let agent = tempfile::tempdir().unwrap();
+        assert_eq!(
+            install_case(target, &archive, None, agent.path())
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!agent.path().join("extensions").join("README.md").exists());
+    }
+
+    #[test]
+    fn declared_assets_install_beside_the_library_with_their_relative_layout() {
+        let assets: &[(&str, &[u8])] = &[
+            ("runtime/main.mjs", SIDECAR),
+            ("runtime/dist/index.mjs", b"export const dist = 1;"),
+            ("runtime/shared/util.mjs", b"export const util = 2;"),
+            ("runtime/package.json", br#"{"type":"module"}"#),
+            ("runtime/package-lock.json", b"{}"),
+            ("LICENSE", b"MIT"),
+        ];
+        for target in TARGETS {
+            let library = object(target);
+            let mut entries: Vec<(&str, &[u8])> = vec![(library_for(target), &library)];
+            entries.extend_from_slice(assets);
+            let archive = archive_for(target, &entries);
+            let agent = tempfile::tempdir().unwrap();
+            let paths =
+                install_case(target, &archive, Some(declaration(assets)), agent.path()).unwrap();
+            assert_eq!(paths.len(), 1 + assets.len(), "{target}");
+            let extensions = agent.path().join("extensions");
+            assert_eq!(
+                std::fs::read(extensions.join(library_for(target))).unwrap(),
+                library
+            );
+            for (path, bytes) in assets {
+                assert_eq!(
+                    std::fs::read(extensions.join(path)).unwrap(),
+                    *bytes,
+                    "{path}"
+                );
+            }
+            let records: Vec<crate::install::InstalledNativePackage> = serde_json::from_slice(
+                &std::fs::read(agent.path().join("native-packages.json")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(records[0].artifacts, [library_for(target)]);
+            let provenance = records[0].prebuilt.as_ref().unwrap();
+            assert_eq!(
+                provenance.assets,
+                assets
+                    .iter()
+                    .map(|(path, bytes)| PrebuiltAsset {
+                        path: (*path).into(),
+                        sha256: hash(bytes),
+                    })
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn unsafe_asset_declarations_are_rejected_before_anything_is_written() {
+        let target = TARGETS[1];
+        let library = object(target);
+        let archive = archive_for(target, &[(library_for(target), &library)]);
+        let digest = hash(b"x");
+        let cases: [(&[&str], &str); 17] = [
+            (&["/etc/main.mjs"], "invalid asset path"),
+            (&["../escape.mjs"], "invalid asset path"),
+            (&["runtime/../escape.mjs"], "invalid asset path"),
+            (&["./main.mjs"], "invalid asset path"),
+            (&["runtime//main.mjs"], "invalid asset path"),
+            (&["runtime/"], "invalid asset path"),
+            (&[""], "invalid asset path"),
+            (&["runtime\\main.mjs"], "invalid asset path"),
+            (&["C:main.mjs"], "invalid asset path"),
+            (&[".hidden.mjs"], "invalid asset path"),
+            (&["has space.mjs"], "invalid asset path"),
+            (&["runtime/plugin.so"], "native library extension"),
+            (&["plugin.dll"], "native library extension"),
+            (
+                &["runtime/main.mjs", "runtime/main.mjs"],
+                "duplicate or overlapping",
+            ),
+            (
+                &["runtime/main.mjs", "Runtime/MAIN.mjs"],
+                "duplicate or overlapping",
+            ),
+            (&["runtime", "runtime/main.mjs"], "duplicate or overlapping"),
+            (
+                &["RPI-EXTENSION.JSON"],
+                "collides with the library or manifest",
+            ),
+        ];
+        for (paths, expected) in cases {
+            let declared: Vec<serde_json::Value> = paths
+                .iter()
+                .map(|path| serde_json::json!({"path": path, "sha256": digest}))
+                .collect();
+            assert_rejected(
+                target,
+                &archive,
+                Some(serde_json::Value::Array(declared)),
+                expected,
+            );
+        }
+        assert_rejected(
+            target,
+            &archive,
+            Some(serde_json::json!([{"path": "runtime/main.mjs", "sha256": "ABC"}])),
+            "invalid asset SHA-256",
+        );
+    }
+
+    #[test]
+    fn asset_declarations_are_bounded_by_the_archive_entry_cap() {
+        let target = TARGETS[1];
+        let library = object(target);
+        let archive = archive_for(target, &[(library_for(target), &library)]);
+        let declared: Vec<serde_json::Value> = (0..MAX_ENTRIES)
+            .map(|index| serde_json::json!({"path": format!("runtime/f{index}.mjs"), "sha256": hash(b"")}))
+            .collect();
+        assert_rejected(
+            target,
+            &archive,
+            Some(serde_json::Value::Array(declared)),
+            "too many archive entries",
+        );
+    }
+
+    #[test]
+    fn strict_archives_reject_unsafe_or_undeclared_entries() {
+        let zip_target = TARGETS[0];
+        let tgz_target = TARGETS[1];
+        let lib_zip = object(zip_target);
+        let lib_tgz = object(tgz_target);
+        let main: &[u8] = SIDECAR;
+        let decl_zip = Some(declaration(&[("runtime/main.mjs", main)]));
+        let decl_tgz = Some(declaration(&[("runtime/main.mjs", main)]));
+
+        let traversal = zip(&[(library_for(zip_target), &lib_zip), ("../escape.mjs", b"x")]);
+        assert_rejected(
+            zip_target,
+            &traversal,
+            decl_zip.clone(),
+            "unsafe archive entry path",
+        );
+        let absolute = zip(&[(library_for(zip_target), &lib_zip), ("/abs.mjs", b"x")]);
+        assert_rejected(
+            zip_target,
+            &absolute,
+            decl_zip.clone(),
+            "unsafe archive entry path",
+        );
+        let windows_path = zip(&[
+            (library_for(zip_target), &lib_zip),
+            ("runtime\\main.mjs", main),
+        ]);
+        assert_rejected(
+            zip_target,
+            &windows_path,
+            decl_zip.clone(),
+            "unsafe archive entry path",
+        );
+
+        let undeclared = zip(&[
+            (library_for(zip_target), &lib_zip),
+            ("runtime/main.mjs", main),
+            ("extra.mjs", b"x"),
+        ]);
+        assert_rejected(
+            zip_target,
+            &undeclared,
+            decl_zip.clone(),
+            "undeclared file in archive: extra.mjs",
+        );
+        let missing = zip(&[(library_for(zip_target), &lib_zip)]);
+        assert_rejected(
+            zip_target,
+            &missing,
+            decl_zip.clone(),
+            "does not contain declared asset runtime/main.mjs",
+        );
+        let tampered = zip(&[
+            (library_for(zip_target), &lib_zip),
+            ("runtime/main.mjs", b"tampered"),
+        ]);
+        assert_rejected(zip_target, &tampered, decl_zip.clone(), "SHA-256 mismatch");
+        let mut duplicated = zip(&[
+            (library_for(zip_target), &lib_zip),
+            ("runtime/main.mjs", main),
+            ("runtime/mein.mjs", main),
+        ]);
+        replace_bytes(&mut duplicated, b"runtime/mein.mjs", b"runtime/main.mjs");
+        assert_rejected(
+            zip_target,
+            &duplicated,
+            decl_zip.clone(),
+            "duplicate archive entry name",
+        );
+        let mut duplicate_library = zip(&[
+            (library_for(zip_target), &lib_zip),
+            ("custom_runtime.dlx", &lib_zip),
+        ]);
+        replace_bytes(
+            &mut duplicate_library,
+            b"custom_runtime.dlx",
+            library_for(zip_target).as_bytes(),
+        );
+        assert_rejected(
+            zip_target,
+            &duplicate_library,
+            Some(serde_json::json!([])),
+            "duplicate archive entry name",
+        );
+
+        let mut linked = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        linked
+            .add_symlink(
+                "runtime/main.mjs",
+                "/etc/passwd",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        let linked = linked.finish().unwrap().into_inner();
+        assert_rejected(
+            zip_target,
+            &linked,
+            decl_zip.clone(),
+            "symlinks are not allowed",
+        );
+        let device = zip_with_device_entry("runtime/main.mjs");
+        assert_rejected(
+            zip_target,
+            &device,
+            decl_zip.clone(),
+            "special files are not allowed",
+        );
+
+        let mut many = vec![(library_for(zip_target), lib_zip.as_slice())];
+        let names: Vec<String> = (0..MAX_ENTRIES)
+            .map(|index| format!("extra{index}.mjs"))
+            .collect();
+        for name in &names {
+            many.push((name.as_str(), b"x"));
+        }
+        assert_rejected(
+            zip_target,
+            &zip(&many),
+            decl_zip.clone(),
+            "too many archive entries",
+        );
+
+        let traversal = tgz_with(|tar| {
+            tar_file(tar, library_for(tgz_target), &lib_tgz);
+            tar_file_raw_name(tar, "../escape.mjs", b"x");
+        });
+        assert_rejected(
+            tgz_target,
+            &traversal,
+            decl_tgz.clone(),
+            "unsafe archive entry path",
+        );
+        let undeclared = tgz_with(|tar| {
+            tar_file(tar, library_for(tgz_target), &lib_tgz);
+            tar_file(tar, "runtime/main.mjs", main);
+            tar_file(tar, "extra.mjs", b"x");
+        });
+        assert_rejected(
+            tgz_target,
+            &undeclared,
+            decl_tgz.clone(),
+            "undeclared file in archive",
+        );
+        let hard = tgz_with(|tar| {
+            tar_file(tar, library_for(tgz_target), &lib_tgz);
+            tar_link(
+                tar,
+                "runtime/main.mjs",
+                tar::EntryType::Link,
+                library_for(tgz_target),
+            );
+        });
+        assert_rejected(
+            tgz_target,
+            &hard,
+            decl_tgz.clone(),
+            "links and special files",
+        );
+        let symbolic = tgz_with(|tar| {
+            tar_file(tar, library_for(tgz_target), &lib_tgz);
+            tar_link(
+                tar,
+                "runtime/main.mjs",
+                tar::EntryType::Symlink,
+                "/etc/passwd",
+            );
+        });
+        assert_rejected(
+            tgz_target,
+            &symbolic,
+            decl_tgz.clone(),
+            "links and special files",
+        );
+    }
+
+    #[test]
+    fn strict_archives_accept_directory_entries_and_exact_contents() {
+        let zip_target = TARGETS[0];
+        let lib_zip = object(zip_target);
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        writer
+            .add_directory("runtime/", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer
+            .start_file("runtime/main.mjs", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        writer.write_all(SIDECAR).unwrap();
+        writer
+            .start_file(
+                library_for(zip_target),
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        writer.write_all(&lib_zip).unwrap();
+        let archive = writer.finish().unwrap().into_inner();
+        let agent = tempfile::tempdir().unwrap();
+        let paths = install_case(
+            zip_target,
+            &archive,
+            Some(declaration(&[("runtime/main.mjs", SIDECAR)])),
+            agent.path(),
+        )
+        .unwrap();
+        assert_eq!(paths.len(), 2);
+
+        let lib_tgz = object(TARGETS[1]);
+        let archive = tgz_with(|tar| {
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Directory);
+            header.set_size(0);
+            header.set_mode(0o755);
+            header.set_cksum();
+            tar.append_data(&mut header, "runtime/", std::io::empty())
+                .unwrap();
+            tar_file(tar, "runtime/main.mjs", SIDECAR);
+            tar_file(tar, library_for(TARGETS[1]), &lib_tgz);
+        });
+        let agent = tempfile::tempdir().unwrap();
+        assert_eq!(
+            install_case(
+                TARGETS[1],
+                &archive,
+                Some(declaration(&[("runtime/main.mjs", SIDECAR)])),
+                agent.path(),
+            )
+            .unwrap()
+            .len(),
+            2
+        );
+    }
+
+    #[test]
+    fn expanded_size_budget_counts_bytes_produced_not_declared_sizes() {
+        let mut read = 0;
+        let error =
+            read_entry(&b"0123456789"[..], &mut read, 8, 100, "file too large").unwrap_err();
+        assert_eq!(error, "expanded archive exceeds size limit");
+        let mut read = 0;
+        let error =
+            read_entry(&b"0123456789"[..], &mut read, 100, 4, "file too large").unwrap_err();
+        assert_eq!(error, "file too large");
+        let mut read = 6;
+        assert!(read_entry(&b"0123"[..], &mut read, 8, 100, "file too large").is_err());
+        let mut read = 0;
+        assert_eq!(
+            read_entry(&b"0123"[..], &mut read, 8, 100, "file too large").unwrap(),
+            b"0123"
+        );
+        assert_eq!(read, 4);
     }
 }
