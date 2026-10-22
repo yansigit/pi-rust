@@ -1,0 +1,81 @@
+{
+  "status": "Pi 1.3.0 compaction preparation, automatic-trigger decisions and auto-compaction lifecycle order verified host-independently against the unchanged upstream modules; host integration of the projection model remains pending",
+  "reference": "Pi 1.3.0 (@earendil-works/pi-coding-agent 1.3.0)",
+  "referenceNode": "24.22.0",
+  "checks": {
+    "toolchain": "1.78.0",
+    "warnings": "denied",
+    "referenceScripts": [
+      "node docs/provider-parity/check-compaction-pure-reference.mjs",
+      "node docs/provider-parity/check-compaction-trigger-reference.mjs"
+    ],
+    "fixtures": {
+      "compaction-pure-reference.json": "3b0648af30f2833d25564c3b381422f9ee7ce8d5df23885fea6b90a8d3e58d36",
+      "compaction-trigger-reference.json": "f588c6103bd0012df17e8687e833d3e0837a13690094b2e90cd419bbe82b53b5"
+    },
+    "scripts": {
+      "check-compaction-pure-reference.mjs": "05614bb5a0e932d3df83421d4101b2536f5f88463261440fd65b1ef6ca852921",
+      "check-compaction-trigger-reference.mjs": "1587b0946e40865c295dd1be12aabb9531c6157749eb99bb5c9bf5959e21a9a9"
+    },
+    "upstreamSha256": {
+      "pi-coding-agent/dist/core/compaction/compaction.js": "573f0321e9a93a4e8dca8c327f6459082ac438d1bc8b6c3c171d90894dd1543c",
+      "pi-coding-agent/dist/core/compaction/branch-summarization.js": "0327aead9ce78dab3c3c7e54779b5974ec41bcb769dd3024f0c61edcd9ebea7e",
+      "pi-coding-agent/dist/core/compaction/utils.js": "c7e234cf33528670658080b0c2f599f40a70459565c6c2a71d4a27cb0e4c5cfb",
+      "pi-coding-agent/dist/core/compaction/index.js": "2ab40284c2650bf3c3f195442be00497f0ee3cb726ac47c29bfa4b3ae209697e",
+      "pi-coding-agent/dist/core/session-manager.js": "046b6a1109ac3f0ed893bb85bf0648709362fa926a5da75761216cf2fcf9d926",
+      "pi-coding-agent/dist/core/messages.js": "8688b3f6eb28865f779cac998bd4754d1a4f08703200dfe0dd5a799aa0d42ef6",
+      "pi-coding-agent/dist/core/agent-session.js": "d0b4545a5da7fe97aa699269e64e27b37ee2fb5b7985efb1c0a66fc3d1883b52",
+      "pi-ai/dist/utils/overflow.js": "85570a78e9ba3e0322fe1b3f14c991b6a439b1d3eb89af306e2e7e9ade3d53b4"
+    },
+    "differentialRows": {
+      "projection": 14,
+      "tokens.estimateTokens": 11,
+      "tokens.estimateContextTokens": 3,
+      "tokens.estimateProjectedContextTokens": 6,
+      "prepare": 16,
+      "branch.collect": 5,
+      "branch.prepare": 4,
+      "utils.extractFileOps": 5,
+      "utils.computeFileLists": 5,
+      "utils.formatFileOperations": 4,
+      "utils.summarizationFailure": 6,
+      "overflow": 41,
+      "recoverableLength": 5,
+      "shouldCompact": 5,
+      "checkCompaction": 19,
+      "autoCompaction": 12
+    },
+    "rustTests": 17,
+    "rustTestFile": "crates/rpi-harness/tests/compaction_pure.rs",
+    "commands": [
+      "node docs/provider-parity/check-compaction-pure-reference.mjs",
+      "node docs/provider-parity/check-compaction-trigger-reference.mjs",
+      "RUSTFLAGS=\"-D warnings\" cargo +1.78.0 check --workspace --all-targets --locked",
+      "RUSTFLAGS=\"-D warnings\" cargo +1.78.0 test -p rpi-harness --locked",
+      "RUSTFLAGS=\"-D warnings\" cargo test -p rpi-harness --locked --test compaction_pure"
+    ]
+  },
+  "compared": [
+    "Session projection: path selection (default/explicit-none/id), model and thinking-level settings, context-entry selection around the newest and older compactions, context_edit replacement and omission, custom/branch-summary/compaction message construction, null-content normalization",
+    "Token estimation: per-role char/4 estimates including UTF-16 string lengths, emoji, image blocks, system sections and toolsAdded JSON.stringify, tool-call argument serialization with escapes, bash execution and summary roles",
+    "estimateContextTokens usage selection (aborted/error/zero usage skipped) and estimateProjectedContextTokens stale-usage invalidation by context_edit/compaction",
+    "prepareCompaction: firstKeptEntryId, messagesToSummarize, turnPrefixMessages, isSplitTurn, tokensBefore, previousSummary, cumulative file operations (including fromHook suppression), recovery-omission cut advancement, missing/retain-none previous kept ids, split-turn prefixes, already-compacted and empty paths",
+    "Branch collection: common ancestor and chronological entry collection for sibling/ancestor/root/self/no-old-leaf navigation",
+    "prepareBranchEntries: newest-first budget, compaction/branch-summary grace rule, cumulative file operations and fromHook suppression",
+    "File-operation utils: assistant tool-call and tool-result nested-call extraction, insertion-ordered sets, UTF-16 sorted read/modified lists, XML formatting, and summarization-failure classification",
+    "isContextOverflow across 41 provider error strings, silent-usage and length-stop overflow, cerebras bodiless, and non-overflow throttling/rate-limit exclusions",
+    "isRecoverableLength boundary cases",
+    "shouldCompact enable/boundary/reserve cases",
+    "checkCompaction decision table and ordered side effects: disabled, aborted skip, pre-compaction staleness, explicit/silent/length overflow with and without a later compaction or context edit, other-model and unprojected suppression, direct-usage/estimate/projection threshold paths, stale estimate rejection, second-attempt failure emission",
+    "autoCompaction operation order and emitted events: success, queued continuation, overflow retry, extension compaction, extension cancel, summary failure, commit failure, missing model, missing preparation, aborted signal, handler-that-returns-nothing"
+  ],
+  "limits": [
+    "This is a host-independent decision port over Pi-shaped JSON, not the host Entry/message enums; wiring the projection and context_edit model into crates/rpi-harness/src/session and the harness loop is separate work (H06/H10 remain partial).",
+    "Summary generation itself (LLM prompts, retries, usage merging) is not re-tested here; branch-summary-reference.json covers branch prompts and compaction prompts remain covered by the existing host tests.",
+    "Timestamps are compared as numeric epoch milliseconds; ISO-8601 string timestamps and the Date parsing they require are not exercised.",
+    "JSON.stringify of non-integral floats is validated only for the fixture values used; JS exponent formatting for very large/small magnitudes is not covered.",
+    "The overflow classifier is a hand port of the upstream regex list (no regex dependency is available in rpi-harness) and is validated against the 41-row corpus, not against arbitrary inputs.",
+    "The lifecycle order model mirrors the upstream control flow driven through stubs; the real extension runner's session_compact_failed handler gate is not modelled because the reference stubs that method.",
+    "Only Linux with Node 24.22.0 and Rust 1.78.0/default was executed."
+  ]
+}

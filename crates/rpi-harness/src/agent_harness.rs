@@ -52,7 +52,9 @@ use rpi_ai::types::{
 use rpi_ai::{Model, Provider as AiProvider};
 
 use crate::compaction::{
-    compact, estimate_context_tokens, prepare_compaction, should_compact, CompactionLlmOptions,
+    auto_compaction_decision, compact, estimate_context_tokens, projected_preparation,
+    should_compact,
+    AutoCompactionCheck, AutoCompactionDecision, CompactionLlmOptions,
 };
 use crate::error::{SessionError, SessionErrorCode};
 use crate::events::{HarnessEvent, HarnessEventBus, RunEndEvent, RunEndOutcome, RunStartEvent};
@@ -3875,13 +3877,28 @@ impl AgentHarness {
         let path = self.branch_path_oldest_first().await?;
         let build_opts = Self::build_opts(&snap.entry_projectors, &snap.entry_transforms);
 
-        // Pre-run compaction evaluation.
+        // Pre-run compaction evaluation. Pi checks the last assistant message
+        // before a prompt (`_prepareRun` → `_checkCompaction(lastAssistant,
+        // false)`), so an aborted or overflowing turn from the previous run is
+        // handled here before the new prompt is sent.
         if snap.compaction.enabled && snap.model.context_window > 0 {
             let ctx = build_session_context(&path, &build_opts);
-            let ctx_tokens = estimate_context_tokens(&ctx.messages).tokens;
-            let window = snap.model.context_window as i64;
-            if should_compact(ctx_tokens, window, &snap.compaction) {
-                if let Ok(Some(prep)) = prepare_compaction(&path, snap.compaction) {
+            let last_assistant_entry = path
+                .iter()
+                .rev()
+                .find(|entry| matches!(entry, Entry::Message(message) if message.message.is_assistant()))
+                .map(|entry| entry.id().to_string());
+            let decision = auto_compaction_decision(&AutoCompactionCheck {
+                path: &path,
+                messages: &ctx.messages,
+                model: &snap.model,
+                settings: snap.compaction,
+                assistant_entry_id: last_assistant_entry.as_deref(),
+                skip_aborted_check: false,
+                overflow_recovery_attempted: false,
+            });
+            if let AutoCompactionDecision::Run { reason, .. } = decision {
+                if let Some(prep) = projected_preparation(&path, snap.compaction) {
                     let compaction_provider = Self::resolve_provider(&snap.models, &snap.model)
                         .or_else(|_| {
                             // Fall back to first provider if the model's
@@ -3911,7 +3928,7 @@ impl AgentHarness {
                                 &prep,
                                 &path,
                                 &llm_opts,
-                                CompactionReason::Threshold,
+                                reason,
                             )
                             .await
                         {
@@ -4172,15 +4189,22 @@ impl AgentHarness {
                         let context = ctx.context.clone();
                         let new_messages_len = ctx.new_messages.len();
                         Box::pin(async move {
+                            // The in-flight turn's messages are not persisted yet,
+                            // so build a self-consistent virtual path for the
+                            // decision. Ids stay internal: a host compaction entry
+                            // stores its retained tail, not `firstKeptEntryId`.
+                            let entries: Vec<Entry> = context.messages.iter().enumerate().map(|(i, message)| Entry::Message(crate::session::types::MessageEntry {
+                                base: crate::session::types::EntryBase { entry_type: "message".into(), id: format!("runtime-{i}"), seq: i as u64 + 1, parent_id: (i > 0).then(|| format!("runtime-{}", i - 1)), timestamp: i as i64 },
+                                message: message.clone(), terminate: None,
+                            })).collect();
+                            // Mid-loop compaction is a host-specific safety valve
+                            // (Pi checks after the run), so the gate keeps the host
+                            // estimate; the cut itself is the projected Pi algorithm.
                             let tokens = estimate_context_tokens(&context.messages).tokens;
                             if !should_compact(tokens, model.context_window as i64, &settings) {
                                 return None;
                             }
-                            let entries: Vec<Entry> = context.messages.iter().enumerate().map(|(i, message)| Entry::Message(crate::session::types::MessageEntry {
-                                base: crate::session::types::EntryBase { entry_type: "message".into(), id: format!("runtime-{i}"), seq: i as u64 + 1, parent_id: None, timestamp: i as i64 },
-                                message: message.clone(), terminate: None,
-                            })).collect();
-                            let prep = match prepare_compaction(&entries, settings) { Ok(Some(p)) => p, _ => return None };
+                            let prep = match projected_preparation(&entries, settings) { Some(p) => p, None => return None };
                             let branch_entries = match harness.branch_path_oldest_first().await { Ok(entries) => entries, Err(_) => return None };
                             let opts = CompactionLlmOptions { provider, model: model.clone(), api_key: None, signal: compaction_signal, thinking_level: None, retry: None, custom_instructions: None };
                             let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &branch_entries, &opts, CompactionReason::Threshold).await { Ok(Some((result, _))) => result, _ => return None };
@@ -4414,9 +4438,81 @@ impl AgentHarness {
             Ok(new_messages) => {
                 let cut = post_compaction_cut.load(Ordering::Acquire);
                 let start = cut.min(new_messages.len());
-                let (leaf, final_id) = self
+                let (mut leaf, final_id) = self
                     .persist_new_messages(&new_messages[start..], start, &settle_state)
                     .await?;
+                // Pi checks the finished turn after it is persisted
+                // (`_handlePostAgentRun` → `_checkCompaction`). Only the
+                // no-retry cases are handled here: overflow recovery that
+                // retries the turn needs Pi's recovery-omission entries, which
+                // the host session model does not have yet (see
+                // docs/provider-parity/host-life.md).
+                if snap.compaction.enabled && snap.model.context_window > 0 {
+                    if let Ok(path) = self.branch_path_oldest_first().await {
+                        let ctx = build_session_context(&path, &build_opts);
+                        let last_assistant_entry = path
+                            .iter()
+                            .rev()
+                            .find(|entry| matches!(entry, Entry::Message(message) if message.message.is_assistant()))
+                            .map(|entry| entry.id().to_string());
+                        let decision = auto_compaction_decision(&AutoCompactionCheck {
+                            path: &path,
+                            messages: &ctx.messages,
+                            model: &snap.model,
+                            settings: snap.compaction,
+                            assistant_entry_id: last_assistant_entry.as_deref(),
+                            skip_aborted_check: true,
+                            overflow_recovery_attempted: false,
+                        });
+                        if matches!(
+                            decision,
+                            AutoCompactionDecision::Run {
+                                will_retry: false,
+                                ..
+                            }
+                        ) {
+                            let AutoCompactionDecision::Run { reason, .. } = decision else {
+                                unreachable!("matched above")
+                            };
+                            if let Some(prep) = projected_preparation(&path, snap.compaction) {
+                                if let Ok(provider) =
+                                    Self::resolve_provider(&snap.models, &snap.model)
+                                {
+                                    let llm_opts = CompactionLlmOptions {
+                                        provider,
+                                        model: snap.model.clone(),
+                                        api_key: None,
+                                        signal: signal.clone(),
+                                        thinking_level: Some(snap.thinking_level),
+                                        retry: if snap.retry.enabled {
+                                            Some(snap.retry.clone())
+                                        } else {
+                                            None
+                                        },
+                                        custom_instructions: None,
+                                    };
+                                    match self
+                                        .compact_with_extensions(
+                                            &run_id, &prep, &path, &llm_opts, reason,
+                                        )
+                                        .await
+                                    {
+                                        Ok(Some((_, entry))) => {
+                                            leaf = Some(entry.base().id.clone());
+                                        }
+                                        Ok(None) => {}
+                                        Err(error) => {
+                                            // Post-run compaction failures are
+                                            // reported through the extension
+                                            // lifecycle only; Pi keeps the run.
+                                            tracing::warn!(%error, "post-run compaction failed");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 // A budget stop ends the run "Completed" (the loop's normal exit
                 // path), which would otherwise look like a finished task. Record
                 // *why* it stopped so the user sees it in the transcript and the
@@ -4610,11 +4706,11 @@ impl AgentHarness {
                 leaf_id: source_leaf.unwrap_or_default(),
             }
         } else {
-            match prepare_compaction(&path, snap.compaction) {
-                Ok(None) => CompactionOutcome::Declined {
+            match projected_preparation(&path, snap.compaction) {
+                None => CompactionOutcome::Declined {
                     leaf_id: source_leaf.unwrap_or_default(),
                 },
-                Ok(Some(prep)) => {
+                Some(prep) => {
                     let provider = match Self::resolve_provider(&snap.models, &snap.model) {
                         Ok(p) => p,
                         Err(_) => match snap.models.first() {
@@ -4706,23 +4802,6 @@ impl AgentHarness {
                                 error: err,
                             }
                         }
-                    }
-                }
-                Err(e) => {
-                    let err = OperationError {
-                        code: "prepare_failed".into(),
-                        message: e.message.clone(),
-                    };
-                    let _ = self
-                        .write_operation_finished(
-                            &run_id,
-                            OperationOutcome::Failed,
-                            Some(err.clone()),
-                        )
-                        .await;
-                    CompactionOutcome::Failed {
-                        leaf_id: source_leaf.unwrap_or_default(),
-                        error: err,
                     }
                 }
             }

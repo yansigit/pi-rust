@@ -3050,6 +3050,7 @@ pub async fn interactive_tui(
                     &chat_container,
                     &state,
                     &reload_context.tool_context,
+                    &reload_context,
                 )
                 .await;
                 tui.request_render(false);
@@ -3063,6 +3064,7 @@ pub async fn interactive_tui(
                     &chat_container,
                     &state,
                     &reload_context.tool_context,
+                    &reload_context,
                 )
                 .await;
                 tui.request_render(false);
@@ -3173,6 +3175,7 @@ pub async fn interactive_tui(
                     &chat_container,
                     &state,
                     &reload_context.tool_context,
+                    &reload_context,
                 )
                 .await;
                 tui.request_render(false);
