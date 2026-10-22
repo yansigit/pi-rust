@@ -1257,6 +1257,16 @@ impl TuiState {
         self.extension_editor_open() || self.extension_input_open()
     }
 
+    /// Whether a running provider-auth flow owns the input slot. A native-dialog
+    /// login keeps the flow id set but presents an open selector, so the shared
+    /// dialog must receive keys (and its own Esc cancellation) first.
+    pub(super) fn provider_auth_owns_keys(&self) -> bool {
+        self.provider_auth_flow_id
+            .load(std::sync::atomic::Ordering::Acquire)
+            != 0
+            && !self.selector_open()
+    }
+
     pub(super) fn set_hide_thinking(&self, hide: bool) {
         *self.hide_thinking.lock().unwrap() = hide;
         if let Some(comp) = self.current_assistant.lock().unwrap().as_ref() {
