@@ -1,0 +1,4089 @@
+{
+  "reference": "Pi 1.3.0",
+  "upstream": {
+    "pi-ai/dist/utils/overflow.js": "85570a78e9ba3e0322fe1b3f14c991b6a439b1d3eb89af306e2e7e9ade3d53b4",
+    "pi-coding-agent/dist/core/compaction/compaction.js": "573f0321e9a93a4e8dca8c327f6459082ac438d1bc8b6c3c171d90894dd1543c",
+    "pi-coding-agent/dist/core/agent-session.js": "d0b4545a5da7fe97aa699269e64e27b37ee2fb5b7985efb1c0a66fc3d1883b52",
+    "pi-coding-agent/dist/core/session-manager.js": "046b6a1109ac3f0ed893bb85bf0648709362fa926a5da75761216cf2fcf9d926",
+    "pi-coding-agent/dist/core/compaction/index.js": "2ab40284c2650bf3c3f195442be00497f0ee3cb726ac47c29bfa4b3ae209697e"
+  },
+  "overflow": {
+    "contextWindow": 200000,
+    "rows": [
+      {
+        "name": "anthropic_prompt_too_long",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "prompt is too long: 213462 tokens > 200000 maximum",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "anthropic_request_too_large",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "413 {\"error\":{\"type\":\"request_too_large\",\"message\":\"Request exceeds the maximum size\"}}",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "bedrock_input_too_long",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "input is too long for requested model",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "openai_context_window",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Your input exceeds the context window of this model",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "litellm_max_context",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Requested token count exceeds the model's maximum context length of 131072 tokens",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "openai_compatible_parens",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Input length (265330) exceeds model's maximum context length (262144).",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "google_input_token_count",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "The input token count (1196265) exceeds the maximum number of tokens allowed (1048575)",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "xai_max_prompt",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "This model's maximum prompt length is 131072 but the request contains 537812 tokens",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "groq_reduce",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Please reduce the length of the messages or completion",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "openrouter_max_context",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "This endpoint's maximum context length is 200000 tokens. However, you requested about 300000 tokens",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "poolside_allowed_input",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Input length 265330 exceeds the maximum allowed input length of 262144 tokens.",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "together_input_longer",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "The input (265330 tokens) is longer than the model's context length (262144 tokens).",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "copilot_limit",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "prompt token count of 300000 exceeds the limit of 200000",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "llamacpp_context_size",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "the request exceeds the available context size, try increasing it",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "lmstudio_keep",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "tokens to keep from the initial prompt is greater than the context length",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "minimax_window_limit",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "invalid params, context window exceeds limit",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "kimi_token_limit",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Your request exceeded model token limit: 200000 (requested: 300000)",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "mistral_too_large",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Prompt contains 300000 tokens ... too large for model with 200000 maximum context length",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "ds4_configured",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Prompt has 300000 tokens, but the configured context size is 262144 tokens",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "zai_model_context_window",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "model_context_window_exceeded",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "ollama_exceeded",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "prompt too long; exceeded max context length by 10 tokens",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "dashscope_range",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Range of input length should be [1, 131072]",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "generic_context_length",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "context_length_exceeded",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "generic_too_many_tokens",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "too many tokens",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "generic_token_limit",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "token limit exceeded",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "zai_prompt_exceeds_max",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Prompt exceeds max length",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "throttling_excluded",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "ThrottlingException: Too many tokens, please wait before trying again.",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "throttling_prefix",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Throttling error: Too many tokens",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "service_unavailable",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Service unavailable: too many tokens",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "rate_limit",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Rate limit reached for requests",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "too_many_requests",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "Too many requests",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "cerebras_413",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "cerebras",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "413 (no body)",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "cerebras_400_status",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "cerebras",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "400 status code (no body)",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": true,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "cerebras_429",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "cerebras",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "429 (no body)",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "cerebras_other_provider",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "413 (no body)",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "unrelated",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "something went wrong",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "empty_error",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 1,
+            "output": 1,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "errorMessage": "",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "silent_overflow",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 200001,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "silent_within",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 199999,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      },
+      {
+        "name": "length_zero_output",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 198000,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "length",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": true
+        }
+      },
+      {
+        "name": "length_with_output",
+        "message": {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [],
+          "usage": {
+            "input": 198000,
+            "output": 5,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "length",
+          "timestamp": 0
+        },
+        "contextWindow": 200000,
+        "result": {
+          "withoutWindow": false,
+          "withWindow": false
+        }
+      }
+    ]
+  },
+  "recoverableLength": [
+    {
+      "name": "length_below_limit",
+      "message": {
+        "stopReason": "length",
+        "usage": {
+          "input": 0,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "desiredMaxOutput": 100,
+      "result": true
+    },
+    {
+      "name": "length_at_limit",
+      "message": {
+        "stopReason": "length",
+        "usage": {
+          "input": 0,
+          "output": 100,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "desiredMaxOutput": 100,
+      "result": false
+    },
+    {
+      "name": "length_zero_desired",
+      "message": {
+        "stopReason": "length",
+        "usage": {
+          "input": 0,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "desiredMaxOutput": 0,
+      "result": false
+    },
+    {
+      "name": "stop_reason",
+      "message": {
+        "stopReason": "stop",
+        "usage": {
+          "input": 0,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "desiredMaxOutput": 100,
+      "result": false
+    },
+    {
+      "name": "error_reason",
+      "message": {
+        "stopReason": "error",
+        "usage": {
+          "input": 0,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        }
+      },
+      "desiredMaxOutput": 100,
+      "result": false
+    }
+  ],
+  "shouldCompact": [
+    {
+      "name": "enabled_below",
+      "contextTokens": 100,
+      "contextWindow": 1000,
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100
+      },
+      "result": false
+    },
+    {
+      "name": "enabled_at_boundary",
+      "contextTokens": 900,
+      "contextWindow": 1000,
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100
+      },
+      "result": false
+    },
+    {
+      "name": "enabled_above",
+      "contextTokens": 901,
+      "contextWindow": 1000,
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100
+      },
+      "result": true
+    },
+    {
+      "name": "disabled",
+      "contextTokens": 999999,
+      "contextWindow": 1000,
+      "settings": {
+        "enabled": false,
+        "reserveTokens": 100
+      },
+      "result": false
+    },
+    {
+      "name": "zero_reserve",
+      "contextTokens": 1000,
+      "contextWindow": 1000,
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 0
+      },
+      "result": false
+    }
+  ],
+  "checkCompaction": [
+    {
+      "name": "disabled",
+      "described": "settings.enabled false returns before any check",
+      "settings": {
+        "enabled": false,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": null,
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 10,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "aborted_skipped",
+      "described": "skipAbortedCheck true skips aborted messages",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": null,
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 10,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "aborted",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "aborted_included",
+      "described": "skipAbortedCheck false continues into threshold checks",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": false,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 950,
+              "output": 10,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "aborted",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 950,
+          "output": 10,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "aborted",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "runAutoCompaction:threshold:false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "stale_before_compaction",
+      "described": "assistant older than latest compaction boundary is skipped",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "a1",
+          "timestamp": 2000,
+          "summary": "summary",
+          "firstKeptEntryId": "a1",
+          "tokensBefore": 100
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 10,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "explicit_overflow_retry",
+      "described": "explicit overflow error omits the attempt then compacts and retries",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 1000,
+            "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "error",
+        "timestamp": 1000,
+        "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+      },
+      "runReturns": true,
+      "result": {
+        "calls": [
+          "omitRecoveryAttempt",
+          "runAutoCompaction:overflow:true"
+        ],
+        "result": true,
+        "overflowRecoveryAttempted": true,
+        "failedResponse": "a1"
+      }
+    },
+    {
+      "name": "explicit_overflow_second_attempt",
+      "described": "a second overflow recovery attempt emits session_compact_failed",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": true,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 1000,
+            "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "error",
+        "timestamp": 1000,
+        "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "emit:compaction_end",
+          "session_compact_failed:overflow:aborted=false:willRetry=false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": true,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "overflow_completed_response",
+      "described": "a completed response above the window compacts without retry",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [],
+            "usage": {
+              "input": 1100,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000,
+            "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [],
+        "usage": {
+          "input": 1100,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1000,
+        "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "runAutoCompaction:overflow:false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "overflow_usage_after_edit",
+      "described": "a post-assistant context edit suppresses explicit overflow recovery",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100000,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 1000,
+            "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+          }
+        },
+        {
+          "type": "context_edit",
+          "id": "e1",
+          "parentId": "a1",
+          "timestamp": 3000,
+          "targetId": "a1",
+          "replacement": {
+            "content": "kept"
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "error",
+        "timestamp": 1000,
+        "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "omitRecoveryAttempt",
+          "runAutoCompaction:overflow:true"
+        ],
+        "result": true,
+        "overflowRecoveryAttempted": true,
+        "failedResponse": "a1"
+      }
+    },
+    {
+      "name": "overflow_after_compaction",
+      "described": "a summarized-away assistant with a later compaction suppresses explicit overflow recovery",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 3000,
+            "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+          }
+        },
+        {
+          "type": "message",
+          "id": "u2",
+          "parentId": "a1",
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "kept",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "u2",
+          "timestamp": 2000,
+          "summary": "summary",
+          "firstKeptEntryId": "u2",
+          "tokensBefore": 100
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "error",
+        "timestamp": 3000,
+        "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "silent_overflow",
+      "described": "usage above the context window is overflow without an error message",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 1100,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 1100,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1000
+      },
+      "runReturns": true,
+      "result": {
+        "calls": [
+          "runAutoCompaction:overflow:false"
+        ],
+        "result": true,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "silent_overflow_unprojected",
+      "described": "an unprojected assistant suppresses silent overflow detection",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100000,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "elsewhere",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 1100,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 1100,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "runAutoCompaction:threshold:false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "recoverable_length",
+      "described": "length below maxTokens is recoverable",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 5,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "length",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 10,
+          "output": 5,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "length",
+        "timestamp": 1000
+      },
+      "runReturns": true,
+      "result": {
+        "calls": [
+          "omitRecoveryAttempt",
+          "runAutoCompaction:overflow:true"
+        ],
+        "result": true,
+        "overflowRecoveryAttempted": true,
+        "failedResponse": "a1"
+      }
+    },
+    {
+      "name": "unrecoverable_length",
+      "described": "length at maxTokens falls through to threshold, which is below reserve",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100000,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 100,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "length",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 10,
+          "output": 100,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "length",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "runAutoCompaction:threshold:false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "other_model_overflow",
+      "described": "overflow from another model does not trigger compaction",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100000,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "other",
+            "model": "fixture",
+            "content": [],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 1000,
+            "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "other",
+        "model": "fixture",
+        "content": [],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "error",
+        "timestamp": 1000,
+        "errorMessage": "prompt is too long: 1 tokens > 0 maximum"
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "runAutoCompaction:threshold:false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "threshold_direct_usage",
+      "described": "direct usage above window minus reserve triggers threshold compaction",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 950,
+              "output": 10,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 950,
+          "output": 10,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "runAutoCompaction:threshold:false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "threshold_below",
+      "described": "direct usage below the threshold does nothing",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 100,
+              "output": 10,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 100,
+          "output": 10,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "threshold_error_estimate",
+      "described": "error responses estimate from message sizes",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 1000,
+            "errorMessage": "boom"
+          }
+        }
+      ],
+      "agentMessages": [
+        {
+          "role": "user",
+          "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "timestamp": 0
+        },
+        {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [
+            {
+              "type": "text",
+              "text": "answer"
+            }
+          ],
+          "usage": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "error",
+          "timestamp": 1000,
+          "errorMessage": "boom"
+        }
+      ],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "error",
+        "timestamp": 1000,
+        "errorMessage": "boom"
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "runAutoCompaction:threshold:false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "threshold_stale_usage_estimate",
+      "described": "stale pre-compaction usage estimates are rejected",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "error",
+            "timestamp": 3000,
+            "errorMessage": "boom"
+          }
+        },
+        {
+          "type": "compaction",
+          "id": "c1",
+          "parentId": "a1",
+          "timestamp": 2000,
+          "summary": "summary",
+          "firstKeptEntryId": "a1",
+          "tokensBefore": 100
+        }
+      ],
+      "agentMessages": [
+        {
+          "role": "assistant",
+          "api": "fixture",
+          "provider": "fixture",
+          "model": "fixture",
+          "content": [
+            {
+              "type": "text",
+              "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          ],
+          "usage": {
+            "input": 950,
+            "output": 10,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "totalTokens": 0,
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "total": 0
+            }
+          },
+          "stopReason": "stop",
+          "timestamp": 1000
+        }
+      ],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "error",
+        "timestamp": 3000,
+        "errorMessage": "boom"
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    },
+    {
+      "name": "threshold_with_context_edits",
+      "described": "context edits switch the threshold check to the projected estimate",
+      "settings": {
+        "enabled": true,
+        "reserveTokens": 100,
+        "keepRecentTokens": 20
+      },
+      "model": {
+        "id": "fixture",
+        "provider": "fixture",
+        "api": "fixture",
+        "contextWindow": 1000,
+        "maxTokens": 100
+      },
+      "skipAbortedCheck": true,
+      "overflowRecoveryAttempted": false,
+      "assistantEntryId": "a1",
+      "branch": [
+        {
+          "type": "message",
+          "id": "u1",
+          "parentId": null,
+          "timestamp": 1000,
+          "message": {
+            "role": "user",
+            "content": "hi",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "message",
+          "id": "a1",
+          "parentId": "u1",
+          "timestamp": 1000,
+          "message": {
+            "role": "assistant",
+            "api": "fixture",
+            "provider": "fixture",
+            "model": "fixture",
+            "content": [
+              {
+                "type": "text",
+                "text": "answer"
+              }
+            ],
+            "usage": {
+              "input": 10,
+              "output": 10,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0,
+              "cost": {
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "total": 0
+              }
+            },
+            "stopReason": "stop",
+            "timestamp": 1000
+          }
+        },
+        {
+          "type": "context_edit",
+          "id": "e1",
+          "parentId": "a1",
+          "timestamp": 3000,
+          "targetId": "u1",
+          "replacement": {
+            "content": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+          }
+        }
+      ],
+      "agentMessages": [],
+      "message": {
+        "role": "assistant",
+        "api": "fixture",
+        "provider": "fixture",
+        "model": "fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer"
+          }
+        ],
+        "usage": {
+          "input": 10,
+          "output": 10,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": 1000
+      },
+      "runReturns": null,
+      "result": {
+        "calls": [
+          "runAutoCompaction:threshold:false"
+        ],
+        "result": false,
+        "overflowRecoveryAttempted": false,
+        "failedResponse": null
+      }
+    }
+  ],
+  "autoCompaction": [
+    {
+      "name": "success",
+      "described": "threshold compaction emits start, commits, refreshes, emits session_compact and end",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "runDefaultCompaction",
+        "appendCompaction",
+        "getEntries",
+        "refreshFinalizedContext",
+        "extension:session_compact",
+        "emit:compaction_end",
+        "hasQueuedMessages",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": null
+        }
+      ],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "success_queued",
+      "described": "queued messages request one continuation",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": true
+      },
+      "ops": [
+        "emit:compaction_start",
+        "runDefaultCompaction",
+        "appendCompaction",
+        "getEntries",
+        "refreshFinalizedContext",
+        "extension:session_compact",
+        "emit:compaction_end",
+        "hasQueuedMessages",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": null
+        }
+      ],
+      "result": true,
+      "threw": false
+    },
+    {
+      "name": "success_will_retry",
+      "described": "overflow retry returns true without consulting the queue",
+      "reason": "overflow",
+      "willRetry": true,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "runDefaultCompaction",
+        "appendCompaction",
+        "getEntries",
+        "refreshFinalizedContext",
+        "extension:session_compact",
+        "emit:compaction_end",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "overflow",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session_compact",
+          "reason": "overflow",
+          "willRetry": true
+        },
+        {
+          "type": "compaction_end",
+          "reason": "overflow",
+          "aborted": false,
+          "willRetry": true,
+          "errorMessage": null
+        }
+      ],
+      "result": true,
+      "threw": false
+    },
+    {
+      "name": "extension_compaction",
+      "described": "extension-provided compaction skips the default generator",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": true,
+        "extensionCancel": false,
+        "extensionCompaction": true,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "extension:session_before_compact",
+        "appendCompaction",
+        "getEntries",
+        "refreshFinalizedContext",
+        "extension:session_compact",
+        "emit:compaction_end",
+        "hasQueuedMessages",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": null
+        }
+      ],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "extension_cancel",
+      "described": "extension cancellation aborts before any commit",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": true,
+        "extensionCancel": true,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "extension:session_before_compact",
+        "emit:compaction_end",
+        "emitSessionCompactFailed",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": true,
+          "willRetry": false,
+          "errorMessage": null
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "threshold",
+          "aborted": true,
+          "willRetry": false,
+          "errorMessage": null
+        }
+      ],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "default_error",
+      "described": "a summary failure emits compaction_end then session_compact_failed",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": true,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "runDefaultCompaction",
+        "emit:compaction_end",
+        "emitSessionCompactFailed",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": "Auto-compaction failed: summary failed"
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": "Auto-compaction failed: summary failed"
+        }
+      ],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "append_error",
+      "described": "a commit failure emits compaction_end then session_compact_failed",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": true,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "runDefaultCompaction",
+        "appendCompaction",
+        "emit:compaction_end",
+        "emitSessionCompactFailed",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": "Auto-compaction failed: append failed"
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": "Auto-compaction failed: append failed"
+        }
+      ],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "no_model",
+      "described": "no model returns false before preparation",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": false,
+        "hasPreparation": true,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "no_preparation",
+      "described": "no preparation returns false before emitting start",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": false,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "abort_after_start",
+      "described": "a signal aborted after start emits end and failed",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": true,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "emit:compaction_end",
+        "emitSessionCompactFailed",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": true,
+          "willRetry": false,
+          "errorMessage": null
+        },
+        {
+          "type": "session_compact_failed",
+          "reason": "threshold",
+          "aborted": true,
+          "willRetry": false,
+          "errorMessage": null
+        }
+      ],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "no_extension_handlers",
+      "described": "no session_before_compact handlers skips the extension emit",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": false,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "runDefaultCompaction",
+        "appendCompaction",
+        "getEntries",
+        "refreshFinalizedContext",
+        "extension:session_compact",
+        "emit:compaction_end",
+        "hasQueuedMessages",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": null
+        }
+      ],
+      "result": false,
+      "threw": false
+    },
+    {
+      "name": "extension_default",
+      "described": "a handler that returns nothing keeps the default generator",
+      "reason": "threshold",
+      "willRetry": false,
+      "inputs": {
+        "hasModel": true,
+        "hasPreparation": true,
+        "extensionHandlers": true,
+        "extensionCancel": false,
+        "extensionCompaction": false,
+        "defaultError": false,
+        "appendError": false,
+        "aborted": false,
+        "queued": false
+      },
+      "ops": [
+        "emit:compaction_start",
+        "extension:session_before_compact",
+        "runDefaultCompaction",
+        "appendCompaction",
+        "getEntries",
+        "refreshFinalizedContext",
+        "extension:session_compact",
+        "emit:compaction_end",
+        "hasQueuedMessages",
+        "resolveIdleWaitIfIdle"
+      ],
+      "events": [
+        {
+          "type": "compaction_start",
+          "reason": "threshold",
+          "aborted": null,
+          "willRetry": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session_before_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "session_compact",
+          "reason": "threshold",
+          "willRetry": false
+        },
+        {
+          "type": "compaction_end",
+          "reason": "threshold",
+          "aborted": false,
+          "willRetry": false,
+          "errorMessage": null
+        }
+      ],
+      "result": false,
+      "threw": false
+    }
+  ]
+}

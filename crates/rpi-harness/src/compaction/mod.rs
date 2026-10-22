@@ -17,10 +17,14 @@
 //!   `complete_simple_with_retries`, prompts, `extract_file_operations`.
 //! - [`branch_summary`] — `collect_entries_for_branch_summary`,
 //!   `prepare_branch_entries`, `generate_branch_summary`.
+//! - [`pure`] — Pi 1.3.0's projection-based preparation, automatic trigger and
+//!   branch collection decisions ported host-independently over Pi-shaped JSON
+//!   (fixture-verified against the unchanged upstream modules).
 
 pub mod branch_summary;
 pub mod compaction;
 pub mod cut_point;
+pub mod pure;
 pub mod settings;
 pub mod tokens;
 
