@@ -3489,13 +3489,21 @@
   "multiprovider:extensions/multiprovider.ts": {
     "sha256": "086a0d9c4fbc8431e81026e5d689747d1c31dfcdf89c9d180c0bbd7e37c0a267",
     "ledgerRows": [
-      "M04"
+      "M02",
+      "M05",
+      "M06",
+      "M07",
+      "M09"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/native.rs"
+      "packages/rpi-multiprovider/src/native/mod.rs",
+      "packages/rpi-multiprovider/src/native/lift.rs",
+      "packages/rpi-multiprovider/src/native/commands.rs",
+      "packages/rpi-multiprovider/src/fabric.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/native.rs"
+      "packages/rpi-multiprovider/tests/extension.rs",
+      "packages/rpi-multiprovider/tests/commands.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3503,13 +3511,13 @@
   "multiprovider:extensions/pool-manager.ts": {
     "sha256": "67873d40ae349d13d0293c1b92fabaeb9f3b531a7242a0424c721ff3e323cbe8",
     "ledgerRows": [
-      "M03"
+      "M02"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/scheduler.rs"
+      "packages/rpi-multiprovider/src/commands/pool_manager.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/scheduler.rs"
+      "packages/rpi-multiprovider/tests/commands.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3520,7 +3528,7 @@
       "M02"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/commands.rs"
+      "packages/rpi-multiprovider/src/commands/settings.rs"
     ],
     "acceptanceFiles": [
       "packages/rpi-multiprovider/tests/commands.rs"
@@ -3534,10 +3542,11 @@
       "M06"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/services.rs"
+      "packages/rpi-multiprovider/src/announcement.rs",
+      "packages/rpi-multiprovider/src/native/services.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/services.rs"
+      "packages/rpi-multiprovider/tests/announcement.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3563,7 +3572,8 @@
   "multiprovider:src/errors.ts": {
     "sha256": "1e4f189fc4aac4488c84912b29bfc7e78629600ead41ce2924c8d8c3a3bac4b7",
     "ledgerRows": [
-      "M03"
+      "M03",
+      "M04"
     ],
     "portFiles": [
       "packages/rpi-multiprovider/src/services.rs"
@@ -3583,7 +3593,7 @@
       "packages/rpi-multiprovider/src/lib.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/lib.rs"
+      "packages/rpi-multiprovider/tests/extension.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3591,10 +3601,11 @@
   "multiprovider:src/lift.ts": {
     "sha256": "887b91aab533565504449b6094c1a2b076832b0fdc73bfc352e2c46a53ac3695",
     "ledgerRows": [
-      "M04"
+      "M08"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/lift.rs"
+      "packages/rpi-multiprovider/src/lift.rs",
+      "packages/rpi-multiprovider/src/native/lift.rs"
     ],
     "acceptanceFiles": [
       "packages/rpi-multiprovider/tests/lift.rs"
@@ -3605,13 +3616,14 @@
   "multiprovider:src/managed.ts": {
     "sha256": "5a139118f805ed4825259df761dd5e2fbec515da19d3bc10b9719c9bf30bdeef",
     "ledgerRows": [
-      "M03"
+      "M04",
+      "M06"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/scheduler.rs"
+      "packages/rpi-multiprovider/src/managed.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/scheduler.rs"
+      "packages/rpi-multiprovider/tests/managed.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3622,7 +3634,7 @@
       "M02"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/commands.rs"
+      "packages/rpi-multiprovider/src/commands/login.rs"
     ],
     "acceptanceFiles": [
       "packages/rpi-multiprovider/tests/commands.rs"
@@ -3636,10 +3648,10 @@
       "M06"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/registration.rs"
+      "packages/rpi-multiprovider/src/native/services.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/registration.rs"
+      "packages/rpi-multiprovider/tests/extension.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3695,13 +3707,14 @@
   "multiprovider:src/virtual.ts": {
     "sha256": "6c38efe1d8bcd180e3287b182df592914a1af0a7091f872cd6dc32042575f808",
     "ledgerRows": [
-      "M05"
+      "M07"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/virtual.rs"
+      "packages/rpi-multiprovider/src/virtual_provider.rs",
+      "packages/rpi-multiprovider/src/native/virtuals.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/virtual.rs"
+      "packages/rpi-multiprovider/tests/virtual_provider.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3712,10 +3725,10 @@
       "M06"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/services.rs"
+      "packages/rpi-multiprovider/src/announcement.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/services.rs"
+      "packages/rpi-multiprovider/tests/announcement.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3744,10 +3757,10 @@
       "M06"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/registration.rs"
+      "packages/rpi-multiprovider/src/native/lift.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/registration.rs"
+      "packages/rpi-multiprovider/tests/extension.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3755,13 +3768,15 @@
   "multiprovider:tests/extension-failover.spec.ts": {
     "sha256": "66099b172f13b9e8bc8e81ad6c486ab4e6a8922289a8a3519139a92d26aea680",
     "ledgerRows": [
-      "M04"
+      "M08",
+      "M09"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/stream.rs"
+      "packages/rpi-multiprovider/src/fabric.rs",
+      "packages/rpi-multiprovider/src/native/lift.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/stream.rs"
+      "packages/rpi-multiprovider/tests/extension.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3769,13 +3784,14 @@
   "multiprovider:tests/extension-resume.spec.ts": {
     "sha256": "fb768939799048972fbb4d805fb110a400435c3ce000325cea8df54ced18caac",
     "ledgerRows": [
-      "M03"
+      "M05"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/pins.rs"
+      "packages/rpi-multiprovider/src/pins.rs",
+      "packages/rpi-multiprovider/src/native/lift.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/pins.rs"
+      "packages/rpi-multiprovider/tests/extension.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3783,7 +3799,7 @@
   "multiprovider:tests/lift.spec.ts": {
     "sha256": "af4d7f4a0db17bf41be10ff8ed6516a096939f25cb85c740b5f6fd497ae23625",
     "ledgerRows": [
-      "M04"
+      "M08"
     ],
     "portFiles": [
       "packages/rpi-multiprovider/src/lift.rs"
@@ -3797,13 +3813,14 @@
   "multiprovider:tests/managed.spec.ts": {
     "sha256": "26d01957484d177282c22ae942158cc4c7e7c5574f7386a34ea51e4730439307",
     "ledgerRows": [
-      "M03"
+      "M04",
+      "M06"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/scheduler.rs"
+      "packages/rpi-multiprovider/src/managed.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/scheduler.rs"
+      "packages/rpi-multiprovider/tests/managed.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
@@ -3814,7 +3831,7 @@
       "M02"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/commands.rs"
+      "packages/rpi-multiprovider/src/commands/login.rs"
     ],
     "acceptanceFiles": [
       "packages/rpi-multiprovider/tests/commands.rs"
@@ -3854,13 +3871,13 @@
   "multiprovider:tests/virtual.spec.ts": {
     "sha256": "929bbd0f5f7afd93ea3d610394d8cbd9f42dca288129ea7de128ad6daf457b84",
     "ledgerRows": [
-      "M05"
+      "M07"
     ],
     "portFiles": [
-      "packages/rpi-multiprovider/src/virtual.rs"
+      "packages/rpi-multiprovider/src/virtual_provider.rs"
     ],
     "acceptanceFiles": [
-      "packages/rpi-multiprovider/tests/virtual.rs"
+      "packages/rpi-multiprovider/tests/virtual_provider.rs"
     ],
     "scope": "required",
     "scopeReason": "Pinned provider behavior; source wins over documentation."
