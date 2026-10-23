@@ -8,7 +8,7 @@
 //! provider. The section order mirrors pi `buildSystemPrompt` (both the
 //! custom-prompt and default-scaffold branches compose in the same order):
 //!
-//! **base → append → context → skills**
+//! **base → append → context → skills**, followed by the harness-owned **cwd**.
 //!
 //! - `base`: the caller's `--system-prompt`, a discovered `SYSTEM.md`, or the
 //!   built-in default scaffold.
@@ -74,6 +74,16 @@ pub fn compose_system_prompt(
         out.push_str(&listing);
     }
     out
+}
+
+/// Add Pi's independently wrapped cwd section to an already composed prompt.
+pub fn append_cwd_section(prompt: &mut String, cwd: &str) {
+    if !prompt.is_empty() {
+        prompt.push_str("\n\n");
+    }
+    prompt.push_str("<cwd>\n");
+    prompt.push_str(&cwd.replace('\\', "/"));
+    prompt.push_str("\n</cwd>");
 }
 
 #[cfg(test)]
@@ -153,5 +163,13 @@ mod tests {
         };
         assert_eq!(compose_system_prompt(None, &[mk()], None, None), "");
         assert_eq!(compose_system_prompt(Some("   "), &[mk()], None, None), "");
+    }
+
+    #[test]
+    fn cwd_is_a_single_wrapped_final_section_even_for_custom_prompts() {
+        let mut prompt = compose_system_prompt(Some("custom"), &[], None, None);
+        append_cwd_section(&mut prompt, r"C:\work\repo");
+        assert_eq!(prompt, "custom\n\n<cwd>\nC:/work/repo\n</cwd>");
+        assert_eq!(prompt.matches("<cwd>").count(), 1);
     }
 }
