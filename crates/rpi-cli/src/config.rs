@@ -870,8 +870,11 @@ pub fn provider_to_models(provider_id: &str, cfg: &ProviderConfig) -> Option<Vec
         );
         m.reasoning = def.reasoning.unwrap_or(false);
         m.thinking_level_map = def.thinking_level_map.clone();
-        m.context_window = def.context_window.unwrap_or(0);
-        m.max_tokens = def.max_tokens.unwrap_or(0);
+        // Pi's generic custom-model composer supplies these defaults only
+        // when the models.json fields are absent. Explicit values (including
+        // zero) remain untouched; model overrides are applied downstream.
+        m.context_window = def.context_window.unwrap_or(128_000);
+        m.max_tokens = def.max_tokens.unwrap_or(16_384);
         if let Some(cost) = &def.cost {
             m.cost = cost.clone();
             m.cost_configured = true;
@@ -1300,6 +1303,33 @@ mod tests {
             models[0].headers.is_none(),
             "credentials are bound after provider resolution"
         );
+    }
+
+    #[test]
+    fn custom_models_default_missing_context_and_token_limits_for_each_api() {
+        for api in ["openai-completions", "openai-responses", "anthropic-messages"] {
+            let config: ModelsConfig = serde_json::from_str(&format!(
+                r#"{{"providers":{{"custom":{{"api":"{api}","models":[
+                    {{"id":"defaults"}},
+                    {{"id":"context-only","contextWindow":64000}},
+                    {{"id":"tokens-only","maxTokens":4096}},
+                    {{"id":"explicit-zero","contextWindow":0,"maxTokens":0}}
+                ]}}}}}}"#
+            ))
+            .unwrap();
+            let models = provider_to_models("custom", &config.providers["custom"]).unwrap();
+            assert_eq!((models[0].context_window, models[0].max_tokens), (128_000, 16_384), "{api}");
+            assert_eq!((models[1].context_window, models[1].max_tokens), (64_000, 16_384), "{api}");
+            assert_eq!((models[2].context_window, models[2].max_tokens), (128_000, 4_096), "{api}");
+            // Pi's runtime rejects zero limits, but provider conversion must
+            // not silently reinterpret an explicitly configured zero.
+            assert_eq!((models[3].context_window, models[3].max_tokens), (0, 0), "{api}");
+        }
+        let unknown: ModelsConfig = serde_json::from_str(
+            r#"{"providers":{"custom":{"api":"unknown","models":[{"id":"x"}]}}}"#,
+        )
+        .unwrap();
+        assert!(provider_to_models("custom", &unknown.providers["custom"]).is_none());
     }
 
     #[test]
