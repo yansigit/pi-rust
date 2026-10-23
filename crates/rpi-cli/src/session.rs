@@ -72,6 +72,15 @@ pub const BUILTIN_TOOL_NAMES: &[&str] = &["read", "bash", "edit", "write", "docs
 /// The default coding system prompt. A condensed port of the TS
 /// `packages/coding-agent/src/core/system-prompt.ts` base prompt.
 pub fn default_system_prompt(cwd: &str, prior_reasoning_replayed: bool) -> String {
+    // Preserve the standalone public helper; session construction supplies cwd
+    // separately through PromptContext so custom/loaded prompts get it too.
+    format!(
+        "{}\n\nCurrent working directory: {cwd}",
+        default_system_prompt_base(prior_reasoning_replayed)
+    )
+}
+
+fn default_system_prompt_base(prior_reasoning_replayed: bool) -> String {
     // The working-state rule must match what actually comes back on the next
     // request. With `compat.requiresThinkingAsText` (or the native thinking
     // channels of anthropic/responses) the model *does* see its own reasoning
@@ -119,9 +128,7 @@ Guidelines:
   a bug, not progress.
 - Read only what you need. If a file or search result was already shown earlier in this
   conversation, use it instead of fetching it again.
-- When unsure about rpi commands, extensions, Pi package compatibility, or .rpi configuration, consult the project documentation before guessing
-
-Current working directory: {cwd}"
+- When unsure about rpi commands, extensions, Pi package compatibility, or .rpi configuration, consult the project documentation before guessing"
     )
 }
 
@@ -466,10 +473,10 @@ pub async fn build_prepared(
         Some(explicit) => explicit.to_string(),
         None if project_trusted => match discover_system_prompt_file(cwd) {
             Some(path) => read_prompt_source(&path, &mut context_paths)
-                .unwrap_or_else(|| default_system_prompt(&cwd_str, prior_reasoning_replayed)),
-            None => default_system_prompt(&cwd_str, prior_reasoning_replayed),
+                .unwrap_or_else(|| default_system_prompt_base(prior_reasoning_replayed)),
+            None => default_system_prompt_base(prior_reasoning_replayed),
         },
-        None => default_system_prompt(&cwd_str, prior_reasoning_replayed),
+        None => default_system_prompt_base(prior_reasoning_replayed),
     };
 
     let include_tool_guidance = args.system_prompt.is_none() && context_paths.is_empty();
@@ -1761,10 +1768,10 @@ where
         Some(explicit) => explicit.to_string(),
         None if project_trusted => match discover_system_prompt_file(&ctx.cwd) {
             Some(path) => read_prompt_source(&path, &mut context_paths)
-                .unwrap_or_else(|| default_system_prompt(&cwd_str, prior_reasoning_replayed)),
-            None => default_system_prompt(&cwd_str, prior_reasoning_replayed),
+                .unwrap_or_else(|| default_system_prompt_base(prior_reasoning_replayed)),
+            None => default_system_prompt_base(prior_reasoning_replayed),
         },
-        None => default_system_prompt(&cwd_str, prior_reasoning_replayed),
+        None => default_system_prompt_base(prior_reasoning_replayed),
     };
     let include_tool_guidance = effective_args.system_prompt.is_none() && context_paths.is_empty();
     let mut append_texts: Vec<String> = Vec::new();
@@ -3430,6 +3437,104 @@ mod tests {
     use crate::args::Args;
 
     #[test]
+    fn constructed_prompts_send_one_cwd_section_and_block_user_text() {
+        const CHILD: &str = "RPI_REQUEST_PARITY_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let dir = tempfile::tempdir().unwrap();
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "session::tests::constructed_prompts_send_one_cwd_section_and_block_user_text",
+                    "--nocapture",
+                ])
+                .env(CHILD, "1")
+                .env(crate::config::CONFIG_DIR_ENV, dir.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                use rpi_ai::providers::faux::{
+                    faux_assistant_message, FauxProvider, FauxScript, FauxStep,
+                };
+                use rpi_harness::agent_harness::AgentLane;
+                for mode in ["default", "custom", "loaded"] {
+                    let cwd = crate::config::agent_dir().unwrap().join(mode);
+                    std::fs::create_dir_all(cwd.join(".rpi")).unwrap();
+                    if mode == "loaded" {
+                        std::fs::write(cwd.join(".rpi/SYSTEM.md"), "Loaded instructions.").unwrap();
+                    }
+                    let captured = Arc::new(Mutex::new(Vec::new()));
+                    let capture = captured.clone();
+                    let script = FauxScript::new();
+                    script.set_responses(vec![FauxStep::factory(move |context| {
+                        capture.lock().unwrap().push(context.clone());
+                        faux_assistant_message("ok", rpi_ai::types::StopReason::Stop)
+                    })]);
+                    let provider = FauxProvider::new(script);
+                    let mut resolved = crate::provider::resolve(
+                        Some("anthropic"),
+                        Some(crate::provider::DEFAULT_MODEL_ID),
+                        None,
+                        Some("offline-fixture"),
+                        None,
+                    )
+                    .unwrap();
+                    resolved.model = provider.default_model().clone();
+                    resolved.provider = provider.clone();
+                    resolved.providers = vec![provider];
+                    let args = Args {
+                        no_session: true,
+                        no_extensions: true,
+                        no_skills: true,
+                        no_prompt_templates: true,
+                        no_context_files: true,
+                        no_tools: true,
+                        system_prompt: (mode == "custom").then(|| "Custom instructions.".into()),
+                        trust_override: Some(true),
+                        ..Default::default()
+                    };
+                    let (harness, _, _) = build(&resolved, &args, &cwd, true).await.unwrap();
+                    harness.prompt_text("Hello.", Vec::new()).await.unwrap();
+                    let captured = captured.lock().unwrap();
+                    assert_eq!(captured.len(), 1, "{mode}");
+                    let prompt = captured[0].system_prompt.as_ref().unwrap();
+                    let base = match mode {
+                        "custom" => "Custom instructions.".to_string(),
+                        "loaded" => "Loaded instructions.".to_string(),
+                        _ => default_system_prompt_base(false),
+                    };
+                    assert_eq!(
+                        prompt,
+                        &format!(
+                            "{base}\n\n<cwd>\n{}\n</cwd>",
+                            cwd.to_string_lossy().replace('\\', "/")
+                        ),
+                        "{mode}"
+                    );
+                    let rpi_ai::types::Message::User(user) = &captured[0].messages[0] else {
+                        panic!("missing user");
+                    };
+                    assert_eq!(
+                        serde_json::to_value(&user.content).unwrap(),
+                        serde_json::json!([{"type":"text", "text":"Hello."}])
+                    );
+                }
+            });
+    }
+
+    #[test]
     fn loaded_context_paths_track_precedence_and_reload() {
         const CHILD: &str = "RPI_CONTEXT_PATHS_REGRESSION_CHILD";
         if std::env::var_os(CHILD).is_none() {
@@ -3810,6 +3915,12 @@ mod tests {
         assert!(!p.contains("- powershell"));
         assert!(p.contains("Bash/POSIX syntax, including on Windows"));
         assert!(p.contains("do not pass PowerShell cmdlets"));
+        // The CLI passes the scaffold and cwd independently to the harness,
+        // but standalone callers of default_system_prompt retain the old text.
+        assert!(p.ends_with("Current working directory: /tmp/proj"));
+        let base = default_system_prompt_base(false);
+        assert!(!base.contains("Current working directory:"));
+        assert!(!base.contains("<cwd>"));
     }
 
     #[test]

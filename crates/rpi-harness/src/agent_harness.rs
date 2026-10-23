@@ -77,7 +77,7 @@ use crate::session::types::{
     UsageRecord, WriteDeferredRecord,
 };
 use crate::skills::format_skill_invocation;
-use crate::system_prompt::compose_system_prompt;
+use crate::system_prompt::{append_cwd_section, compose_system_prompt};
 use crate::types::{
     AgentHarnessOptions, AgentHarnessResources, AgentHarnessStreamOptions, CompactionSettings,
     DrivingMode, HarnessTool, HarnessToolExecution, MessageDelivery, PromptTemplate, RetryPolicy,
@@ -3249,7 +3249,9 @@ impl AgentHarness {
     /// the CLI hands the harness already carries the `append` + `context`
     /// sections (folded in by `session.rs` via `compose_system_prompt` before
     /// `AgentHarness::create`), so here the harness only appends the
-    /// `<available_skills>` listing — the one section it owns itself.
+    /// `<available_skills>` listing and the independent cwd section. The cwd
+    /// comes from resources even for custom, loaded, and restored base prompts;
+    /// it is not baked into the stored base and cannot accumulate across turns.
     ///
     /// **Read-tool gate** (pi `skills.ts:335-336`): the skills listing is
     /// injected only when the `read` tool is in `active_tool_names`. The model
@@ -3298,6 +3300,9 @@ impl AgentHarness {
                     prompt.push_str(&format!("\n- {guideline}"));
                 }
             }
+        }
+        if let Some(context) = resources.prompt_context.as_ref() {
+            append_cwd_section(&mut prompt, &context.cwd);
         }
         prompt
     }
@@ -4910,16 +4915,10 @@ impl AgentLane for AgentHarness {
         text: &str,
         images: Vec<rpi_ai::types::ImageContent>,
     ) -> HarnessResult<RunResult> {
-        let content = if images.is_empty() {
-            UserContent::Text(text.to_string())
-        } else {
-            let mut blocks: Vec<Content> = Vec::with_capacity(images.len() + 1);
-            blocks.push(Content::text(text));
-            for img in images {
-                blocks.push(Content::Image(img));
-            }
-            UserContent::Blocks(blocks)
-        };
+        let mut blocks: Vec<Content> = Vec::with_capacity(images.len() + 1);
+        blocks.push(Content::text(text));
+        blocks.extend(images.into_iter().map(Content::Image));
+        let content = UserContent::Blocks(blocks);
         let message = AgentMessage::User(UserMessage::new(content, now_ms()));
         self.run_core(vec![message]).await
     }
@@ -6026,6 +6025,78 @@ mod session_switch_tests {
         assert!(!harness.has_pending_context());
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn public_prompt_boundary_matches_pi_and_does_not_accumulate_cwd() {
+        use rpi_ai::providers::faux::{faux_assistant_message, FauxProvider, FauxScript, FauxStep};
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../docs/provider-parity/request-parity-reference.json"
+        ))
+        .unwrap();
+        for row in fixture["prompts"].as_array().unwrap() {
+            let captured = Arc::new(Mutex::new(Vec::new()));
+            let capture = captured.clone();
+            let step = FauxStep::factory(move |context| {
+                capture.lock().unwrap().push(context.clone());
+                faux_assistant_message("ok", rpi_ai::types::StopReason::Stop)
+            });
+            let script = FauxScript::new();
+            script.set_responses(vec![step.clone(), step.clone(), step]);
+            let provider = FauxProvider::new(script);
+            let make_options = || {
+                let mut options = opts();
+                options.model = provider.default_model().clone();
+                options.models = vec![provider.clone()];
+                options.system_prompt = Some(row["customPrompt"].as_str().unwrap().into());
+                options.resources.prompt_context = Some(crate::types::PromptContext {
+                    cwd: row["cwd"].as_str().unwrap().into(),
+                    files: Vec::new(),
+                });
+                options
+            };
+            let options = make_options();
+            let session = options.session.clone();
+            let harness = AgentHarness::create(options).await.unwrap();
+            harness.prompt_text("Hello.", Vec::new()).await.unwrap();
+            // These are the same replacement setters used by CLI /reload.
+            harness
+                .set_system_prompt(harness.get_system_prompt().await.unwrap())
+                .await
+                .unwrap();
+            harness
+                .set_resources(harness.get_resources().await.unwrap())
+                .await
+                .unwrap();
+            harness.prompt_text("Hello.", Vec::new()).await.unwrap();
+            // Rebuild against the persisted transcript, as on resume. A reload
+            // replaces the base/resources rather than feeding the rendered cwd
+            // back into the base.
+            let mut options = make_options();
+            options.session = session;
+            let resumed = AgentHarness::create(options).await.unwrap();
+            resumed.prompt_text("Hello.", Vec::new()).await.unwrap();
+            let captured = captured.lock().unwrap();
+            assert_eq!(captured.len(), 3);
+            for context in captured.iter() {
+                assert_eq!(
+                    serde_json::to_value(&context.system_prompt).unwrap(),
+                    row["result"]
+                );
+                let Some(rpi_ai::types::Message::User(user)) = context
+                    .messages
+                    .iter()
+                    .rev()
+                    .find(|m| matches!(m, rpi_ai::types::Message::User(_)))
+                else {
+                    panic!("provider did not receive a user prompt");
+                };
+                assert_eq!(
+                    serde_json::to_value(&user.content).unwrap(),
+                    serde_json::json!([{"type":"text", "text":"Hello."}])
+                );
+            }
+        }
+    }
+
     #[tokio::test]
     async fn clearing_image_queues_restores_attachments_without_losing_text() {
         // A complete 1x1 GIF, small enough to retain its original bytes.
@@ -6203,7 +6274,7 @@ mod session_switch_tests {
                     if matches!(
                         &message.message,
                         AgentMessage::User(user)
-                            if matches!(&user.content, UserContent::Text(text) if text == "side branch")
+                            if user.content == UserContent::Blocks(vec![Content::text("side branch")])
                     )
             )
         }));
