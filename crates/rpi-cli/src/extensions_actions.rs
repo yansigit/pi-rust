@@ -838,6 +838,18 @@ impl RuntimeActionHost for HarnessActionHost {
         Ok(serde_json::Value::Null)
     }
 
+    async fn is_idle(&self, _args: serde_json::Value) -> Result<serde_json::Value, String> {
+        let target = self
+            .harness()?
+            .for_current_execution()
+            .map_err(|error| error.to_string())?;
+        let snapshot = target.native_context().map_err(|error| error.to_string())?;
+        let idle = snapshot["isIdle"]
+            .as_bool()
+            .ok_or("selected execution lane has no idle state")?;
+        Ok(serde_json::json!({"isIdle":idle}))
+    }
+
     async fn compact(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
         let custom = arg_str_opt(&args, "customInstructions");
         let lane = self.harness()?.lane("main");
@@ -1111,6 +1123,143 @@ mod send_message_tests {
                 queue: rpi_harness::session::types::QueueKind::NextRun,
             }),
             serde_json::json!({"status":"queued", "entryId":"reserved", "deliverAs":"nextTurn"})
+        );
+    }
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::*;
+    use rpi_ai::{AssistantMessageEventStream, Context, Model, Provider, SimpleStreamOptions};
+    use rpi_harness::agent_harness::AgentLane;
+    use rpi_harness::types::AgentHarnessOptions;
+    use serde_json::json;
+
+    struct GatedProvider {
+        models: Vec<Model>,
+        entered: tokio::sync::Notify,
+        release: tokio::sync::Notify,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for GatedProvider {
+        fn id(&self) -> &str {
+            "idle-fixture"
+        }
+        fn models(&self) -> &[Model] {
+            &self.models
+        }
+        async fn stream_simple(
+            &self,
+            model: &Model,
+            _: &Context,
+            options: &SimpleStreamOptions,
+        ) -> AssistantMessageEventStream {
+            self.entered.notify_one();
+            tokio::select! {
+                _ = self.release.notified() => {},
+                _ = options.signal.cancelled() => {},
+            }
+            crate::provider_runtime::error_stream(model, "fixture completed".into()).await
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn idle_reads_selected_lane_and_refuses_missing_or_closed_execution_targets() {
+        use rpi_harness::session::types::SessionMetadata;
+        use rpi_harness::session::{
+            DefaultIdGenerator, InMemorySessionStorage, Session, SystemClock,
+        };
+        let (host, cell) = HarnessActionHost::new_empty(
+            vec![],
+            PathBuf::from("."),
+            Handle::current(),
+            BTreeMap::new(),
+            Default::default(),
+        );
+        assert!(host.is_idle(json!({})).await.is_err());
+        let provider = Arc::new(GatedProvider {
+            models: vec![Model::new("m", "M", rpi_ai::Api::Faux, "idle-fixture", "")],
+            entered: Default::default(),
+            release: Default::default(),
+        });
+        let parent = AgentHarness::create(AgentHarnessOptions {
+            model: provider.models[0].clone(),
+            models: vec![provider.clone()],
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        HarnessActionHost::set_harness(&cell, Arc::new(parent.clone()));
+        let session = Session::new(
+            Arc::new(InMemorySessionStorage::new(
+                SessionMetadata {
+                    id: "idle-child".into(),
+                    created_at: 0,
+                    parent_session_id: None,
+                },
+                Arc::new(SystemClock),
+                Arc::new(DefaultIdGenerator::new()),
+            )),
+            None,
+        );
+        let child = parent
+            .create_child(
+                session,
+                Arc::new(rpi_agent::CollectorEmitter::new().0),
+                1,
+                None,
+            )
+            .await
+            .unwrap();
+        let scope = child.execution_scope.clone();
+        assert_eq!(
+            host.is_idle(json!({"isIdle":false})).await.unwrap(),
+            json!({"isIdle":true})
+        );
+        assert_eq!(
+            scope.run(host.is_idle(json!({}))).await.unwrap(),
+            json!({"isIdle":true})
+        );
+        for child_active in [false, true] {
+            let target = if child_active {
+                child.harness.clone()
+            } else {
+                parent.clone()
+            };
+            let run = tokio::spawn(async move { target.prompt_text("fixture", vec![]).await });
+            tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                provider.entered.notified(),
+            )
+            .await
+            .expect("fixture provider should be running");
+            assert_eq!(
+                host.is_idle(json!({})).await.unwrap(),
+                json!({"isIdle":child_active})
+            );
+            assert_eq!(
+                scope.run(host.is_idle(json!({}))).await.unwrap(),
+                json!({"isIdle":!child_active})
+            );
+            provider.release.notify_one();
+            tokio::time::timeout(std::time::Duration::from_secs(3), run)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+        }
+        assert_eq!(
+            host.is_idle(json!({})).await.unwrap(),
+            json!({"isIdle":true})
+        );
+        let unbound = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+        assert!(unbound.run(host.is_idle(json!({}))).await.is_err());
+        drop(child);
+        assert!(scope.run(host.is_idle(json!({}))).await.is_err());
+        assert_eq!(
+            host.is_idle(json!({})).await.unwrap(),
+            json!({"isIdle":true})
         );
     }
 }

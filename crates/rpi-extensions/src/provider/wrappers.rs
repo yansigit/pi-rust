@@ -179,6 +179,10 @@ impl Continuation {
     }
     fn active(&self) -> bool {
         !self.options.signal.is_cancelled()
+            && !self
+                .tool_scope
+                .as_ref()
+                .is_some_and(|scope| scope.runtime_closing().is_cancelled())
             && self
                 .session
                 .snapshot()

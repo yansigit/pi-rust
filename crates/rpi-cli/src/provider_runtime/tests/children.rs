@@ -1,6 +1,53 @@
 use super::*;
 use rpi_agent::tool_execution_scope::ToolExecutionScope;
 
+#[tokio::test]
+async fn child_wrapper_publications_do_not_share_parent_or_sibling_chain_identity() {
+    extern "C" fn wrapper(
+        _: rpi_plugin_sdk::StbStringRef,
+        _: Option<rpi_plugin_sdk::ProviderStreamEmitFn>,
+        _: *mut std::ffi::c_void,
+        _: *const rpi_plugin_sdk::ProviderStreamControl,
+        _: Option<rpi_plugin_sdk::ProviderStreamCompletionFn>,
+        _: *mut std::ffi::c_void,
+        _: *mut rpi_plugin_sdk::StbString,
+        _: *mut std::ffi::c_void,
+    ) -> i32 {
+        panic!("identity inspection must not execute a wrapper")
+    }
+    let (runtime, _, _) = fixture_with(|registry| {
+        registry.register_provider_wrapper(rpi_extensions::RegisteredWrapper {
+            action_bridge: None,
+            plugin: "test-plugin".into(),
+            manifest: rpi_extensions::WrapperManifest::parse(
+                r#"{"version":1,"id":"identity","providers":["test"]}"#,
+            )
+            .unwrap(),
+            stream: wrapper,
+            free: rpi_plugin_sdk::callbacks::free_string,
+            context: std::ptr::null_mut(),
+        });
+    });
+    let first_scope = Arc::new(ToolExecutionScope::default());
+    let second_scope = Arc::new(ToolExecutionScope::default());
+    let first = first_scope.run(runtime.for_current_scope()).await.unwrap();
+    let second = second_scope.run(runtime.for_current_scope()).await.unwrap();
+    let parent_chain = runtime.state.lock().await.chains["test"].clone();
+    let first_chain = first.state.lock().await.chains["test"].clone();
+    let second_chain = second.state.lock().await.chains["test"].clone();
+    assert!(!Arc::ptr_eq(&parent_chain, &first_chain));
+    assert!(!Arc::ptr_eq(&first_chain, &second_chain));
+    assert!(!Arc::ptr_eq(&parent_chain, &second_chain));
+    assert_eq!(parent_chain.models(), first_chain.models());
+    assert_eq!(first_chain.models(), second_chain.models());
+    let again = first_scope.run(runtime.for_current_scope()).await.unwrap();
+    assert!(Arc::ptr_eq(&first, &again));
+    assert!(Arc::ptr_eq(
+        &first_chain,
+        &again.state.lock().await.chains["test"]
+    ));
+}
+
 async fn models(runtime: &ProviderRuntime, owner: &NativeOwner) -> Value {
     request(runtime, owner.clone(), json!({"action":"inspect"}))
         .await

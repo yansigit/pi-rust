@@ -24,6 +24,10 @@ impl Continuation {
         account_id: &str,
         options: &SimpleStreamOptions,
     ) -> Result<AuthReceipt, String> {
+        let callback = self
+            .api
+            .provider_continuation
+            .ok_or("host lacks private provider continuation operations")?;
         let signal = options.signal.child_token();
         let _cancel = signal.clone().drop_guard();
         let request = json!({"version":1,"continuation":self.descriptor,"action":"resolveAuth",
@@ -38,7 +42,7 @@ impl Continuation {
                 user_data: (&options as *const SimpleStreamOptions).cast_mut().cast(),
             };
             let mut out = StbString::empty();
-            let status = (this.api.provider_continuation.unwrap())(
+            let status = callback(
                 StbStringRef::from_str(&request),
                 &control,
                 &mut out,
@@ -60,11 +64,15 @@ impl Continuation {
     }
 
     pub async fn release_auth(&self, receipt: AuthReceipt) -> Result<(), String> {
+        let callback = self
+            .api
+            .provider_continuation
+            .ok_or("host lacks private provider continuation operations")?;
         let this = self.clone();
         tokio::task::spawn_blocking(move || {
             let request = json!({"version":1,"continuation":this.descriptor,"action":"releaseAuth","receipt":receipt.0}).to_string();
             let mut out = StbString::empty();
-            let status = (this.api.provider_continuation.unwrap())(StbStringRef::from_str(&request), std::ptr::null(), &mut out, this.api.user_data);
+            let status = callback(StbStringRef::from_str(&request), std::ptr::null(), &mut out, this.api.user_data);
             host_result(&this.api, out, status).map(|_| ())
         }).await.map_err(|_| "account release task stopped".to_owned())?
     }
@@ -141,20 +149,24 @@ impl Provider for DelegatedProvider {
                     .cast(),
             };
             let mut out = StbString::empty();
-            let status = (bridge.api.delegate_provider_stream.unwrap())(
-                StbStringRef::from_str(&request),
-                Some(stream_emit),
-                (&mut bridge as *mut StreamBridge).cast(),
-                &control,
-                None,
-                std::ptr::null_mut(),
-                &mut out,
-                bridge.api.user_data,
-            );
-            let result = host_result(&bridge.api, out, status).and_then(|value| {
-                serde_json::from_value::<AssistantMessage>(value)
-                    .map_err(|_| "invalid delegated message".into())
-            });
+            let result = if let Some(callback) = bridge.api.delegate_provider_stream {
+                let status = callback(
+                    StbStringRef::from_str(&request),
+                    Some(stream_emit),
+                    (&mut bridge as *mut StreamBridge).cast(),
+                    &control,
+                    None,
+                    std::ptr::null_mut(),
+                    &mut out,
+                    bridge.api.user_data,
+                );
+                host_result(&bridge.api, out, status).and_then(|value| {
+                    serde_json::from_value::<AssistantMessage>(value)
+                        .map_err(|_| "invalid delegated message".into())
+                })
+            } else {
+                Err("host lacks delegated provider streaming".into())
+            };
             let message = if bridge.options.signal.is_cancelled() {
                 bridge.mapper.aborted_message()
             } else {
@@ -419,4 +431,98 @@ where
         return Err("provider wrapper registration failed".into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    extern "C" fn unused_action(_: u32, _: StbStringRef, _: *mut StbString, _: *mut c_void) -> i32 {
+        1
+    }
+
+    fn continuation() -> Continuation {
+        Continuation {
+            api: PluginApi {
+                abi_version: crate::RPI_PLUGIN_ABI_VERSION_UNIFIED,
+                struct_size: std::mem::size_of::<PluginApi>() as u32,
+                free_string: crate::callbacks::free_string,
+                runtime_action: unused_action,
+                user_data: std::ptr::null_mut(),
+                register_tool: None,
+                register_command: None,
+                register_shortcut: None,
+                register_flag: None,
+                register_provider: None,
+                register_message_renderer: None,
+                register_markdown_transformer: None,
+                register_entry_renderer: None,
+                register_event_handler: None,
+                register_resources_discover: None,
+                dispatch_event: None,
+                declare: None,
+                register_before_agent_start: None,
+                register_oauth_provider: None,
+                register_streaming_provider: None,
+                register_tool_with_wake: None,
+                register_plugin_lifecycle: None,
+                register_provider_auth: None,
+                register_credential_store: None,
+                register_provider_wrapper: None,
+                delegate_provider_stream: None,
+                provider_continuation: None,
+                native_request: None,
+                register_provider_runtime: None,
+                register_event_result_handler: None,
+                register_service: None,
+                native_context: None,
+                register_native_command: None,
+                register_owned_tool_with_wake: None,
+            },
+            descriptor: json!({"version":1,"id":"fixture","generation":"fixture"}),
+            model: Model::new("model", "Model", rpi_ai::Api::Faux, "fixture", ""),
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_auth_callback_returns_errors_without_panicking() {
+        let continuation = continuation();
+        let result = continuation
+            .resolve_auth("store", "account", &SimpleStreamOptions::default())
+            .await;
+        assert!(
+            matches!(result, Err(error) if error == "host lacks private provider continuation operations")
+        );
+        assert_eq!(
+            continuation
+                .release_auth(AuthReceipt("opaque".into()))
+                .await,
+            Err("host lacks private provider continuation operations".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn missing_stream_callback_emits_terminal_error_instead_of_hanging() {
+        let continuation = continuation();
+        let provider = continuation.provider(None);
+        let result = tokio::time::timeout(Duration::from_secs(2), async {
+            provider
+                .stream_simple(
+                    &continuation.model,
+                    &Context::default(),
+                    &SimpleStreamOptions::default(),
+                )
+                .await
+                .result()
+                .await
+        })
+        .await
+        .expect("missing callback must not leave the consumer waiting")
+        .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Error);
+        assert_eq!(
+            result.error_message.as_deref(),
+            Some("host lacks delegated provider streaming")
+        );
+    }
 }
