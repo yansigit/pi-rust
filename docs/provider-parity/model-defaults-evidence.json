@@ -1,0 +1,1104 @@
+{
+  "status": "verified-scoped-with-recorded-safety-incident",
+  "scope": "Evidence-only record for the model-defaults RPC fix and its verifier-only package assertion lane. No source, test, fixture, ref, index, or commit change is made by this evidence file.",
+  "date": "2026-10-23",
+  "revisions": {
+    "hostLane": {
+      "worktree": "/home/user/Projects/pi-rust--parity-model-defaults",
+      "branch": "lane/parity-model-defaults",
+      "head": "ce2f07ec8c2ca3fb0e15e05c8d7c3c47bdd3323c",
+      "headLength": 40,
+      "headIs40Hex": true,
+      "sourcePath": "crates/rpi-cli/src/config.rs",
+      "sourceSha256": "398ca9cfda4442b8b48b8ca7f4a162ddb45b05ccd86301d6b72140dd8394fa2d",
+      "sourceBytes": 69896,
+      "trackedSourceDiffSha256": "1aaa3a4ea3283a979dfd85cb1e900a7ef97b19764e353cfbc084eb5808c73d08",
+      "status": [
+        "M crates/rpi-cli/src/config.rs"
+      ],
+      "statusDuringVerification": [
+        " M crates/rpi-cli/src/config.rs"
+      ],
+      "statusAfterEvidenceWrite": [
+        " M crates/rpi-cli/src/config.rs",
+        "?? docs/provider-parity/model-defaults-evidence.json"
+      ]
+    },
+    "packageLane": {
+      "worktree": "/home/user/Projects/rpi-package--parity-rpc-assert",
+      "branch": "lane/parity-rpc-assert",
+      "head": "3a35fec3b40a938ad96ee153e1bd4f3b86782ba2",
+      "headLength": 40,
+      "headIs40Hex": true,
+      "changedFiles": [
+        {
+          "path": "tools/parity-rpc/README.md",
+          "sha256": "593042b7a5cb0388ce4157bd305e7bb3387813bdecf39a2373d5450aafc8fd9c",
+          "bytes": 9586
+        },
+        {
+          "path": "tools/parity-rpc/test/e2e.test.mjs",
+          "sha256": "4c29fec16d3e6d140404b3eb58a5b04797cbe2d1f99a2bff1f585234ec8126e1",
+          "bytes": 4738
+        }
+      ],
+      "trackedDiffSha256": "725cb7a1807a9f415486d404d8c443855e56d3102926fc3b0ddd4d6264e0c5df",
+      "status": [
+        "M tools/parity-rpc/README.md",
+        " M tools/parity-rpc/test/e2e.test.mjs"
+      ]
+    },
+    "captureManifests": {
+      "host": {
+        "path": "/tmp/opencode/review-inputs/parity-model-defaults.manifest.json",
+        "headMatch": true,
+        "configDiffMatch": true,
+        "note": "Host manifest is updated after this file is written and hashes this file; it is not hashed here to avoid a self-referential stale value."
+      },
+      "package": {
+        "path": "/tmp/opencode/review-inputs/parity-rpc-assert.manifest.json",
+        "sha256": "c5d49c1c9cf64a54e9efd31ea31dc2dd0986af3deb926e8ffb895d83ebcaa6a2",
+        "headMatch": true,
+        "diffMatch": true
+      }
+    }
+  },
+  "piReference": {
+    "version": "1.3.0",
+    "packages": {
+      "pi-coding-agent": {
+        "path": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/package.json",
+        "version": "1.3.0",
+        "sha256": "83c3bb7619f590c213cc96a24216eb29a819a3ef6dc548607cc037ed276e8dc5"
+      },
+      "pi-ai": {
+        "path": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-ai/package.json",
+        "version": "1.3.0",
+        "sha256": "4e9ed07b06a91d844485874c251f312b610d015a4a4fd32c78cde58a7862a3f1"
+      }
+    },
+    "sourceFiles": [
+      {
+        "logicalName": "provider-composer.js",
+        "path": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/core/provider-composer.js",
+        "sha256": "b088d1babb75360da6bf1bcbe8e140ce600e1db15f51345f1965d3d1e9f267ef",
+        "bytes": 24395
+      },
+      {
+        "logicalName": "openai-completions.js",
+        "path": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js",
+        "sha256": "4b3875e5ec18c5e2d06ce12409feb2554563fd2c392a5c1773af968b265e2bea",
+        "bytes": 64907
+      },
+      {
+        "logicalName": "system-prompt.js",
+        "path": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/core/system-prompt.js",
+        "sha256": "ab02924fa078eef81addcf39bc0e43d3663f06d627cb42ead403662a004a9e5c",
+        "bytes": 8167
+      },
+      {
+        "logicalName": "bundle/cli.js",
+        "path": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        "sha256": "e79626f2dd6f94aa45d30f3fa63cd84319a6eefcd150b353cfaf274366926774",
+        "bytes": 160
+      }
+    ],
+    "bundleCli": {
+      "loaderPath": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+      "loaderSha256": "e79626f2dd6f94aa45d30f3fa63cd84319a6eefcd150b353cfaf274366926774",
+      "loaderBytes": 160,
+      "executedRuntimePath": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli-runtime.js",
+      "executedRuntimeSha256": "f9811fa28c52accb8e2433499a85e857b714a002956005b7859ad00e5e35f380",
+      "executedRuntimeBytes": 1015,
+      "referencedBy": "dist/bundle/cli.js does createRequire(import.meta.url)(\"./cli-runtime.js\")",
+      "loaderSource": "#!/usr/bin/env node\nimport { createRequire, enableCompileCache } from \"node:module\";\n\nenableCompileCache();\ncreateRequire(import.meta.url)(\"./cli-runtime.js\");\n"
+    },
+    "bundleJsAggregate": {
+      "algorithm": "SHA256 over sorted dist/bundle/**/*.js entries; for each: \"PATH\\0\"+relativePath+\"\\0SIZE\\0\"+decimalBytes+\"\\0SHA256\\0\"+lowercaseFileSha256+\"\\n\"",
+      "fileCount": 80,
+      "sha256": "bd7c5ae8ac3546df106aae9ce95f4284ed11e344b044d6922c9ba59d496cb2af",
+      "root": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle"
+    }
+  },
+  "rpiBinaries": {
+    "new": {
+      "testedPath": "/home/user/Projects/.targets/parity-model-defaults-195/debug/rpi",
+      "testedSha256": "db11cbb876b7f05380a08de007df8b9186e2355781d2f82ff2815e50c3248dd5",
+      "testedSha256Source": "/tmp/opencode/verify-model-defaults-rpc/new-rpi.sha256",
+      "currentAtEvidenceWrite": {
+        "path": "/home/user/Projects/.targets/parity-model-defaults-195/debug/rpi",
+        "sha256": "3ed8b43a9041c82f9b846b486725e8c55a669df673f4baf25537d14d014cf636",
+        "bytes": 375805976,
+        "note": "The debug binary at this path was rebuilt by the later full rpi-cli test run, so its current bytes differ from the RPC-tested binary. The RPC evidence below used the testedSha256 binary recorded at test time."
+      },
+      "provenance": "built from the model-defaults lane with cargo +1.95.0 build -p rpi-cli --bin rpi --locked --offline",
+      "buildLog": "/tmp/opencode/verify-model-defaults-rpc/host-195-build.log"
+    },
+    "old": {
+      "path": "/home/user/Projects/.targets/verify-rpc-body-195/debug/rpi",
+      "sha256": "d728e0a6e95568b966f101b91aebd21bdc4f7213524def5b2c58505c80b059be",
+      "provenance": "pre-fix binary built from /home/user/Projects/pi-rust and used only as the negative control",
+      "buildLog": "/tmp/opencode/verify-rpc-body/build.log",
+      "sourceCommit": null
+    }
+  },
+  "toolchains": {
+    "rust": [
+      "1.78.0 (9b00956e5 2024-04-29)",
+      "1.95.0 (59807616e 2026-04-14)"
+    ],
+    "node": "v24.22.0"
+  },
+  "isolation": {
+    "provider": "scripted local fake provider through parity-rpc; no live service",
+    "credentials": "none; env uses offline fixture values only",
+    "hostChecks": {
+      "CARGO_BUILD_JOBS": "4",
+      "locked": true,
+      "offline": true,
+      "targets": {
+        "1.78": "/home/user/Projects/.targets/parity-model-defaults-178",
+        "1.95": "/home/user/Projects/.targets/parity-model-defaults-195"
+      }
+    },
+    "packageChecks": {
+      "HOME": "/home/user/verify-model-defaults-rpc.home",
+      "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp",
+      "PI": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+      "rawWork": "/home/user/verify-model-defaults-rpc.raw.work",
+      "rawOut": "/home/user/verify-model-defaults-rpc.raw.out",
+      "negativeControlOldBinary": "/home/user/Projects/.targets/verify-rpc-body-195/debug/rpi",
+      "PARITY_RPI_BIN": "/home/user/Projects/.targets/parity-model-defaults-195/debug/rpi"
+    }
+  },
+  "commands": [
+    {
+      "id": "host-178-config-tests",
+      "workingDirectory": "/home/user/Projects/pi-rust--parity-model-defaults",
+      "toolchain": "rustc 1.78.0",
+      "targetDirectory": "/home/user/Projects/.targets/parity-model-defaults-178",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "command": "RUSTFLAGS='-D warnings' cargo +1.78.0 test -p rpi-cli --locked --offline config::",
+      "exitCode": 0,
+      "result": {
+        "passed": 45,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 650
+      },
+      "log": "/tmp/opencode/verify-model-defaults-rpc/host-178-test.log"
+    },
+    {
+      "id": "host-178-all-targets-check",
+      "workingDirectory": "/home/user/Projects/pi-rust--parity-model-defaults",
+      "toolchain": "rustc 1.78.0",
+      "targetDirectory": "/home/user/Projects/.targets/parity-model-defaults-178",
+      "environment": {
+        "RUSTFLAGS": "-D warnings",
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "command": "RUSTFLAGS='-D warnings' cargo +1.78.0 check -p rpi-cli --all-targets --locked --offline",
+      "exitCode": 0,
+      "result": "all-targets check passed",
+      "log": "/tmp/opencode/verify-model-defaults-rpc/host-178-check.log"
+    },
+    {
+      "id": "host-195-config-tests",
+      "workingDirectory": "/home/user/Projects/pi-rust--parity-model-defaults",
+      "toolchain": "rustc 1.95.0",
+      "targetDirectory": "/home/user/Projects/.targets/parity-model-defaults-195",
+      "environment": {
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "command": "cargo +1.95.0 test -p rpi-cli --locked --offline config::",
+      "exitCode": 0,
+      "result": {
+        "passed": 45,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 650
+      },
+      "log": "/tmp/opencode/verify-model-defaults-rpc/host-195-test.log"
+    },
+    {
+      "id": "host-195-build-rpi",
+      "workingDirectory": "/home/user/Projects/pi-rust--parity-model-defaults",
+      "toolchain": "rustc 1.95.0",
+      "targetDirectory": "/home/user/Projects/.targets/parity-model-defaults-195",
+      "environment": {
+        "CARGO_BUILD_JOBS": "4"
+      },
+      "command": "cargo +1.95.0 build -p rpi-cli --bin rpi --locked --offline",
+      "exitCode": 0,
+      "result": "binary produced",
+      "log": "/tmp/opencode/verify-model-defaults-rpc/host-195-build.log"
+    },
+    {
+      "id": "package-node-unit",
+      "workingDirectory": "/home/user/Projects/rpi-package--parity-rpc-assert/tools/parity-rpc",
+      "toolchain": "node v24.22.0",
+      "command": "node --test test/{normalize,preload,runner}.test.mjs",
+      "environment": {
+        "node": "v24.22.0",
+        "HOME": "/home/user/verify-model-defaults-rpc.home",
+        "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp",
+        "HOME_TMPDIR_historical": "both paths were later deleted by verifier cleanup"
+      },
+      "exitCode": 0,
+      "result": {
+        "tests": 31,
+        "passed": 31,
+        "failed": 0,
+        "skipped": 0
+      },
+      "log": "/tmp/opencode/verify-model-defaults-rpc/pkg-unit.log",
+      "loggedAliasesNotConsumedByTheseTests": {
+        "RPI": "/home/user/Projects/.targets/parity-model-defaults-195/debug/rpi",
+        "PI": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
+      },
+      "consumedTestEnv": {
+        "PARITY_RPC_KEEP": "not set (default cleanup)"
+      },
+      "envNote": "RPI/PI aliases printed in pkg-unit.log were shell/verifier variables; these unit files do not consume them."
+    },
+    {
+      "id": "package-e2e-new-run1",
+      "workingDirectory": "/home/user/Projects/rpi-package--parity-rpc-assert",
+      "toolchain": "node v24.22.0",
+      "command": "node --test tools/parity-rpc/test/e2e.test.mjs",
+      "environment": {
+        "PARITY_RPI_BIN": "/home/user/Projects/.targets/parity-model-defaults-195/debug/rpi",
+        "PARITY_PI_CLI": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        "PARITY_RPC_WRITE_EXPECTED": null,
+        "HOME": "/home/user/verify-model-defaults-rpc.home",
+        "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp",
+        "node": "v24.22.0"
+      },
+      "exitCode": 0,
+      "result": {
+        "tests": 1,
+        "passed": 1,
+        "failed": 0
+      },
+      "log": "/tmp/opencode/verify-model-defaults-rpc/pkg-e2e-new-run1.log",
+      "unsetEnvironment": [
+        "PARITY_RPC_WRITE_EXPECTED"
+      ],
+      "consumedTestEnv": [
+        "PARITY_PI_CLI",
+        "PARITY_RPI_BIN",
+        "PARITY_RPC_WRITE_EXPECTED"
+      ],
+      "envSource": "PARITY_* keys from tools/parity-rpc/test/e2e.test.mjs; HOME/TMPDIR from shared verifier env recorded in pkg-unit.log"
+    },
+    {
+      "id": "package-e2e-new-run2",
+      "workingDirectory": "/home/user/Projects/rpi-package--parity-rpc-assert",
+      "toolchain": "node v24.22.0",
+      "command": "node --test tools/parity-rpc/test/e2e.test.mjs",
+      "environment": {
+        "PARITY_RPI_BIN": "/home/user/Projects/.targets/parity-model-defaults-195/debug/rpi",
+        "PARITY_PI_CLI": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        "PARITY_RPC_WRITE_EXPECTED": null,
+        "HOME": "/home/user/verify-model-defaults-rpc.home",
+        "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp",
+        "node": "v24.22.0"
+      },
+      "exitCode": 0,
+      "result": {
+        "tests": 1,
+        "passed": 1,
+        "failed": 0
+      },
+      "log": "/tmp/opencode/verify-model-defaults-rpc/pkg-e2e-new-run2.log",
+      "unsetEnvironment": [
+        "PARITY_RPC_WRITE_EXPECTED"
+      ],
+      "consumedTestEnv": [
+        "PARITY_PI_CLI",
+        "PARITY_RPI_BIN",
+        "PARITY_RPC_WRITE_EXPECTED"
+      ],
+      "envSource": "PARITY_* keys from tools/parity-rpc/test/e2e.test.mjs; HOME/TMPDIR from shared verifier env recorded in pkg-unit.log"
+    },
+    {
+      "id": "package-e2e-old-negative-control",
+      "workingDirectory": "/home/user/Projects/rpi-package--parity-rpc-assert",
+      "toolchain": "node v24.22.0",
+      "command": "node --test tools/parity-rpc/test/e2e.test.mjs",
+      "environment": {
+        "PARITY_RPI_BIN": "/home/user/Projects/.targets/verify-rpc-body-195/debug/rpi",
+        "PARITY_PI_CLI": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        "PARITY_RPC_WRITE_EXPECTED": null,
+        "HOME": "/home/user/verify-model-defaults-rpc.home",
+        "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp",
+        "node": "v24.22.0"
+      },
+      "exitCode": 1,
+      "expectedFailure": true,
+      "result": {
+        "tests": 1,
+        "passed": 0,
+        "failed": 1,
+        "assertion": "rpi provider request differs"
+      },
+      "log": "/tmp/opencode/verify-model-defaults-rpc/pkg-e2e-old-negctrl.log",
+      "unsetEnvironment": [
+        "PARITY_RPC_WRITE_EXPECTED"
+      ],
+      "consumedTestEnv": [
+        "PARITY_PI_CLI",
+        "PARITY_RPI_BIN",
+        "PARITY_RPC_WRITE_EXPECTED"
+      ],
+      "envSource": "PARITY_* keys from tools/parity-rpc/test/e2e.test.mjs; HOME/TMPDIR from shared verifier env recorded in pkg-unit.log"
+    },
+    {
+      "id": "package-raw-request-run",
+      "workingDirectory": "/home/user/Projects/rpi-package--parity-rpc-assert",
+      "toolchain": "node v24.22.0",
+      "command": "node tools/parity-rpc/run.mjs fixtures/scenarios/prompt-basic.json --pi /home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js --rpi /home/user/Projects/.targets/parity-model-defaults-195/debug/rpi --work /home/user/verify-model-defaults-rpc.raw.work --out /home/user/verify-model-defaults-rpc.raw.out",
+      "exitCode": 1,
+      "result": {
+        "status": "different",
+        "note": "transcript divergence is expected and is not used as a body-equality claim",
+        "providerRequestsPerSide": 1
+      },
+      "log": "/tmp/opencode/verify-model-defaults-rpc/pkg-raw-run.log",
+      "shellHelperVariables": {
+        "PARITY_PI_CLI": "/home/user/Projects/provider-references/integrated/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js",
+        "PARITY_RPI_BIN": "/home/user/Projects/.targets/parity-model-defaults-195/debug/rpi"
+      },
+      "consumedTestEnv": {},
+      "envNote": "Helper variables are substituted into --pi/--rpi CLI arguments; the runner is not relying on the PARITY_* env keys for this invocation."
+    },
+    {
+      "id": "package-raw-body-check",
+      "workingDirectory": "not recorded; driver uses absolute paths",
+      "toolchain": "node v24.22.0",
+      "command": "not recorded; raw-check.mjs uses absolute WORK/OUT/scenario paths",
+      "driver": "/tmp/opencode/verify-model-defaults-rpc/raw-check.mjs",
+      "exitCode": 0,
+      "result": {
+        "scenario": "prompt-basic",
+        "sides": 2,
+        "requestsPerSide": 1,
+        "allFourChecksPass": true
+      },
+      "log": "/tmp/opencode/verify-model-defaults-rpc/raw-checks.json",
+      "helperVariables": {
+        "WORK": "/home/user/verify-model-defaults-rpc.raw.work",
+        "OUT": "/home/user/verify-model-defaults-rpc.raw.out"
+      },
+      "consumedTestEnv": {},
+      "envNote": "No test env keys; raw-check.mjs uses absolute WORK/OUT/scenario constants. Working directory was not recorded."
+    }
+  ],
+  "testResults": {
+    "hostConfigTests": {
+      "rust1_78": {
+        "passed": 45,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 650
+      },
+      "rust1_95": {
+        "passed": 45,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 650
+      }
+    },
+    "newTest": "config::tests::custom_models_default_missing_context_and_token_limits_for_each_api passed on both toolchains",
+    "rust1_78AllTargets": "passed",
+    "nodeUnits": {
+      "tests": 31,
+      "passed": 31,
+      "failed": 0
+    },
+    "actualCliE2E": {
+      "runs": 2,
+      "passedPerRun": 1,
+      "failed": 0
+    },
+    "negativeControl": {
+      "oldBinaryExit": 1,
+      "expected": true,
+      "failedTests": 1,
+      "failure": "rpi provider request differs",
+      "soleDifference": "actual body missing max_completion_tokens: 16384; store:false, messages, method, and url match"
+    }
+  },
+  "rpcRequestEvidence": {
+    "scenario": "prompt-basic",
+    "method": "POST",
+    "url": "/v1/chat/completions",
+    "providerRequestCounts": {
+      "pi": 1,
+      "rpi": 1
+    },
+    "sides": {
+      "pi": {
+        "cwd": "/home/user/verify-model-defaults-rpc.raw.work/pi/cwd",
+        "actual": {
+          "method": "POST",
+          "url": "/v1/chat/completions",
+          "body": {
+            "model": "parity-model",
+            "messages": [
+              {
+                "role": "system",
+                "content": "Parity fixed system prompt.\n\n<cwd>\n/home/user/verify-model-defaults-rpc.raw.work/pi/cwd\n</cwd>"
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Say hi"
+                  }
+                ]
+              }
+            ],
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            },
+            "store": false,
+            "max_completion_tokens": 16384
+          }
+        },
+        "expected": {
+          "method": "POST",
+          "url": "/v1/chat/completions",
+          "body": {
+            "model": "parity-model",
+            "messages": [
+              {
+                "role": "system",
+                "content": "Parity fixed system prompt.\n\n<cwd>\n/home/user/verify-model-defaults-rpc.raw.work/pi/cwd\n</cwd>"
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Say hi"
+                  }
+                ]
+              }
+            ],
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            },
+            "store": false,
+            "max_completion_tokens": 16384
+          }
+        },
+        "checks": {
+          "requestCount": 1,
+          "method": "POST",
+          "url": "/v1/chat/completions",
+          "wholeRequestEqualsExpected": true,
+          "store": false,
+          "storeFalsePresent": true,
+          "maxCompletionTokens": 16384,
+          "maxCompletionTokensExact": true,
+          "userContentIsArray": true,
+          "userContentExact": true,
+          "systemCwdExact": true,
+          "cwdSectionCount": 1
+        }
+      },
+      "rpi": {
+        "cwd": "/home/user/verify-model-defaults-rpc.raw.work/rpi/cwd",
+        "actual": {
+          "method": "POST",
+          "url": "/v1/chat/completions",
+          "body": {
+            "model": "parity-model",
+            "messages": [
+              {
+                "role": "system",
+                "content": "Parity fixed system prompt.\n\n<cwd>\n/home/user/verify-model-defaults-rpc.raw.work/rpi/cwd\n</cwd>"
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Say hi"
+                  }
+                ]
+              }
+            ],
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            },
+            "max_completion_tokens": 16384,
+            "store": false
+          }
+        },
+        "expected": {
+          "method": "POST",
+          "url": "/v1/chat/completions",
+          "body": {
+            "model": "parity-model",
+            "messages": [
+              {
+                "role": "system",
+                "content": "Parity fixed system prompt.\n\n<cwd>\n/home/user/verify-model-defaults-rpc.raw.work/rpi/cwd\n</cwd>"
+              },
+              {
+                "role": "user",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "Say hi"
+                  }
+                ]
+              }
+            ],
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            },
+            "store": false,
+            "max_completion_tokens": 16384
+          }
+        },
+        "checks": {
+          "requestCount": 1,
+          "method": "POST",
+          "url": "/v1/chat/completions",
+          "wholeRequestEqualsExpected": true,
+          "store": false,
+          "storeFalsePresent": true,
+          "maxCompletionTokens": 16384,
+          "maxCompletionTokensExact": true,
+          "userContentIsArray": true,
+          "userContentExact": true,
+          "systemCwdExact": true,
+          "cwdSectionCount": 1
+        }
+      }
+    },
+    "newBinaryBodyChecks": {
+      "maxCompletionTokens": 16384,
+      "maxCompletionTokensExact": true,
+      "store": false,
+      "storeFalsePresent": true,
+      "userContentIsArray": true,
+      "userContentExact": true,
+      "systemCwdExact": true,
+      "cwdSectionCount": 1,
+      "fourChecksAllPass": true
+    },
+    "comparison": {
+      "eachSideComparedToSideSpecificExpectedObject": true,
+      "onlySideCwdDiffersAfterCanonicalization": true,
+      "rawBytesIdentical": false,
+      "keyOrderDiffersBetweenSides": true,
+      "normalizedTranscriptEqualityClaimed": false,
+      "note": "Each side is compared as a full method/url/body record to an expected object built with that side's exact cwd. The pi and rpi bodies do not share raw byte/key order, and this evidence does not claim whole-transcript normalized equality."
+    }
+  },
+  "claimLabels": {
+    "unitFullBodyScenario": "1 scenario (prompt-basic), 1 provider request per side",
+    "notClaimed": [
+      "15 RPC tests",
+      "70 new model-default cases (the earlier 70-body differential is separate request-parity evidence)",
+      "normalized transcript equality",
+      "headers/tools/all APIs/R03 parity"
+    ]
+  },
+  "behaviorNote": "Missing contextWindow/maxTokens default to 128000/16384 per API-aware custom-model composition; explicit configured zero is preserved during provider conversion even though Pi rejects zero limits at runtime. This is not a claim of full models.json validation.",
+  "notTested": [
+    "Full workspace test suite is still not run; the full rpi-cli package suite now passes on both toolchains (719 passed, 18 ignored each).",
+    "Request headers, tool serialization, and all APIs/R03 are still pending.",
+    "Explicit model config 0 is preserved though Pi rejects it at runtime; no full JSON-config validation is claimed.",
+    "G1/G2 pins remain old and full v2 remains off; neither was exercised.",
+    "No live provider, macOS, Windows, or cloud execution.",
+    "No claim of 15 RPC tests or 70 new model-default cases."
+  ],
+  "ephemeralArtifacts": [
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/SUMMARY.md",
+      "sha256": "0a653f2df1aaa4b4c72b080ffd623b77b8404a65e50d8da1d464cce12e88d29c",
+      "bytes": 3241,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/raw-checks.json",
+      "sha256": "539fb4a352ff55ae0640ce19c0e7e78267bee5a6342e3638725f3a9fea4f6ed4",
+      "bytes": 1357,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/raw-check.mjs",
+      "sha256": "295b740548cc63d01c446dcdb8caaf670a2071473dbebfb62ddd8004211baf0e",
+      "bytes": 3327,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/raw-pi.provider-requests.jsonl",
+      "sha256": "6fd586b4de7c4dc9cc6764dcf3a480ea1df19fec852b755c7140a5b2e87c37f1",
+      "bytes": 379,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/raw-rpi.provider-requests.jsonl",
+      "sha256": "6cf537eaefadbd8dc334052c874c3c4fcadb87acde919d0b30a266b67463b26b",
+      "bytes": 380,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/host-178-test.log",
+      "sha256": "ca442769621fae895256b1de6ec8ae6222678f823b69f289703c90693409fa23",
+      "bytes": 16024,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/host-178-check.log",
+      "sha256": "e7a8cb32d270bdc8505677d2b72b477550314a5c380d8d47008bc7bd396c0e70",
+      "bytes": 9611,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/host-195-test.log",
+      "sha256": "41fa729aab8c01d045ea61cebe9cf27551362f3732bac16922766dc5b8e6e17b",
+      "bytes": 15977,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/host-195-build.log",
+      "sha256": "641465b0448df47abf84bd30ad88ebb1407d8d58924e3fdf5e85bd3f859a2afa",
+      "bytes": 5048,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/pkg-unit.log",
+      "sha256": "9f7844a924e033a9dbd4c880205a759722479a7c529f8c2acb6c608a6fd81931",
+      "bytes": 2841,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/pkg-e2e-new-run1.log",
+      "sha256": "3c3b02cff6be00ce479265e0bd245c354859552b0214fd89244464c87ac65eb1",
+      "bytes": 430,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/pkg-e2e-new-run2.log",
+      "sha256": "0bf3e783c13dd32b4b82145c20f48c8935f113c313694fc375e5097bba654b37",
+      "bytes": 307,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/pkg-e2e-old-negctrl.log",
+      "sha256": "cf5199a521dee132289e2caa130637900e94176df798410c086280fe66d9c7f9",
+      "bytes": 1630,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/pkg-raw-run.log",
+      "sha256": "dc0fb99fdcfe9e4e993fc367d079e8aed14434c2c68e745e3737d80a63760385",
+      "bytes": 1764,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/pi-1.3-hashes.txt",
+      "sha256": "cfad37772139e5fa651eb1065dc59d87c9e7fe4bff5238ee1db9094d0c148e0f",
+      "bytes": 383,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/new-rpi.sha256",
+      "sha256": "fc1f11ea79bb707de0293e997d3b76d1f2dcd95069a129a5cceced3384e6f963",
+      "bytes": 131,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/old-rpi.sha256",
+      "sha256": "153d46d03adeb6612ebf51ef3b78172b77697c9116beae1c99a24c2c5d704820",
+      "bytes": 125,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/config.rs.sha256",
+      "sha256": "7ea85f4c4eb070f09d82d3468223ba6147a677a4cf6e249e815bfc90c0e624b3",
+      "bytes": 146,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-rpc-body/build.log",
+      "sha256": "a82389d23838f9a990a22146a4fc6743fe1437b04420bf364c74e34211e53de5",
+      "bytes": 9570,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-rpc-body/run.log",
+      "sha256": "53667da8f87441ef6ce99aca1362fe06b97ae0fc2ae0d0f462f7460f2d763bc9",
+      "bytes": 4326,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-rpc-body/run2.log",
+      "sha256": "05b7501e4fe0760152d4fde642c072a4423b9524493f74131f2eba8f8c3fe750",
+      "bytes": 4326,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-rpc-body/e2e.log",
+      "sha256": "ecc1e29d8d1d42845d685cf53ed4cd601491f53e24afcd81f4becad920bba7bb",
+      "bytes": 204,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/full-cli-178-retry.log",
+      "sha256": "e496f42265b7d1b2b7cb85af2a343cdcfe2987982725308312ceef69d5fd86e5",
+      "bytes": 69075,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/full-cli-195.log",
+      "sha256": "c40153438446b16b624ac0e4025a256ebf932a81cdcee3209abdba4a5d5a161a",
+      "bytes": 74794,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/full-cli-summary.md",
+      "sha256": "70969fee7027692a6b05ff6f6c746df0bb5428867813e48ff5787153efd9b5c4",
+      "bytes": 3165,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/full-cli-178.log",
+      "sha256": "45c2bf6e1bfdeaacbe4a13b12b86981097a30b9238ee70e4cdd56410275cd599",
+      "bytes": 1157,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/full-cli-state-before.txt",
+      "sha256": "38b77eea7ac3cc61e80615b0bbe290ba221f0b7f106cfdadf6fa3707ffe2cf62",
+      "bytes": 417,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/full-cli-state-after.txt",
+      "sha256": "dc7fa82cb5794feda82f2856fd58f1f78145996680cbc47684507b9ed533e078",
+      "bytes": 416,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-cleanup-preconditions.txt",
+      "sha256": "d994cf5666e1957b1abd76a8d5fa35f7b5ed69a31e4c1ced4968c2b8b9992713",
+      "bytes": 207,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-cleanup-proof.txt",
+      "sha256": "1209f81d15c064a6770f3522d7dc7b8eb56f41812528e8e2952b71cb2d874a84",
+      "bytes": 3450,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-final-state.txt",
+      "sha256": "aca6df36ae892eb722c7af99efa958b8f35fcb5bb16e0da34b6264ed34f13715",
+      "bytes": 3370,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-process-and-ownership-check.txt",
+      "sha256": "94897ca06ed6415a913b5334e7a49cde9417194bd57b51aedbaf827c82d9642d",
+      "bytes": 507,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-real-cache-after-cleanup.txt",
+      "sha256": "30c3da1bfc2261b48e8d2d8db5f50878354b7f343de80d8a3cefd955f1f1360b",
+      "bytes": 657,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-real-cache-before-cleanup.txt",
+      "sha256": "30c3da1bfc2261b48e8d2d8db5f50878354b7f343de80d8a3cefd955f1f1360b",
+      "bytes": 657,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-real-cache-observation.txt",
+      "sha256": "eb2da77d5915ebd30e661f7e67a1ee347073038fbdbd25dc84211309bd51b1f8",
+      "bytes": 2110,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-rustup-home.txt",
+      "sha256": "5efc129e83f079ba431f6df6a71cc041639c4d825e1076d6b167f295bba6942c",
+      "bytes": 7854,
+      "ephemeral": true,
+      "committed": false
+    },
+    {
+      "path": "/tmp/opencode/verify-model-defaults-rpc/incident-temp-toolchain-inventory.txt",
+      "sha256": "636cef0c046a1adf2f34498cc8381fb0c33078dbf9cc28bb8ff001581765540c",
+      "bytes": 4165,
+      "ephemeral": true,
+      "committed": false
+    }
+  ],
+  "honestyNote": "All log/raw paths above are ephemeral /tmp or $HOME artifacts and are not committed. Only this JSON evidence file is added. SHA256 values and 40-character HEADs were read programmatically from actual files/refs, not typed placeholders.",
+  "fullCliVerification": {
+    "status": "pass-both-toolchains",
+    "commands": [
+      {
+        "id": "full-cli-178",
+        "workingDirectory": "/home/user/Projects/pi-rust--parity-model-defaults",
+        "toolchain": "rustc 1.78.0",
+        "targetDirectory": "/home/user/Projects/.targets/parity-model-defaults-178",
+        "environment": {
+          "RUSTFLAGS": "-D warnings",
+          "CARGO_BUILD_JOBS": "4",
+          "CARGO_TARGET_DIR": "/home/user/Projects/.targets/parity-model-defaults-178",
+          "HOME": "/home/user/verify-model-defaults-rpc.home",
+          "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp",
+          "RUSTUP_HOME": "/home/user/.rustup",
+          "CARGO_HOME": "/home/user/.cargo"
+        },
+        "command": "RUSTFLAGS='-D warnings' cargo +1.78.0 test -p rpi-cli --locked --offline",
+        "exitCode": 0,
+        "result": {
+          "passed": 719,
+          "ignored": 18,
+          "failed": 0,
+          "topLevelFiltered": 0,
+          "breakdown": {
+            "lib": {
+              "passed": 688,
+              "ignored": 7
+            },
+            "integration": {
+              "passed": 31,
+              "ignored": 11
+            },
+            "doctests": 0
+          },
+          "noETXTBSY": true
+        },
+        "log": "/tmp/opencode/verify-model-defaults-rpc/full-cli-178-retry.log"
+      },
+      {
+        "id": "full-cli-195",
+        "workingDirectory": "/home/user/Projects/pi-rust--parity-model-defaults",
+        "toolchain": "rustc 1.95.0",
+        "targetDirectory": "/home/user/Projects/.targets/parity-model-defaults-195",
+        "environment": {
+          "RUSTFLAGS": "-D warnings",
+          "CARGO_BUILD_JOBS": "4",
+          "CARGO_TARGET_DIR": "/home/user/Projects/.targets/parity-model-defaults-195",
+          "HOME": "/home/user/verify-model-defaults-rpc.home",
+          "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp",
+          "RUSTUP_HOME": "/home/user/.rustup",
+          "CARGO_HOME": "/home/user/.cargo"
+        },
+        "command": "RUSTFLAGS='-D warnings' cargo +1.95.0 test -p rpi-cli --locked --offline",
+        "exitCode": 0,
+        "result": {
+          "passed": 719,
+          "ignored": 18,
+          "failed": 0,
+          "topLevelFiltered": 0,
+          "breakdown": {
+            "lib": {
+              "passed": 688,
+              "ignored": 7
+            },
+            "integration": {
+              "passed": 31,
+              "ignored": 11
+            },
+            "doctests": 0
+          },
+          "noETXTBSY": true
+        },
+        "log": "/tmp/opencode/verify-model-defaults-rpc/full-cli-195.log"
+      }
+    ],
+    "summary": {
+      "perToolchain": "719 passed, 18 ignored, 0 failed, 0 top-level filtered",
+      "lib": "688 passed, 7 ignored",
+      "integration": "31 passed, 11 ignored",
+      "doctests": "0",
+      "noETXTBSY": true,
+      "nestedSelfExec": "one interleaved child run (1 passed, 694 filtered) is excluded from top-level totals"
+    },
+    "fullWorkspaceRun": false,
+    "summaryFile": "/tmp/opencode/verify-model-defaults-rpc/full-cli-summary.md",
+    "summarySha256": "70969fee7027692a6b05ff6f6c746df0bb5428867813e48ff5787153efd9b5c4"
+  },
+  "safetyIncident": {
+    "mustRecord": true,
+    "attempt": 1,
+    "command": "RUSTFLAGS='-D warnings' cargo +1.78.0 test -p rpi-cli --locked --offline (UNFILTERED)",
+    "log": "/tmp/opencode/verify-model-defaults-rpc/full-cli-178.log",
+    "logSha256": "45c2bf6e1bfdeaacbe4a13b12b86981097a30b9238ee70e4cdd56410275cd599",
+    "whatHappened": "The first full-CLI attempt omitted explicit RUSTUP_HOME/CARGO_HOME. rustup treated the private HOME as a fresh toolchain home, synced channel metadata, downloaded 6 Rust 1.78 components, then cargo failed during offline resolution with \"no matching package named serde found\" before any tests ran.",
+    "externalNetwork": true,
+    "networkScope": "External network occurred for Rust 1.78 toolchain component sync/download in that attempt only; no live provider/API calls and no credentials were used.",
+    "testsRunBeforeFailure": false,
+    "exitCode": 101,
+    "containment": {
+      "privateHome": "/home/user/verify-model-defaults-rpc.home",
+      "privateTmp": "/home/user/verify-model-defaults-rpc.tmp",
+      "modes": "0700",
+      "temporaryToolchainSize": "1.5G",
+      "cleanup": "private HOME/TMP and their .rustup/.cargo trees removed after process/fd and ownership checks."
+    },
+    "globalSettings": {
+      "path": "/home/user/.rustup/settings.toml",
+      "size": 102,
+      "mtime": "2026-10-05 21:03:46.767332424 -0600",
+      "modified": false
+    },
+    "globalBaselineClaim": "unavailable; no claim of a global before/after baseline",
+    "successfulRetries": "Retries used explicit RUSTUP_HOME=/home/user/.rustup and CARGO_HOME=/home/user/.cargo with existing caches; both passed.",
+    "incidentLogs": [
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-cleanup-preconditions.txt",
+        "sha256": "d994cf5666e1957b1abd76a8d5fa35f7b5ed69a31e4c1ced4968c2b8b9992713",
+        "bytes": 207,
+        "ephemeral": true,
+        "committed": false
+      },
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-cleanup-proof.txt",
+        "sha256": "1209f81d15c064a6770f3522d7dc7b8eb56f41812528e8e2952b71cb2d874a84",
+        "bytes": 3450,
+        "ephemeral": true,
+        "committed": false
+      },
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-final-state.txt",
+        "sha256": "aca6df36ae892eb722c7af99efa958b8f35fcb5bb16e0da34b6264ed34f13715",
+        "bytes": 3370,
+        "ephemeral": true,
+        "committed": false
+      },
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-process-and-ownership-check.txt",
+        "sha256": "94897ca06ed6415a913b5334e7a49cde9417194bd57b51aedbaf827c82d9642d",
+        "bytes": 507,
+        "ephemeral": true,
+        "committed": false
+      },
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-real-cache-after-cleanup.txt",
+        "sha256": "30c3da1bfc2261b48e8d2d8db5f50878354b7f343de80d8a3cefd955f1f1360b",
+        "bytes": 657,
+        "ephemeral": true,
+        "committed": false
+      },
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-real-cache-before-cleanup.txt",
+        "sha256": "30c3da1bfc2261b48e8d2d8db5f50878354b7f343de80d8a3cefd955f1f1360b",
+        "bytes": 657,
+        "ephemeral": true,
+        "committed": false
+      },
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-real-cache-observation.txt",
+        "sha256": "eb2da77d5915ebd30e661f7e67a1ee347073038fbdbd25dc84211309bd51b1f8",
+        "bytes": 2110,
+        "ephemeral": true,
+        "committed": false
+      },
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-rustup-home.txt",
+        "sha256": "5efc129e83f079ba431f6df6a71cc041639c4d825e1076d6b167f295bba6942c",
+        "bytes": 7854,
+        "ephemeral": true,
+        "committed": false
+      },
+      {
+        "path": "/tmp/opencode/verify-model-defaults-rpc/incident-temp-toolchain-inventory.txt",
+        "sha256": "636cef0c046a1adf2f34498cc8381fb0c33078dbf9cc28bb8ff001581765540c",
+        "bytes": 4165,
+        "ephemeral": true,
+        "committed": false
+      }
+    ]
+  },
+  "networkClaims": {
+    "providerRpcTests": "No live network or service; scripted local provider with offline fixture values and no credentials.",
+    "fullCliVerification": "Successful full-CLI runs used existing caches; the failed first attempt performed external Rust toolchain component download as recorded in safetyIncident.",
+    "blanketNoExternalNetworkClaim": false
+  },
+  "reproductionSetup": {
+    "privateHomeTmp": {
+      "HOME": "/home/user/verify-model-defaults-rpc.home",
+      "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp",
+      "mode": "0700",
+      "historical": true,
+      "nowDeleted": true,
+      "sourceLogs": [
+        "/tmp/opencode/verify-model-defaults-rpc/pkg-unit.log",
+        "/tmp/opencode/verify-model-defaults-rpc/full-cli-178-retry.log",
+        "/tmp/opencode/verify-model-defaults-rpc/incident-final-state.txt"
+      ]
+    },
+    "explicitCaches": {
+      "RUSTUP_HOME": "/home/user/.rustup",
+      "CARGO_HOME": "/home/user/.cargo",
+      "note": "required on successful retries so --offline resolves against existing registries/toolchains"
+    },
+    "futureGuards": {
+      "RUSTUP_AUTO_INSTALL": "0 per-process",
+      "note": "recommended future guard only; it was NOT set during the original runs and is not claimed as historical."
+    },
+    "nodeCommonEnv": {
+      "node": "v24.22.0",
+      "HOME": "/home/user/verify-model-defaults-rpc.home",
+      "TMPDIR": "/home/user/verify-model-defaults-rpc.tmp"
+    }
+  }
+}
