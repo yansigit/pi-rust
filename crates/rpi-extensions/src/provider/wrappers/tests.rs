@@ -462,6 +462,36 @@ async fn forged_receipts_generations_models_and_auth_payloads_are_rejected_befor
 struct Flood {
     produced: Arc<AtomicUsize>,
 }
+
+#[tokio::test]
+async fn closing_child_scope_revokes_retained_continuation_without_closing_parent() {
+    let registry = ExtensionRegistry::new();
+    let session = session(&registry);
+    let base = base(false);
+    let next = WrapperNext {
+        next: base.clone(),
+        session,
+        plugin: "pool".into(),
+        generation: "generation".into(),
+    };
+    let context = Context::default();
+    let options = SimpleStreamOptions::default();
+    let parent = next.continuation(&base.models[0], &context, &options);
+    let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    let child = scope
+        .run(async { next.continuation(&base.models[0], &context, &options) })
+        .await;
+    assert!(Continuation::resolve(&parent.descriptor()).is_ok());
+    assert!(Continuation::resolve(&child.descriptor()).is_ok());
+    scope.close_runtime();
+    assert!(matches!(
+        Continuation::resolve(&child.descriptor()),
+        Err(error) if error == "inactive provider continuation"
+    ));
+    assert!(Continuation::resolve(&parent.descriptor()).is_ok());
+    assert!(!options.signal.is_cancelled());
+    assert_eq!(base.calls.load(Ordering::SeqCst), 0);
+}
 #[async_trait::async_trait]
 impl Provider for Flood {
     fn id(&self) -> &str {

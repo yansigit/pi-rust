@@ -1,0 +1,1034 @@
+{
+  "status": "partial",
+  "fullHDelegAcceptance": false,
+  "base": "ae71d4464da84ae599e7c833780ad04f10590f9e",
+  "branch": "lane/parity-delegation",
+  "diffSha256": "4649affd27393ab9fb091c24072f1edd67a39dde102e203a7d55d2eae2486f6e",
+  "collector": {
+    "path": "/tmp/opencode/parity-delegation/collect-evidence.py",
+    "sha256": "12c717e852870ed215b9981324f37f17e2d630d56e9b4eb8442d4aa6b01e2080"
+  },
+  "toolchains": {
+    "1.78.0": "rustc 1.78.0 (9b00956e5 2024-04-29)",
+    "1.95.0": "rustc 1.95.0 (59807616e 2026-04-14)"
+  },
+  "node": "v24.22.0",
+  "environment": {
+    "setup": "source /home/user/Projects/.parity-env.sh; lane_env parity-delegation-{178,195}; export CARGO_BUILD_JOBS=4",
+    "network": "cargo locked offline; no live credentials/services",
+    "formatting": "rustfmt +1.95.0 --edition 2021 --config skip_children=true; 1.78.0 rustfmt unavailable"
+  },
+  "sourceSha256": {
+    "crates/rpi-cli/src/extensions_actions.rs": "957a738623e89211d518a2e6fe8d4e28806833f5f7034d04128b5c89c7aef2b7",
+    "crates/rpi-cli/src/provider_runtime.rs": "1b02c91d814ac6394d46bb340c3c442165001407a613bc6ed39d92905f02d186",
+    "crates/rpi-cli/src/provider_runtime/tests/children.rs": "af6c62d8e27045438542b77089bf30c1bd10a2b46d3320cb78ee869dde49d08f",
+    "crates/rpi-extensions/src/actions.rs": "aac1b56c749a831898293c09e2442c8b51c4c33b5b5d27ac00e6e594972fefbf",
+    "crates/rpi-extensions/src/provider/wrappers.rs": "6c3ea76178fade8f651b56bfa7fb0235c4df064907522fa6ad6d9f1bd9ac7c67",
+    "crates/rpi-extensions/src/provider/wrappers/tests.rs": "c688c720336d8ea8743c0fcf2d3136b9116dd927271be910e325c50de69ea6a0",
+    "crates/rpi-plugin-sdk/src/lib.rs": "8d9be62ee538d74e15079a5e388b5144d2c58a7090b040eeeb2dd5e5887804d1",
+    "crates/rpi-plugin-sdk/src/provider/composition.rs": "edc243c9d7f70a2345915f0a7745a27e23b31b214a36c961e34a4b6ad3705cc5",
+    "docs/provider-parity/host-delegation.md": "f5dc2c3033772401a8ef9671b43e2fa39d807909ec25ee9af253a34768b32157"
+  },
+  "validation": [
+    {
+      "command": "cargo +1.95.0 test -p rpi-plugin-sdk --features provider --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/sdk-195.log",
+      "sha256": "4748f12c907485d0f3d69cd2bd4d8592aef890b5cc824e3dac59362b00f1c646",
+      "outcome": "passed",
+      "testResultLines": [
+        {
+          "status": "ok",
+          "passed": 63,
+          "failed": 0,
+          "ignored": 1,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 2,
+          "measured": 0,
+          "filtered": 0
+        }
+      ],
+      "diagnosticLines": []
+    },
+    {
+      "command": "cargo +1.95.0 test -p rpi-extensions --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/extensions-195.log",
+      "sha256": "f48fc6981be58e38f072b5dbe66a016ad891928b3f221186033a2b39033f8155",
+      "outcome": "failed",
+      "testResultLines": [
+        {
+          "status": "FAILED",
+          "passed": 208,
+          "failed": 1,
+          "ignored": 2,
+          "measured": 0,
+          "filtered": 0
+        }
+      ],
+      "diagnosticLines": [
+        "test actions::tests::trampoline_returns_idle_and_compact_completion_or_failure_on_foreign_thread ... FAILED",
+        "thread '<unnamed>' (2576950) panicked at /tmp/rpi-abi-loader-2576804-abi_unified_panic-3/fixture.rs:3:20:",
+        "thread 'tokio-rt-worker' (2576899) panicked at crates/rpi-extensions/src/actions.rs:1942:17:",
+        "  left: 2",
+        " right: 0",
+        "thread 'actions::tests::trampoline_returns_idle_and_compact_completion_or_failure_on_foreign_thread' (2576884) panicked at crates/rpi-extensions/src/actions.rs:1964:10:",
+        "called `Result::unwrap()` on an `Err` value: JoinError::Panic(Id(111), \"assertion `left == right` failed\\n  left: 2\\n right: 0\", ...)",
+        "test result: FAILED. 208 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.77s",
+        "error: test failed, to rerun pass `-p rpi-extensions --lib`"
+      ]
+    },
+    {
+      "command": "cargo +1.95.0 test -p rpi-extensions --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/extensions-195-rerun.log",
+      "sha256": "0353cf4853582272963472635a55c072e590c069a871eb805007b414ddfcbc00",
+      "outcome": "failed",
+      "testResultLines": [
+        {
+          "status": "FAILED",
+          "passed": 208,
+          "failed": 1,
+          "ignored": 2,
+          "measured": 0,
+          "filtered": 0
+        }
+      ],
+      "diagnosticLines": [
+        "test provider::stream_tests::saturated_pipeline_cancels_uncommitted_content_and_frees_every_frame ... FAILED",
+        "thread '<unnamed>' (2579606) panicked at /tmp/rpi-abi-loader-2579464-abi_unified_panic-4/fixture.rs:3:20:",
+        "thread 'provider::stream_tests::saturated_pipeline_cancels_uncommitted_content_and_frees_every_frame' (2579681) panicked at crates/rpi-extensions/src/provider/stream_tests.rs:459:13:",
+        "assertion `left == right` failed: applied metadata must commit",
+        "  left: 0",
+        " right: 3",
+        "test result: FAILED. 208 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; finished in 0.79s",
+        "error: test failed, to rerun pass `-p rpi-extensions --lib`"
+      ]
+    },
+    {
+      "command": "cargo +1.95.0 test -p rpi-extensions --locked --offline -- --test-threads=1",
+      "log": "/tmp/opencode/parity-delegation/extensions-195-serial.log",
+      "sha256": "1bc9cd6ff9ce709001e572f14313831ce714e1786f2d8960177065cd031d884b",
+      "outcome": "incomplete",
+      "testResultLines": [],
+      "diagnosticLines": []
+    },
+    {
+      "command": "cargo +1.95.0 test -p rpi-extensions --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/extensions-195-final.log",
+      "sha256": "ad8fbaadb948c0b93213b8a5bdb5e83c4a374a81e1a6488bf1029b614def2f4b",
+      "outcome": "passed",
+      "testResultLines": [
+        {
+          "status": "ok",
+          "passed": 209,
+          "failed": 0,
+          "ignored": 2,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 1,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ],
+      "diagnosticLines": [
+        "thread '<unnamed>' (2617654) panicked at /tmp/rpi-abi-loader-2617526-abi_unified_panic-4/fixture.rs:3:20:"
+      ]
+    },
+    {
+      "command": "cargo +1.95.0 test -p rpi-cli --lib --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/cli-195.log",
+      "sha256": "c61eca8e023ad983294f24f1ad20b4887d9390c34ef3f5f2c0b96cf21c0049d4",
+      "outcome": "failed",
+      "testResultLines": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 692
+        },
+        {
+          "status": "FAILED",
+          "passed": 685,
+          "failed": 1,
+          "ignored": 7,
+          "measured": 0,
+          "filtered": 0
+        }
+      ],
+      "diagnosticLines": [
+        "test extensions_actions::idle_tests::idle_reads_selected_lane_and_refuses_missing_or_closed_execution_targets ... FAILED",
+        "thread 'extensions_actions::idle_tests::idle_reads_selected_lane_and_refuses_missing_or_closed_execution_targets' (2591985) panicked at crates/rpi-harness/src/agent_harness.rs:3106:25:",
+        "thread 'extensions_actions::idle_tests::idle_reads_selected_lane_and_refuses_missing_or_closed_execution_targets' (2591985) panicked at crates/rpi-cli/src/extensions_actions.rs:1236:14:",
+        "test result: FAILED. 685 passed; 1 failed; 7 ignored; 0 measured; 0 filtered out; finished in 3.04s",
+        "error: test failed, to rerun pass `-p rpi-cli --lib`"
+      ]
+    },
+    {
+      "command": "cargo +1.95.0 test -p rpi-cli --lib --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/cli-195-rerun.log",
+      "sha256": "e7b7e1de0aa45ec26448364ffb74e92536273c7260a26c17b268fb0e3785e9b4",
+      "outcome": "passed",
+      "testResultLines": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 692
+        },
+        {
+          "status": "ok",
+          "passed": 686,
+          "failed": 0,
+          "ignored": 7,
+          "measured": 0,
+          "filtered": 0
+        }
+      ],
+      "diagnosticLines": []
+    },
+    {
+      "command": "RUSTFLAGS=\"-D warnings\" cargo +1.78.0 check --workspace --all-targets --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/workspace-check-178.log",
+      "sha256": "3b46d0d4fe231a500818771992cabc5743c458c8ed2cc7aa920b52a0f0e8c207",
+      "outcome": "failed",
+      "testResultLines": [],
+      "diagnosticLines": [
+        "error[E0599]: no method named `prompt_text` found for struct `rpi_harness::agent_harness::AgentHarness` in the current scope",
+        "error: could not compile `rpi-cli` (lib test) due to 1 previous error"
+      ]
+    },
+    {
+      "command": "RUSTFLAGS=\"-D warnings\" cargo +1.78.0 check --workspace --all-targets --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/workspace-check-178-rerun.log",
+      "sha256": "9ddb0814fe273741ac234836bd516a4edaca4c26d26946779269894772879ebc",
+      "outcome": "passed",
+      "testResultLines": [],
+      "diagnosticLines": []
+    },
+    {
+      "command": "RUSTFLAGS=\"-D warnings\" cargo +1.78.0 check --workspace --all-targets --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/workspace-check-178-final.log",
+      "sha256": "bae8f1666332a9b12335bce3d212923f4ce5444751893229536e469ed272df7c",
+      "outcome": "passed",
+      "testResultLines": [],
+      "diagnosticLines": []
+    },
+    {
+      "command": "RUSTFLAGS=\"-D warnings\" cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/sdk-minimal-check-178.log",
+      "sha256": "3b178f595a5df2eacd1333fd8ffb250557c1446e05fca561e6e0b9dcc49334ce",
+      "outcome": "passed",
+      "testResultLines": [],
+      "diagnosticLines": []
+    },
+    {
+      "command": "RUSTFLAGS=\"-D warnings\" cargo +1.78.0 check -p rpi-plugin-sdk --features provider --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/sdk-provider-check-178.log",
+      "sha256": "9cf5f65e64c98bf54fc3badb4ddecc9f74e56842919a8ea8c3374dec5d186b7e",
+      "outcome": "passed",
+      "testResultLines": [],
+      "diagnosticLines": []
+    },
+    {
+      "command": "cargo +1.95.0 build -p plugin-stub --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/loaded-stub-build-195.log",
+      "sha256": "b4793fdddfe1e2df5380717e36e70b078f066eb7a3bc48b11a342fc153205bf2",
+      "outcome": "passed",
+      "testResultLines": [],
+      "diagnosticLines": []
+    },
+    {
+      "command": "RPI_TEST_PROVIDER_LIBRARY=\"$CARGO_TARGET_DIR/debug/libplugin_stub.so\" cargo +1.95.0 test -p rpi-cli --test provider_packages native_wrapper_delegates_with_pooled_auth_and_canonical_endpoint --locked --offline -- --ignored --exact",
+      "log": "/tmp/opencode/parity-delegation/loaded-stub-v1-195.log",
+      "sha256": "ab5e05573ba3552b13f59cc6d2f7a4c16b1637ca81d410daad92474b9a447a68",
+      "outcome": "passed",
+      "testResultLines": [
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 17
+        }
+      ],
+      "diagnosticLines": []
+    },
+    {
+      "command": "cargo +1.95.0 test --workspace --locked --offline",
+      "log": "/tmp/opencode/parity-delegation/workspace-test-195.log",
+      "sha256": "8af216d27e840bccc032e4cdd9366a72e6640442b763b45ea4ae5729c8b7fcb2",
+      "outcome": "passed",
+      "testResultLines": [
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 18,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 240,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 20,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 692
+        },
+        {
+          "status": "ok",
+          "passed": 686,
+          "failed": 0,
+          "ignored": 7,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 11,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 209,
+          "failed": 0,
+          "ignored": 2,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 1,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 205,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 17,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 37,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 47,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 24,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 12,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 24,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 8,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 63,
+          "failed": 0,
+          "ignored": 1,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 72,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 339,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 9,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 1,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 6,
+          "failed": 0,
+          "ignored": 2,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 4,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        },
+        {
+          "status": "ok",
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0,
+          "measured": 0,
+          "filtered": 0
+        }
+      ],
+      "diagnosticLines": [
+        "thread '<unnamed>' (2641311) panicked at /tmp/rpi-abi-loader-2641169-abi_unified_panic-4/fixture.rs:3:20:"
+      ]
+    }
+  ],
+  "loadedArtifacts": {
+    "/home/user/Projects/.targets/parity-delegation-195/debug/libplugin_stub.so": "88cf7ed7cf803590f54d8b0e8fbccdd08a91ac57846b22ab25e623ad6425565c"
+  },
+  "focusedNewTests": {
+    "defined": 6,
+    "observedPassing": 6,
+    "names": [
+      "missing_auth_callback_returns_errors_without_panicking",
+      "missing_stream_callback_emits_terminal_error_instead_of_hanging",
+      "idle_reads_selected_lane_and_refuses_missing_or_closed_execution_targets",
+      "trampoline_returns_idle_and_compact_completion_or_failure_on_foreign_thread",
+      "child_wrapper_publications_do_not_share_parent_or_sibling_chain_identity",
+      "closing_child_scope_revokes_retained_continuation_without_closing_parent"
+    ]
+  },
+  "notTested": [
+    "Cross-provider version 2 remains refused: no ambient resolver/target routing/SDK target API.",
+    "No sealed receipt provider/model/continuation/scope/generation/publication replay matrix.",
+    "No cross-provider wrapper-count, poisoning, cycle/auth reentry, refresh/unload admission tests.",
+    "No fresh child auth bindings or child delegation catalog/resolver.",
+    "Compact test injects host result/error: not actual LLM compaction or new Pi callback semantics.",
+    "No new cross-provider loaded plugin-stub proof; any loaded v1 baseline is separately recorded.",
+    "No independent review/verification performed in this implementer session."
+  ],
+  "history": [
+    "Initial rustfmt +1.78.0 invocation failed because the component is not installed; switched formatter only to 1.95.0.",
+    "Initial 1.78 workspace check found missing AgentLane import in new idle test; fixed.",
+    "Initial extension test exposed unchanged action maximum gate; updated maximum to IsIdle and unknown-id regression to 27.",
+    "Parallel extension rerun failed existing saturated_pipeline metadata assertion (0 versus 3); no assertion relaxed or source edited.",
+    "First CLI lib execution exposed block_in_place requirement in the new idle test; changed that test to a two-worker runtime.",
+    "The CLI/serial extension command hit its 120000ms shell timeout after CLI results; serial extension log has no test totals and is incomplete. Subsequent commands disable shell timeout."
+  ]
+}
