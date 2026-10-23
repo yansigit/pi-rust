@@ -1,0 +1,45 @@
+{
+  "status": "Host-side stream cancellation regression tests verified; no upstream differential was performed",
+  "parentCommit": "ae71d4464da84ae599e7c833780ad04f10590f9e",
+  "scope": {
+    "sourceFiles": [
+      {
+        "path": "crates/rpi-extensions/src/provider/stream_tests.rs",
+        "sha256": "3d5d2e86bd59c2dc90cfd5f36dfc39cab5f8125d81f093e403c788fe0baf1bcd"
+      }
+    ],
+    "testedDiffSha256": "3449a75fb130d1d0e0e2ce5c561266d4f4ca19c4516491515d89eb181ae74717",
+    "changedSourceFileCount": 1,
+    "diffBytes": 7247
+  },
+  "platform": "Linux",
+  "toolchains": ["Rust 1.78.0", "Rust 1.95.0"],
+  "tests": {
+    "commonEnvironment": "source /home/user/Projects/.parity-env.sh; CARGO_BUILD_JOBS=4",
+    "commands": [
+      {"workingDirectory": "/home/user/Projects/pi-rust--parity-stream-sync", "toolchain": "Rust 1.78.0", "environment": {"CARGO_TARGET_DIR": "/home/user/Projects/.targets/parity-stream-sync-178", "RUSTFLAGS": "-D warnings"}, "command": "cargo +1.78.0 test -p rpi-extensions --locked --offline", "log": "/tmp/opencode/verify-stream-sync/suite-178.log"},
+      {"workingDirectory": "/home/user/Projects/pi-rust--parity-stream-sync", "toolchain": "Rust 1.95.0", "environment": {"CARGO_TARGET_DIR": "/home/user/Projects/.targets/parity-stream-sync-195", "RUSTFLAGS": "-D warnings"}, "command": "cargo +1.95.0 test -p rpi-extensions --locked --offline", "log": "/tmp/opencode/verify-stream-sync/suite-195.log"},
+      {"workingDirectory": "/home/user/Projects/pi-rust--parity-stream-sync", "toolchain": "Rust 1.95.0", "environment": {"CARGO_TARGET_DIR": "/home/user/Projects/.targets/parity-stream-sync-195", "RUSTFLAGS": "unset/cleared"}, "command": "cargo +1.95.0 test -p rpi-extensions --locked --offline", "log": "/tmp/opencode/verify-stream-sync/suite-195-default.log"},
+      {"workingDirectory": "/home/user/Projects/pi-rust--parity-stream-sync", "toolchain": "Rust 1.78.0", "environment": {"CARGO_TARGET_DIR": "/home/user/Projects/.targets/parity-stream-sync-178", "RUSTFLAGS": "-D warnings"}, "command": "cargo +1.78.0 check --workspace --all-targets --locked --offline", "log": "/tmp/opencode/verify-stream-sync/workspace-check-178.log"},
+      {"workingDirectory": "/home/user/Projects/pi-rust--parity-stream-sync", "toolchain": "Rust 1.95.0", "environment": {"CARGO_TARGET_DIR": "/home/user/Projects/.targets/parity-stream-sync-195", "RUSTFLAGS": "-D warnings"}, "command": "cargo +1.95.0 check --workspace --all-targets --locked --offline", "log": "/tmp/opencode/verify-stream-sync/workspace-check-195.log"},
+      {"toolchain": "Rust 1.95.0 and nightly", "result": "Scoped changed-file rustfmt checks passed; Rust 1.78 formatting was not checked because rustfmt was unavailable there. This scoped check was reported by the verifier; a standalone log is unavailable."},
+      {"toolchain": "Rust 1.95.0", "result": "Repository fmt-all failed on 21 unrelated pre-existing files.", "log": "/tmp/opencode/verify-stream-sync/fmt-all-195.log"}
+    ],
+    "perToolchain": {
+      "Rust 1.78.0": {"libraryTestsPassed": 208, "ignored": 2, "integrationTestsPassed": 5, "integrationIgnored": 1, "totalPassed": 213, "totalIgnored": 3, "workspaceAllTargetsCheck": "passed", "newRegressionTestsRepeated": 32 },
+      "Rust 1.95.0": {"libraryTestsPassed": 208, "ignored": 2, "integrationTestsPassed": 5, "integrationIgnored": 1, "totalPassed": 213, "totalIgnored": 3, "workspaceAllTargetsCheck": "passed", "newRegressionTestsRepeated": 32 }
+    },
+    "stressBuilds": [
+      {"toolchain": "Rust 1.78.0", "rustflags": "-D warnings", "distinctTests": 2, "runsPerTest": 32, "failedRuns": 0},
+      {"toolchain": "Rust 1.95.0", "rustflags": "-D warnings", "distinctTests": 2, "runsPerTest": 32, "failedRuns": 0},
+      {"toolchain": "Rust 1.95.0", "rustflags": "unset/cleared", "distinctTests": 2, "runsPerTest": 32, "failedRuns": 0}
+    ],
+    "combined": {"testsPerRun": 9, "runsPerToolchain": 32, "toolchains": 2, "failedRuns": 0}
+  },
+  "review": {"reviewer": "Sol", "verdict": "accepted; no actionable issue"},
+  "notTested": [
+    "Full workspace tests were not rerun in this lane.",
+    "No upstream differential: these are host/adapter regression fixes; evidence concerns candidate behavior, not a claimed reference comparison.",
+    "Historical baseline of 13/200 was reproduced separately by the implementer and was not freshly reproduced by this verifier."
+  ]
+}
