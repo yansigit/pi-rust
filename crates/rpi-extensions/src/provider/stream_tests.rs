@@ -347,6 +347,9 @@ struct Burst {
     finished: AtomicBool,
 }
 static BURST_FREES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+// The free counter is process-global (the plugin's deallocator has no context),
+// so the burst tests must not observe each other's frames.
+static BURST_SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 unsafe extern "C" fn burst_free(raw: StbString) {
     if raw.len != 0 {
         BURST_FREES.fetch_add(1, Ordering::SeqCst);
@@ -372,6 +375,17 @@ extern "C" fn burst_request(
         StbString::from_string(serde_json::json!({"type":"usage","usage":usage}).to_string()),
         data,
     );
+    // A private response frame is the test's application milestone: the driver
+    // invokes the observer only after it has folded (and checkpointed) the
+    // preceding usage frame. It is not content, so nothing is committed.
+    state.calls.fetch_add(1, Ordering::SeqCst);
+    emit(
+        StbString::from_string(
+            serde_json::json!({"type":"response","response":{"status":200,"headers":[]}})
+                .to_string(),
+        ),
+        data,
+    );
     for _ in 0..1000 {
         state.calls.fetch_add(1, Ordering::SeqCst);
         if emit(
@@ -388,6 +402,7 @@ extern "C" fn burst_request(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn saturated_pipeline_cancels_uncommitted_content_and_frees_every_frame() {
+    let _serial = BURST_SERIAL.lock().await;
     for drop_consumer in [false, true] {
         BURST_FREES.store(0, Ordering::SeqCst);
         let state = Arc::new(Burst::default());
@@ -401,7 +416,21 @@ async fn saturated_pipeline_cancels_uncommitted_content_and_frees_every_frame() 
             plugin_free_string: burst_free,
             user_data: Arc::into_raw(Arc::clone(&state)) as *mut c_void,
         };
-        let options = SimpleStreamOptions::default();
+        // The observer is the deterministic application milestone. The driver
+        // calls it only after folding and checkpointing the preceding usage
+        // frame, so observing it proves the metadata was applied — not merely
+        // that the producer emitted (and had accepted) the frame.
+        let applied = Arc::new(tokio::sync::Notify::new());
+        let options = SimpleStreamOptions {
+            response_observer: Some(Arc::new({
+                let applied = Arc::clone(&applied);
+                move |_receipt| {
+                    let applied = Arc::clone(&applied);
+                    Box::pin(async move { applied.notify_one() })
+                }
+            })),
+            ..Default::default()
+        };
         let parent = options.signal.clone();
         let (mut prod, mut stream) =
             rpi_ai::event_stream::create_assistant_message_event_stream_with_limits(
@@ -426,8 +455,17 @@ async fn saturated_pipeline_cancels_uncommitted_content_and_frees_every_frame() 
             .await;
             push_terminal(&mut prod, message).await;
         });
+        tokio::time::timeout(Duration::from_secs(2), applied.notified())
+            .await
+            .expect("the driver must apply the usage frame");
+        // A lower bound sufficient to prove saturation, not the exact emit that
+        // blocks: the driver may have dequeued a delta before stalling on the
+        // full output queue, so the 67th emit can still succeed and a later one
+        // block. At this count more frames have been produced than the queues
+        // can absorb, so `finished` must still be false.
+        let blocked_at = 67;
         tokio::time::timeout(Duration::from_secs(2), async {
-            while state.calls.load(Ordering::SeqCst) < 65 {
+            while state.calls.load(Ordering::SeqCst) < blocked_at {
                 tokio::task::yield_now().await;
             }
         })
@@ -478,4 +516,82 @@ async fn saturated_pipeline_cancels_uncommitted_content_and_frees_every_frame() 
             state.calls.load(Ordering::SeqCst)
         );
     }
+}
+
+// Complement of the test above: when cancellation reaches the driver before it
+// dequeues any frame, no metadata was applied, so the aborted terminal must
+// report zero usage rather than inventing the values the producer emitted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancellation_before_the_first_frame_applies_no_metadata_and_frees_every_frame() {
+    let _serial = BURST_SERIAL.lock().await;
+    BURST_FREES.store(0, Ordering::SeqCst);
+    let state = Arc::new(Burst::default());
+    let record = RegisteredProvider {
+        action_bridge: None,
+        provider_id: "probe".into(),
+        base_url: "http://localhost".into(),
+        api_style: "faux".into(),
+        request_fn: unused_request,
+        stream_fn: Some(burst_request),
+        plugin_free_string: burst_free,
+        user_data: Arc::into_raw(Arc::clone(&state)) as *mut c_void,
+    };
+    let options = SimpleStreamOptions::default();
+    let parent = options.signal.clone();
+    // Cancel before the driver is spawned: the biased cancel arm always wins
+    // the first iteration, so no chunk can be applied.
+    parent.cancel();
+    let (mut prod, mut stream) =
+        rpi_ai::event_stream::create_assistant_message_event_stream_with_limits(1, 4096, &parent);
+    let mut driver_options = options;
+    driver_options.signal = prod.cancellation_token();
+    let task = tokio::spawn(async move {
+        let snapshot = Arc::new(ExtensionRegistry::new().snapshot());
+        let model = Model::new("m", "M", Api::Faux, "probe", "http://localhost");
+        let message = drive_streaming_plugin_provider(
+            &snapshot,
+            &record,
+            burst_request,
+            Handle::current(),
+            ProviderRequestLifetime::new(PluginKeepalive::empty()),
+            &model,
+            &Context::new(vec![]),
+            &driver_options,
+            &mut prod,
+        )
+        .await;
+        push_terminal(&mut prod, message).await;
+    });
+    let terminal = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            let event = stream.next().await.unwrap();
+            if event.is_terminal() {
+                break event;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(terminal.partial().stop_reason, StopReason::Aborted);
+    assert!(terminal.partial().content.is_empty());
+    assert_eq!(
+        terminal.partial().usage.input,
+        0,
+        "unapplied frames must not contribute metadata"
+    );
+    tokio::time::timeout(Duration::from_secs(2), task)
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !state.finished.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        BURST_FREES.load(Ordering::SeqCst),
+        state.calls.load(Ordering::SeqCst)
+    );
 }
