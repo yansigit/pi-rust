@@ -588,6 +588,10 @@ pub trait RuntimeActionHost: Send + Sync {
     ) -> Result<serde_json::Value, String>;
     /// `Compact` — compact the session transcript.
     async fn compact(&self, args: serde_json::Value) -> Result<serde_json::Value, String>;
+    /// `IsIdle` — selected execution lane activity. Unsupported hosts fail closed.
+    async fn is_idle(&self, _args: serde_json::Value) -> Result<serde_json::Value, String> {
+        Err("idle state is not supported by this host".into())
+    }
     /// `GetSystemPrompt` — the live composed system prompt.
     async fn get_system_prompt(&self, args: serde_json::Value)
         -> Result<serde_json::Value, String>;
@@ -1149,6 +1153,7 @@ async fn dispatch(
         RuntimeActionId::GetThinkingLevel => host.get_thinking_level(args).await,
         RuntimeActionId::SetThinkingLevel => host.set_thinking_level(args).await,
         RuntimeActionId::Compact => host.compact(args).await,
+        RuntimeActionId::IsIdle => host.is_idle(args).await,
         RuntimeActionId::GetSystemPrompt => host.get_system_prompt(args).await,
         RuntimeActionId::NewSession => host.new_session(args).await,
         RuntimeActionId::Fork => host.fork(args).await,
@@ -1207,7 +1212,7 @@ pub extern "C" fn trampoline_runtime_action(
         run_action(
             action_id,
             // Highest id this ABI defines — bump when adding an action.
-            u32::from(RuntimeActionId::SideQuestion),
+            u32::from(RuntimeActionId::IsIdle),
             args_json,
             out,
             user_data,
@@ -1811,8 +1816,17 @@ mod tests {
         ) -> Result<serde_json::Value, String> {
             unreachable!("not under test")
         }
-        async fn compact(&self, _: serde_json::Value) -> Result<serde_json::Value, String> {
-            unreachable!("not under test")
+        async fn compact(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
+            self.saw.lock().unwrap().push(RuntimeActionId::Compact);
+            if args["fail"] == true {
+                Err("fixture compaction failed".into())
+            } else {
+                Ok(serde_json::json!({"runId":"fixture-run","outcome":"Completed"}))
+            }
+        }
+        async fn is_idle(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
+            self.saw.lock().unwrap().push(RuntimeActionId::IsIdle);
+            Ok(serde_json::json!({"isIdle":args["idle"]}))
         }
         async fn get_system_prompt(
             &self,
@@ -1887,6 +1901,76 @@ mod tests {
         // the `Arc<MockHost>` kept before it was coerced to the trait object.
         let saw = host_for_assert.saw.lock().unwrap().clone();
         assert_eq!(saw, vec![RuntimeActionId::GetSystemPrompt]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn trampoline_returns_idle_and_compact_completion_or_failure_on_foreign_thread() {
+        let host = Arc::new(MockHost {
+            prompt: String::new(),
+            saw: Mutex::new(Vec::new()),
+        });
+        let bridge = ActionBridge::new(Handle::current(), host.clone());
+        let worker_bridge = bridge.clone();
+        tokio::task::spawn_blocking(move || {
+            for (action, args, status, expected) in [
+                (
+                    RuntimeActionId::IsIdle,
+                    serde_json::json!({"idle":true}),
+                    0,
+                    serde_json::json!({"isIdle":true}),
+                ),
+                (
+                    RuntimeActionId::IsIdle,
+                    serde_json::json!({"idle":false}),
+                    0,
+                    serde_json::json!({"isIdle":false}),
+                ),
+                (
+                    RuntimeActionId::Compact,
+                    serde_json::json!({}),
+                    0,
+                    serde_json::json!({"runId":"fixture-run","outcome":"Completed"}),
+                ),
+                (
+                    RuntimeActionId::Compact,
+                    serde_json::json!({"fail":true}),
+                    1,
+                    serde_json::json!({"error":"fixture compaction failed"}),
+                ),
+            ] {
+                let mut out = StbString::empty();
+                assert_eq!(
+                    trampoline_runtime_action(
+                        action.into(),
+                        StbStringRef::from_str(&args.to_string()),
+                        &mut out,
+                        worker_bridge.user_data(),
+                    ),
+                    status
+                );
+                let out = unsafe {
+                    rpi_plugin_sdk::callbacks::OwnedString::from_raw(
+                        out,
+                        Some(crate::host_free_string),
+                    )
+                };
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&out.to_string_lossy()).unwrap(),
+                    expected
+                );
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            *host.saw.lock().unwrap(),
+            [
+                RuntimeActionId::IsIdle,
+                RuntimeActionId::IsIdle,
+                RuntimeActionId::Compact,
+                RuntimeActionId::Compact,
+            ]
+        );
     }
 
     /// The `SetEditorText` runtime action must reach the bridge's editor-text
@@ -2289,10 +2373,10 @@ mod tests {
         );
 
         // A genuinely unknown id is still rejected (no silent acceptance).
-        // 26 is one past the highest defined action.
+        // 27 is one past the highest defined action.
         let mut out = StbString::empty();
         assert_eq!(
-            trampoline_runtime_action(26, StbStringRef::from_str("{}"), &mut out, user_data),
+            trampoline_runtime_action(27, StbStringRef::from_str("{}"), &mut out, user_data),
             2
         );
         // SAFETY: this action returned a live host allocation, not previously freed.

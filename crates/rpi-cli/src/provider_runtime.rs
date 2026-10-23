@@ -254,6 +254,9 @@ impl ProviderRuntime {
         }
         let state = self.state.lock().await;
         let catalog = state.catalog.fork().map_err(|error| error.to_string())?;
+        // Wrapper generations and future delegation admission belong to this
+        // publication's execution scope, never to the parent's captured chain.
+        let chains = Self::chains(&self.session, &catalog);
         let child = Arc::new_cyclic(|myself| Self {
             session: self.session.clone(),
             generation: self.generation.clone(),
@@ -263,7 +266,7 @@ impl ProviderRuntime {
             children: Mutex::new(BTreeMap::new()),
             state: Mutex::new(State {
                 catalog,
-                chains: state.chains.clone(),
+                chains,
                 generations: state.generations.clone(),
                 refreshes: BTreeMap::new(),
             }),

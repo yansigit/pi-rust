@@ -1120,6 +1120,9 @@ pub enum RuntimeActionId {
     /// use start(question), status, cancel, hide and show. Never changes the
     /// main transcript or its queues. Presentation and execution stay in host.
     SideQuestion = 25,
+    /// Query the selected root/child execution lane, not global activity.
+    /// Args: `{}`; result: `{"isIdle": bool}`.
+    IsIdle = 26,
 }
 
 /// Error returned when a plugin passes a numeric runtime-action id that this
@@ -1166,6 +1169,7 @@ impl TryFrom<u32> for RuntimeActionId {
             23 => Ok(Self::GetExecutionContext),
             24 => Ok(Self::ChildAgent),
             25 => Ok(Self::SideQuestion),
+            26 => Ok(Self::IsIdle),
             other => Err(UnknownRuntimeActionId(other)),
         }
     }
@@ -2264,6 +2268,7 @@ mod tests {
             RuntimeActionId::GetExecutionContext,
             RuntimeActionId::ChildAgent,
             RuntimeActionId::SideQuestion,
+            RuntimeActionId::IsIdle,
         ];
 
         for (raw, expected) in ids.into_iter().enumerate() {
@@ -2273,8 +2278,8 @@ mod tests {
         // One past the highest defined id is rejected (nothing is silently
         // accepted), and so is the u32 ceiling.
         assert_eq!(
-            RuntimeActionId::try_from(26),
-            Err(UnknownRuntimeActionId(26))
+            RuntimeActionId::try_from(27),
+            Err(UnknownRuntimeActionId(27))
         );
         assert_eq!(
             RuntimeActionId::try_from(u32::MAX),
