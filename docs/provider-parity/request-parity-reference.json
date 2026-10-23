@@ -1,0 +1,4123 @@
+{
+  "sources": {
+    "@earendil-works/pi-ai/dist/api/openai-completions.js": "4b3875e5ec18c5e2d06ce12409feb2554563fd2c392a5c1773af968b265e2bea",
+    "@earendil-works/pi-coding-agent/dist/core/system-prompt.js": "ab02924fa078eef81addcf39bc0e43d3663f06d627cb42ead403662a004a9e5c"
+  },
+  "prompts": [
+    {
+      "name": "custom",
+      "customPrompt": "Custom instructions.",
+      "cwd": "/work/repo",
+      "result": "Custom instructions.\n\n<cwd>\n/work/repo\n</cwd>"
+    },
+    {
+      "name": "loaded",
+      "customPrompt": "Loaded SYSTEM.md instructions.",
+      "cwd": "/work/loaded",
+      "result": "Loaded SYSTEM.md instructions.\n\n<cwd>\n/work/loaded\n</cwd>"
+    },
+    {
+      "name": "resumed",
+      "customPrompt": "Resumed instructions.",
+      "cwd": "/work/resumed",
+      "result": "Resumed instructions.\n\n<cwd>\n/work/resumed\n</cwd>"
+    },
+    {
+      "name": "windows",
+      "customPrompt": "Custom instructions.",
+      "cwd": "C:\\work\\repo",
+      "result": "Custom instructions.\n\n<cwd>\nC:/work/repo\n</cwd>"
+    }
+  ],
+  "requests": [
+    {
+      "name": "openai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "nvidia-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "nvidia",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "cerebras-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "cerebras",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "xai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "xai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "together-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "together",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "deepseek-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "deepseek",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "zai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "zai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "zai-coding-cn-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "zai-coding-cn",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "moonshotai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "moonshotai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "moonshotai-cn-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "moonshotai-cn",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "opencode-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "opencode",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "cloudflare-workers-ai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "cloudflare-workers-ai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "cloudflare-ai-gateway-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "cloudflare-ai-gateway",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "ant-ling-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "ant-ling",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "unknown-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "unknown",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-integrate.api.nvidia.com-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/integrate.api.nvidia.com/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-cerebras.ai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/cerebras.ai/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.x.ai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.x.ai/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.together.ai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.together.ai/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.together.xyz-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.together.xyz/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-chutes.ai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/chutes.ai/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-DEEPSEEK.COM-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/DEEPSEEK.COM/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-DEEPSEEK.COM-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/DEEPSEEK.COM/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-API.Z.AI-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/API.Z.AI/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.z.ai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.z.ai/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-open.bigmodel.cn-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/open.bigmodel.cn/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.moonshot.ai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.moonshot.ai/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-opencode.ai-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/opencode.ai/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.cloudflare.com-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.cloudflare.com/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-gateway.ai.cloudflare.com-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/gateway.ai.cloudflare.com/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.ant-ling.com-false",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.ant-ling.com/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "openai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "nvidia-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "nvidia",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "cerebras-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "cerebras",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "xai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "xai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "together-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "together",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "deepseek-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "deepseek",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "zai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "zai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "zai-coding-cn-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "zai-coding-cn",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "moonshotai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "moonshotai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "moonshotai-cn-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "moonshotai-cn",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "opencode-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "opencode",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "cloudflare-workers-ai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "cloudflare-workers-ai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "cloudflare-ai-gateway-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "cloudflare-ai-gateway",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "ant-ling-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "ant-ling",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "unknown-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "unknown",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-integrate.api.nvidia.com-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/integrate.api.nvidia.com/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-cerebras.ai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/cerebras.ai/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.x.ai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.x.ai/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.together.ai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.together.ai/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.together.xyz-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.together.xyz/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-chutes.ai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/chutes.ai/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-DEEPSEEK.COM-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/DEEPSEEK.COM/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-DEEPSEEK.COM-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/DEEPSEEK.COM/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-API.Z.AI-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/API.Z.AI/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.z.ai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.z.ai/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-open.bigmodel.cn-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/open.bigmodel.cn/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.moonshot.ai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.moonshot.ai/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-opencode.ai-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/opencode.ai/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.cloudflare.com-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.cloudflare.com/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "url-gateway.ai.cloudflare.com-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/gateway.ai.cloudflare.com/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "url-api.ant-ling.com-true",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "custom",
+        "baseUrl": "http://127.0.0.1/api.ant-ling.com/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "override-enable-store-completion",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "deepseek",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": true,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai",
+          "supportsStore": true,
+          "maxTokensField": "max_completion_tokens"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "override-disable-store-max",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai",
+          "supportsStore": false,
+          "maxTokensField": "max_tokens"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "max_tokens": 37
+      }
+    },
+    {
+      "name": "direct-string-preserved",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": "Hello.",
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": "Hello."
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "ordered-images",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        },
+        {
+          "type": "image",
+          "mimeType": "image/png",
+          "data": "aGVsbG8="
+        },
+        {
+          "type": "image",
+          "mimeType": "image/jpeg",
+          "data": "d29ybGQ="
+        }
+      ],
+      "systemPrompt": "Instructions.",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Instructions."
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/png;base64,aGVsbG8="
+                }
+              },
+              {
+                "type": "image_url",
+                "image_url": {
+                  "url": "data:image/jpeg;base64,d29ybGQ="
+                }
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "prompt-custom",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Custom instructions.\n\n<cwd>\n/work/repo\n</cwd>",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Custom instructions.\n\n<cwd>\n/work/repo\n</cwd>"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "prompt-loaded",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Loaded SYSTEM.md instructions.\n\n<cwd>\n/work/loaded\n</cwd>",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Loaded SYSTEM.md instructions.\n\n<cwd>\n/work/loaded\n</cwd>"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "prompt-resumed",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Resumed instructions.\n\n<cwd>\n/work/resumed\n</cwd>",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Resumed instructions.\n\n<cwd>\n/work/resumed\n</cwd>"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    },
+    {
+      "name": "prompt-windows",
+      "model": {
+        "id": "fixture",
+        "name": "fixture",
+        "api": "openai-completions",
+        "provider": "openai",
+        "baseUrl": "http://127.0.0.1/neutral/v1",
+        "reasoning": false,
+        "input": [
+          "text",
+          "image"
+        ],
+        "cost": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0
+        },
+        "contextWindow": 8192,
+        "maxTokens": 1024,
+        "compat": {
+          "supportsDeveloperRole": false,
+          "supportsReasoningEffort": false,
+          "thinkingFormat": "openai"
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "Hello."
+        }
+      ],
+      "systemPrompt": "Custom instructions.\n\n<cwd>\nC:/work/repo\n</cwd>",
+      "result": {
+        "model": "fixture",
+        "messages": [
+          {
+            "role": "system",
+            "content": "Custom instructions.\n\n<cwd>\nC:/work/repo\n</cwd>"
+          },
+          {
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "Hello."
+              }
+            ]
+          }
+        ],
+        "stream": true,
+        "stream_options": {
+          "include_usage": true
+        },
+        "store": false,
+        "max_completion_tokens": 37
+      }
+    }
+  ]
+}

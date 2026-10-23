@@ -564,7 +564,39 @@ fn supports_reasoning_effort(model: &Model) -> bool {
 fn supports_store(model: &Model) -> bool {
     compat(model)
         .and_then(|compat| compat.supports_store)
-        .unwrap_or(false)
+        .unwrap_or_else(|| !is_nonstandard_provider(model))
+}
+
+// Keep the auto-detection rules in sync with Pi's detectCompat(). Explicit
+// compat values still take precedence in the individual accessors.
+fn is_nonstandard_provider(model: &Model) -> bool {
+    let provider = model.provider.as_str();
+    let url = model.base_url.as_str();
+    provider == "nvidia"
+        || url.contains("integrate.api.nvidia.com")
+        || provider == "cerebras"
+        || url.contains("cerebras.ai")
+        || provider == "xai"
+        || url.contains("api.x.ai")
+        || provider == "together"
+        || url.contains("api.together.ai")
+        || url.contains("api.together.xyz")
+        || url.contains("chutes.ai")
+        || provider == "deepseek"
+        || url.to_lowercase().contains("deepseek.com")
+        || ["zai", "zai-coding-cn"].contains(&provider)
+        || url.contains("api.z.ai")
+        || url.contains("open.bigmodel.cn")
+        || ["moonshotai", "moonshotai-cn"].contains(&provider)
+        || url.contains("api.moonshot.")
+        || provider == "opencode"
+        || url.contains("opencode.ai")
+        || provider == "cloudflare-workers-ai"
+        || url.contains("api.cloudflare.com")
+        || provider == "cloudflare-ai-gateway"
+        || url.contains("gateway.ai.cloudflare.com")
+        || provider == "ant-ling"
+        || url.contains("api.ant-ling.com")
 }
 
 fn supports_developer_role(model: &Model) -> bool {
@@ -601,9 +633,31 @@ fn max_tokens_field(model: &Model) -> &'static str {
     match compat(model).and_then(|compat| compat.max_tokens_field) {
         Some(MaxTokensField::MaxCompletionTokens) => "max_completion_tokens",
         Some(MaxTokensField::MaxTokens) => "max_tokens",
-        None if model.reasoning => "max_completion_tokens",
-        None => "max_tokens",
+        None if uses_max_tokens_by_default(model) => "max_tokens",
+        None => "max_completion_tokens",
     }
+}
+
+fn uses_max_tokens_by_default(model: &Model) -> bool {
+    let provider = model.provider.as_str();
+    let url = model.base_url.as_str();
+    url.contains("chutes.ai")
+        || provider == "deepseek"
+        || url.to_lowercase().contains("deepseek.com")
+        || ["moonshotai", "moonshotai-cn"].contains(&provider)
+        || url.contains("api.moonshot.")
+        || provider == "cloudflare-ai-gateway"
+        || url.contains("gateway.ai.cloudflare.com")
+        || provider == "together"
+        || url.contains("api.together.ai")
+        || url.contains("api.together.xyz")
+        || provider == "nvidia"
+        || url.contains("integrate.api.nvidia.com")
+        || provider == "ant-ling"
+        || url.contains("api.ant-ling.com")
+        || ["zai", "zai-coding-cn"].contains(&provider)
+        || url.contains("api.z.ai")
+        || url.contains("open.bigmodel.cn")
 }
 
 fn reasoning_effort(model: &Model, level: ThinkingLevel) -> Option<String> {
@@ -1407,6 +1461,115 @@ mod tests {
         model.max_tokens = 1024;
         model.reasoning = true;
         model
+    }
+
+    #[test]
+    fn default_request_field_detection_matches_provider_and_url_not_reasoning() {
+        let cases = [
+            (
+                "openai",
+                "https://api.openai.com/v1",
+                false,
+                true,
+                "max_completion_tokens",
+            ),
+            (
+                "deepseek",
+                "https://api.deepseek.com/v1",
+                true,
+                false,
+                "max_tokens",
+            ),
+            (
+                "zai",
+                "https://api.z.ai/api/paas/v4",
+                false,
+                false,
+                "max_tokens",
+            ),
+            (
+                "together",
+                "https://api.together.xyz/v1",
+                true,
+                false,
+                "max_tokens",
+            ),
+            (
+                "nvidia",
+                "https://integrate.api.nvidia.com/v1",
+                false,
+                false,
+                "max_tokens",
+            ),
+            (
+                "moonshotai",
+                "https://api.moonshot.ai/v1",
+                true,
+                false,
+                "max_tokens",
+            ),
+            (
+                "cloudflare-ai-gateway",
+                "https://gateway.ai.cloudflare.com/v1",
+                false,
+                false,
+                "max_tokens",
+            ),
+            (
+                "ant-ling",
+                "https://api.ant-ling.com/v1",
+                true,
+                false,
+                "max_tokens",
+            ),
+            (
+                "cerebras",
+                "https://api.cerebras.ai/v1",
+                false,
+                false,
+                "max_completion_tokens",
+            ),
+            (
+                "xai",
+                "https://api.x.ai/v1",
+                true,
+                false,
+                "max_completion_tokens",
+            ),
+        ];
+        for (provider, url, reasoning, store, field) in cases {
+            let mut model = Model::new("m", "M", Api::OpenaiCompletions, provider, url);
+            model.reasoning = reasoning;
+            assert_eq!(supports_store(&model), store, "{provider} store");
+            assert_eq!(
+                max_tokens_field(&model),
+                field,
+                "{provider} reasoning={reasoning}"
+            );
+            model.reasoning = !reasoning;
+            assert_eq!(
+                max_tokens_field(&model),
+                field,
+                "{provider} alternate reasoning"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_compat_request_field_overrides_detection() {
+        let mut model = Model::new(
+            "m",
+            "M",
+            Api::OpenaiCompletions,
+            "deepseek",
+            "https://api.deepseek.com",
+        );
+        let mut compat = OpenaiCompletionsCompat::default();
+        compat.supports_store = Some(true);
+        compat.max_tokens_field = Some(MaxTokensField::MaxCompletionTokens);
+        model.compat = Some(StreamingProtocolCompat::OpenaiCompletions(compat));
+        assert!(supports_store(&model));
+        assert_eq!(max_tokens_field(&model), "max_completion_tokens");
     }
 
     #[test]

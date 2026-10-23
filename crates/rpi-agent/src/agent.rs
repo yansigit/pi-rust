@@ -378,7 +378,7 @@ impl Agent {
     /// Start a new prompt from text. Convenience for `prompt_message`.
     pub async fn prompt(&self, text: impl Into<String>) -> Result<(), crate::AgentError> {
         let message = AgentMessage::User(UserMessage::new(
-            UserContent::Text(text.into()),
+            UserContent::Blocks(vec![rpi_ai::types::Content::text(text.into())]),
             crate::clock::now_ms(),
         ));
         self.prompt_messages(vec![message]).await
@@ -649,5 +649,12 @@ mod tests {
         assert!(saw_end, "agent_end observed");
         // State: 1 user prompt + 1 assistant reply.
         assert_eq!(agent.state().messages.len(), 2);
+        let AgentMessage::User(user) = &agent.state().messages[0] else {
+            panic!("first message must be the user prompt");
+        };
+        assert_eq!(
+            serde_json::to_value(&user.content).unwrap(),
+            serde_json::json!([{"type": "text", "text": "hi"}])
+        );
     }
 }

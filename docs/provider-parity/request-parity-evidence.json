@@ -1,0 +1,97 @@
+{
+  "status": "passed",
+  "referenceVersion": "Pi 1.3.0 integrated npm distribution",
+  "referenceCommit": null,
+  "referenceIdentity": "Installed distribution identified by exact source hashes, not an inferred git commit",
+  "upstreamFiles": {
+    "@earendil-works/pi-ai/dist/api/openai-completions.js": "4b3875e5ec18c5e2d06ce12409feb2554563fd2c392a5c1773af968b265e2bea",
+    "@earendil-works/pi-coding-agent/dist/core/system-prompt.js": "ab02924fa078eef81addcf39bc0e43d3663f06d627cb42ead403662a004a9e5c"
+  },
+  "caseCounts": {
+    "completeHttpRequestBodies": 70,
+    "providerNameCasesBothReasoningValues": 30,
+    "urlCasesBothReasoningValues": 32,
+    "explicitOverrideCases": 2,
+    "directStringCase": 1,
+    "orderedImagesCase": 1,
+    "composedPromptRequestCases": 4,
+    "completeBuildSystemPromptValues": 4,
+    "harnessProviderBoundaryCallsIncludingReloadAndResume": 12,
+    "cliProviderBoundaryCasesDefaultCustomLoaded": 3
+  },
+  "compared": [
+    "Entire HTTP JSON bodies from public Rust Provider::stream versus unchanged upstream stream onPayload, with no field filtering or output normalization",
+    "Entire custom/loaded/resumed/Windows system prompt strings versus unchanged upstream buildSystemPrompt",
+    "Entire user-content arrays at actual harness and CLI provider boundaries, not only constructor helpers",
+    "Exact native default scaffold plus one final cwd section at the CLI provider boundary; standalone default_system_prompt public helper preserves its previous output"
+  ],
+  "compatIsolation": {
+    "supportsDeveloperRole": false,
+    "supportsReasoningEffort": false,
+    "thinkingFormat": "openai",
+    "reason": "Isolate unrelated pre-existing role/thinking-format defaults while comparing full bodies. supportsStore/maxTokensField remain detected except in explicitly named override cases."
+  },
+  "determinism": {
+    "runtime": "Node 24.22.0 from .parity-env.sh",
+    "timestamps": [0, 1],
+    "transport": "Injected upstream fetch returning fixed SSE; Rust loopback fake server with no proxy",
+    "fixtureSha256AfterTwoWrites": "d74741449e4236a348d233f5b51f4a209372eb6b0db449f0aacc348f6c0b125e",
+    "outputNormalizations": []
+  },
+  "environment": "source /home/user/Projects/.parity-env.sh && lane_env parity-requests-{178,195} && export CARGO_BUILD_JOBS=4",
+  "validation": [
+    {
+      "command": "node docs/provider-parity/request-parity-reference.mjs --write && sha256sum docs/provider-parity/request-parity-reference.json && node docs/provider-parity/request-parity-reference.mjs --write && sha256sum docs/provider-parity/request-parity-reference.json && node docs/provider-parity/request-parity-reference.mjs",
+      "outcome": "pass: two byte-identical generations and check mode; 70 complete request bodies and 4 complete prompt values",
+      "log": "/tmp/opencode/parity-requests/reference-final.log"
+    },
+    {
+      "command": "cargo +1.78.0 test -p rpi-ai -p rpi-agent -p rpi-harness --features rpi-ai/providers --locked --offline",
+      "targetDir": "/home/user/Projects/.targets/parity-requests-178",
+      "outcome": "772 passed; 0 failed; 1 pre-existing ignored doctest; exit 0; no warnings",
+      "log": "/tmp/opencode/parity-requests/final-178-rerun.log"
+    },
+    {
+      "command": "cargo test -p rpi-ai -p rpi-agent -p rpi-harness --features rpi-ai/providers --locked --offline",
+      "toolchain": "1.95.0",
+      "targetDir": "/home/user/Projects/.targets/parity-requests-195",
+      "outcome": "772 passed; 0 failed; 1 pre-existing ignored doctest; exit 0; no warnings",
+      "log": "/tmp/opencode/parity-requests/final-195.log"
+    },
+    {
+      "command": "RUSTFLAGS='-D warnings' cargo +1.78.0 check -p rpi-cli --all-targets --locked --offline",
+      "targetDir": "/home/user/Projects/.targets/parity-requests-178",
+      "outcome": "pass; exit 0; no warnings",
+      "log": "/tmp/opencode/parity-requests/cli-check-178-rerun.log"
+    },
+    {
+      "command": "cargo +1.78.0 test -p rpi-cli --lib session::tests --locked --offline",
+      "targetDir": "/home/user/Projects/.targets/parity-requests-178",
+      "outcome": "45 passed; 0 failed; 0 ignored; 647 filtered; exit 0; no warnings",
+      "log": "/tmp/opencode/parity-requests/cli-session-178-rerun.log"
+    },
+    {
+      "command": "cargo test -p rpi-cli --lib session::tests --locked --offline",
+      "toolchain": "1.95.0",
+      "targetDir": "/home/user/Projects/.targets/parity-requests-195",
+      "outcome": "45 passed; 0 failed; 0 ignored; 647 filtered; exit 0; no warnings",
+      "log": "/tmp/opencode/parity-requests/cli-session-195.log"
+    },
+    {
+      "command": "git diff --check",
+      "outcome": "pass; scoped paths inspected; no lockfile, pin, SDK, ledger or reference-source edits"
+    }
+  ],
+  "validationNotes": [
+    "An early standalone rpi-ai invocation omitted its opt-in providers feature and ran zero tests; final commands explicitly enable rpi-ai/providers and execute the 70-body fixture test.",
+    "The first harness boundary test used a single-thread Tokio runtime and hit the existing block_in_place runtime requirement; the regression test now uses a two-worker runtime and all final suites pass.",
+    "Target cache seeding with cp --reflink=always was unsupported on this filesystem; Cargo rebuilt in separate toolchain target directories. No checks or permissions were relaxed."
+  ],
+  "notTested": [
+    "Full OpenAI compatibility parity: unrelated default roles, thinking formats, tools, caching, stream replay and response semantics are not claimed",
+    "Complete Pi default prompt scaffold parity: rpi retains its native scaffold and guidance",
+    "Forced system prompt API: upstream forceSystemPrompt bypasses sections (asserted by the reference generator), but Rust AgentHarnessOptions/CLI expose only system_prompt, not a distinct forced-prompt entry point; custom prompts must not be treated as forced",
+    "External provider services, credentials, SDK/package/ledger changes, non-Linux execution and workspace-wide gates"
+  ],
+  "workingTree": "Uncommitted by assignment; only five owned production files plus related test/reference/evidence files. Prior worker formatting-only changes outside scope restored to ae71d4464da84ae599e7c833780ad04f10590f9e."
+}
