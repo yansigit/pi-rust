@@ -663,6 +663,8 @@ pub fn print_help() {
                                 (see `rpi auth --help`)
   events path|tail               Inspect the extension event journal (needs
                                 RPI_EVENT_LOG=1; see `rpi events --help`)
+  import pi [options]            Import a Pi agent directory (credentials, settings,
+                                multiprovider pools, sessions); see `rpi import --help`
   install <crate>                Install a prebuilt Rust extension (--build for source)
                                 (see `rpi install --help`)
   uninstall <crate>              Remove an installed Rust cdylib extension
