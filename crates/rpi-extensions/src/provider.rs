@@ -270,6 +270,14 @@ impl Provider for PluggableProvider {
         // so a single clone carries every field into the task.
         let mut opts = opts.clone();
         opts.signal = prod.cancellation_token();
+        let shutdown = self._keepalive.shutdown_signal();
+        let admission = opts.signal.clone();
+        self.runtime.spawn(async move {
+            tokio::select! { biased;
+                _ = admission.cancelled() => {},
+                _ = shutdown.cancelled() => admission.cancel(),
+            }
+        });
         lifetime.invocation = self.record.action_bridge.as_ref().map(|bridge| {
             let mut invocation = bridge.for_invocation(
                 rpi_agent::tool_execution_scope::is_child_execution(),
