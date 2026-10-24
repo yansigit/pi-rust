@@ -73,6 +73,9 @@ jobs:
       - name: Check workspace targets without warnings
         run: cargo check --workspace --all-targets --locked
 
+      - name: Check all extension features and test targets
+        run: cargo check -p rpi-extensions --all-features --tests --locked
+
   test:
     name: Cargo test
     runs-on: ubuntu-latest

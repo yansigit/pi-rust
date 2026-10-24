@@ -354,6 +354,7 @@ impl AgentHarness {
                 thinking_level: Some(snap.thinking_level),
                 retry: snap.retry.enabled.then(|| snap.retry.clone()),
                 custom_instructions: custom_instructions.clone(),
+                stream_options: snap.stream_options.clone(),
             });
             summary_options.replace_instructions = replace_instructions.unwrap_or(false);
             if let Some(tokens) = self.inner.lock().unwrap().branch_summary_reserve_tokens {

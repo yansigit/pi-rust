@@ -36,8 +36,8 @@ correctness tests separately.
 
 ```bash
 python3 scripts/bench-provider.py --repeats 3
-# Explicit on the final revision (provider-performance also enables the adapter):
-python3 scripts/bench-provider.py --features provider-performance,bounded-provider-stream
+# Explicitly select the benchmark feature (also the runner's default):
+python3 scripts/bench-provider.py --features provider-performance
 cargo test --release -p rpi-extensions --lib pending_population_benchmark -- --ignored --nocapture --test-threads=1
 cargo test --release -p rpi-plugin-sdk --features provider benchmark_context_resources -- --ignored --nocapture
 ```

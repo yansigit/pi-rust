@@ -143,6 +143,9 @@ pub struct ResolvedModel {
     /// The harness resolves a provider lazily by `model.provider`, so this lets
     /// `/model` hot-switch across providers without a restart.
     pub providers: Vec<Arc<dyn Provider>>,
+    /// Compatibility diagnostics for the caller to display through its UI.
+    /// Resolution and catalog queries never write directly to the terminal.
+    pub compat_warnings: Vec<String>,
     /// Private state shared with the selected configured provider.
     execution: Arc<ExecutionBinding>,
 }
@@ -381,6 +384,7 @@ fn resolve_with_factories(
     let mut catalog = build_catalog(&models_cfg, &factories.manifests, |id| {
         !factories.auth.contains_key(id)
     });
+    let compat_warnings = config::model_compat_warnings(&models_cfg);
     let canonical_catalog = catalog.clone();
 
     // The ambient Anthropic override belongs only to the built-in identity.
@@ -757,6 +761,7 @@ fn resolve_with_factories(
         has_provider_key,
         theme: settings.theme.clone(),
         providers,
+        compat_warnings,
         execution,
     };
     debug_assert!(resolved
@@ -864,22 +869,37 @@ pub fn manifests_from_session(
 pub fn catalog_with_manifests(
     manifests: &[rpi_extensions::ProviderManifest],
 ) -> Result<Vec<Model>, config::ConfigError> {
+    catalog_with_diagnostics(manifests).map(|(models, _)| models)
+}
+
+pub fn catalog_with_diagnostics(
+    manifests: &[rpi_extensions::ProviderManifest],
+) -> Result<(Vec<Model>, Vec<String>), config::ConfigError> {
     let mut cfg = config::load_models_config()?;
     apply_manifest_defaults(&mut cfg, manifests);
     let mut catalog = build_catalog(&cfg, manifests, |_| false);
     sort_catalog(&mut catalog);
-    Ok(catalog.iter().map(binding::descriptor).collect())
+    Ok((
+        catalog.iter().map(binding::descriptor).collect(),
+        config::model_compat_warnings(&cfg),
+    ))
 }
 
 /// Internal configuration view used only to evaluate header-based auth policy.
 pub(crate) fn execution_catalog_with_manifests(
     manifests: &[rpi_extensions::ProviderManifest],
 ) -> Result<Vec<Model>, config::ConfigError> {
+    execution_catalog_with_diagnostics(manifests).map(|(models, _)| models)
+}
+
+fn execution_catalog_with_diagnostics(
+    manifests: &[rpi_extensions::ProviderManifest],
+) -> Result<(Vec<Model>, Vec<String>), config::ConfigError> {
     let mut cfg = config::load_models_config()?;
     apply_manifest_defaults(&mut cfg, manifests);
     let mut catalog = build_catalog(&cfg, manifests, |_| true);
     sort_catalog(&mut catalog);
-    Ok(catalog)
+    Ok((catalog, config::model_compat_warnings(&cfg)))
 }
 fn sort_catalog(catalog: &mut [Model]) {
     catalog.sort_by(|a, b| {
@@ -1481,6 +1501,88 @@ mod tests {
     use super::*;
     use crate::args::{parse_thinking_level, VALID_THINKING_LEVELS};
     use crate::config::test_support::env_lock;
+
+    #[test]
+    fn catalog_and_resolution_return_compat_diagnostics_without_writing_stderr() {
+        const CHILD: &str = "RPI_TEST_QUIET_COMPAT_CHILD";
+        if std::env::var_os(CHILD).is_none() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "provider::tests::catalog_and_resolution_return_compat_diagnostics_without_writing_stderr", "--nocapture"])
+                .env(CHILD, "1")
+                .output().unwrap();
+            assert!(
+                output.status.success(),
+                "{}\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(
+                output.stderr.is_empty(),
+                "TUI catalog queries must stay quiet: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let _env = TestEnv::new();
+        std::fs::write(
+            config::models_path().unwrap(),
+            r#"{"providers":{"fixture":{
+            "api":"openai-completions","apiKey":"fixture-only",
+            "models":[{"id":"test","compat":{"misspelledFlag":true}}]
+        }}}"#,
+        )
+        .unwrap();
+        let resolved = resolve(Some("fixture"), Some("test"), None, None, None).unwrap();
+        assert_eq!(resolved.compat_warnings.len(), 1);
+        assert!(resolved.compat_warnings[0].contains("misspelledFlag"));
+        let (_, warnings) = catalog_with_diagnostics(&[]).unwrap();
+        assert_eq!(warnings, resolved.compat_warnings);
+        assert!(catalog_all()
+            .unwrap()
+            .iter()
+            .any(|model| model.provider == "fixture"));
+        assert!(execution_catalog_with_manifests(&[])
+            .unwrap()
+            .iter()
+            .any(|model| model.provider == "fixture"));
+    }
+
+    #[test]
+    fn extension_api_defaults_are_resolved_before_compat_diagnostics() {
+        let mut cfg: config::ModelsConfig = serde_json::from_value(serde_json::json!({
+            "providers": {"proxy": {"models": [{"id":"custom", "compat": {
+                "thinkingFormat":"deepseek", "requiresReasoningContentOnAssistantMessages":true,
+                "misspelledFlag":true
+            }}]}}
+        }))
+        .unwrap();
+        let model = Model::new(
+            "default",
+            "Default",
+            rpi_ai::Api::OpenaiCompletions,
+            "proxy",
+            "http://127.0.0.1/v1",
+        );
+        apply_manifest_defaults(
+            &mut cfg,
+            &[rpi_extensions::ProviderManifest {
+                id: "proxy".into(),
+                models: vec![model],
+                api_key_env: None,
+                requires_auth: false,
+                replace_catalog: false,
+            }],
+        );
+        let warnings = config::model_compat_warnings(&cfg);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("misspelledFlag"));
+        let models = config::provider_to_models("proxy", &cfg.providers["proxy"]).unwrap();
+        let Some(rpi_ai::StreamingProtocolCompat::OpenaiCompletions(compat)) = &models[0].compat
+        else {
+            panic!("extension protocol must retain model overrides");
+        };
+        assert_eq!(compat.requires_reasoning_content, Some(true));
+    }
 
     /// Scope a test to a throwaway config dir + clear the `ANTHROPIC_*` env
     /// vars, restoring both on drop. Holds the shared env lock for its whole

@@ -30,16 +30,6 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 }
 
-macro_rules! push {
-    ($producer:ident, $event:expr) => {{
-        #[cfg(feature = "bounded-provider-stream")]
-        let accepted = $producer.push($event).await;
-        #[cfg(not(feature = "bounded-provider-stream"))]
-        let accepted = $producer.push($event);
-        accepted
-    }};
-}
-
 struct Fixture {
     bytes: usize,
     chunk: usize,
@@ -63,53 +53,45 @@ impl Provider for Fixture {
         let (bytes, chunk) = (self.bytes, self.chunk);
         let mut message = AssistantMessage::empty(model.api.clone(), "fixture", "m", 42);
         tokio::spawn(async move {
-            push!(
-                prod,
-                AssistantMessageEvent::Start {
-                    partial: Arc::new(message.clone())
-                }
-            );
+            prod.push(AssistantMessageEvent::Start {
+                partial: Arc::new(message.clone()),
+            })
+            .await;
             message.content.push(Content::text(""));
-            push!(
-                prod,
-                AssistantMessageEvent::TextStart {
-                    content_index: 0,
-                    partial: Arc::new(message.clone())
-                }
-            );
+            prod.push(AssistantMessageEvent::TextStart {
+                content_index: 0,
+                partial: Arc::new(message.clone()),
+            })
+            .await;
             for start in (0..bytes).step_by(chunk) {
                 let delta = "x".repeat(chunk.min(bytes - start));
                 let Content::Text(text) = &mut message.content[0] else {
                     unreachable!()
                 };
                 text.text.push_str(&delta);
-                if !push!(
-                    prod,
-                    AssistantMessageEvent::TextDelta {
+                if !prod
+                    .push(AssistantMessageEvent::TextDelta {
                         content_index: 0,
                         delta,
-                        partial: Arc::new(message.clone())
-                    }
-                ) {
+                        partial: Arc::new(message.clone()),
+                    })
+                    .await
+                {
                     return;
                 }
             }
-            push!(
-                prod,
-                AssistantMessageEvent::TextEnd {
-                    content_index: 0,
-                    content: "x".repeat(bytes),
-                    partial: Arc::new(message.clone())
-                }
-            );
+            prod.push(AssistantMessageEvent::TextEnd {
+                content_index: 0,
+                content: "x".repeat(bytes),
+                partial: Arc::new(message.clone()),
+            })
+            .await;
             message.stop_reason = rpi_ai::StopReason::Stop;
-            push!(
-                prod,
-                AssistantMessageEvent::Done {
-                    reason: rpi_ai::DoneReason::Stop,
-                    message
-                }
-            );
+            prod.push(AssistantMessageEvent::Done {
+                reason: rpi_ai::DoneReason::Stop,
+                message,
+            })
+            .await;
         });
         stream
     }
@@ -260,10 +242,7 @@ fn offline_provider_pipeline() {
     let allocated_bytes = BYTES.load(Ordering::Relaxed) - before_bytes;
     let peak = PEAK.load(Ordering::Relaxed);
     let wire = WIRE.load(Ordering::Relaxed);
-    #[cfg(feature = "bounded-provider-stream")]
     let queue = Some(super::queue::peak_occupancy());
-    #[cfg(not(feature = "bounded-provider-stream"))]
-    let queue: Option<(usize, usize)> = None;
     let queue = serde_json::to_string(&queue).unwrap();
     println!("RPI_BENCH {{\"bytes\":{bytes},\"chunk\":{chunk},\"streams\":{concurrency},\"delay_ms\":{delay},\"result_only\":{result_only},\"sdk_only\":{sdk_only},\"elapsed_s\":{elapsed},\"allocations\":{allocations},\"allocated_bytes\":{allocated_bytes},\"peak_live_bytes\":{peak},\"wire_bytes\":{wire},\"bridge_peak_count_bytes\":{queue}}}");
 }

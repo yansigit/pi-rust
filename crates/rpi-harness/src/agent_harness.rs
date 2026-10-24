@@ -2089,6 +2089,7 @@ impl AgentHarness {
     fn deferred_stream_options(&self, snap: &ConfigSnapshot) -> rpi_ai::SimpleStreamOptions {
         rpi_ai::SimpleStreamOptions {
             timeout: snap.stream_options.timeout,
+            stream_idle_timeout: snap.stream_options.stream_idle_timeout,
             session_id: None,
             signal: CancellationToken::new(),
             reasoning: match snap.thinking_level {
@@ -3926,6 +3927,7 @@ impl AgentHarness {
                                 None
                             },
                             custom_instructions: None,
+                            stream_options: snap.stream_options.clone(),
                         };
                         match self
                             .compact_with_extensions(
@@ -4174,6 +4176,7 @@ impl AgentHarness {
                 let harness = self.clone();
                 let enabled = snap.compaction.enabled;
                 let settings = snap.compaction;
+                let stream_options = snap.stream_options.clone();
                 let model = snap.model.clone();
                 let provider = snap
                     .models
@@ -4190,6 +4193,7 @@ impl AgentHarness {
                         let provider = provider.clone().expect("checked above");
                         let cut = Arc::clone(&cut_for_hook);
                         let compaction_signal = compaction_signal.clone();
+                        let stream_options = stream_options.clone();
                         let compaction_run_id = compaction_run_id.clone();
                         let context = ctx.context.clone();
                         let new_messages_len = ctx.new_messages.len();
@@ -4211,7 +4215,7 @@ impl AgentHarness {
                             }
                             let prep = match projected_preparation(&entries, settings) { Some(p) => p, None => return None };
                             let branch_entries = match harness.branch_path_oldest_first().await { Ok(entries) => entries, Err(_) => return None };
-                            let opts = CompactionLlmOptions { provider, model: model.clone(), api_key: None, signal: compaction_signal, thinking_level: None, retry: None, custom_instructions: None };
+                            let opts = CompactionLlmOptions { provider, model: model.clone(), api_key: None, signal: compaction_signal, thinking_level: None, retry: None, custom_instructions: None, stream_options };
                             let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &branch_entries, &opts, CompactionReason::Threshold).await { Ok(Some((result, _))) => result, _ => return None };
                             // Mid-loop compaction fires because the turn pushed the
                             // context over the threshold.
@@ -4254,6 +4258,7 @@ impl AgentHarness {
             thinking_level: snap.thinking_level,
             api_key: None,
             timeout: snap.stream_options.timeout,
+            stream_idle_timeout: snap.stream_options.stream_idle_timeout,
             // Pi's `retry.maxRetries` is an assistant-level retry budget. The
             // provider/SDK retry budget is intentionally independent and
             // defaults to zero, so transient failures are retried by the
@@ -4495,6 +4500,7 @@ impl AgentHarness {
                                             None
                                         },
                                         custom_instructions: None,
+                                        stream_options: snap.stream_options.clone(),
                                     };
                                     match self
                                         .compact_with_extensions(
@@ -4761,6 +4767,7 @@ impl AgentHarness {
                             None
                         },
                         custom_instructions: custom_instructions.clone(),
+                        stream_options: snap.stream_options.clone(),
                     };
                     attempted = true;
                     match self
