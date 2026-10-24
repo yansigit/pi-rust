@@ -260,7 +260,7 @@ impl Services {
         args: Value,
         signal: CancellationToken,
     ) -> Result<Value, String> {
-        self.call_instance(owner, args, signal, None).await
+        self.call_instance(owner, args, signal, None, None).await
     }
     async fn call_instance(
         &self,
@@ -268,6 +268,7 @@ impl Services {
         args: Value,
         signal: CancellationToken,
         instance: Option<&str>,
+        execution_guard: Option<Box<dyn Send>>,
     ) -> Result<Value, String> {
         let key = service_key(&args)?;
         let method = string(&args, "method")?;
@@ -309,7 +310,7 @@ impl Services {
         let response = tokio::select! {
             biased;
             _ = stopped.cancelled() => return Err("service owner unloaded".into()),
-            response = crate::private_callback::invoke_scoped(record.callback, keepalive, input, signal, false, Some(invocation)) => response.map_err(|_| "service callback failed or cancelled")?,
+            response = crate::private_callback::invoke_scoped_guarded(record.callback, keepalive, input, signal, false, Some(invocation), execution_guard) => response.map_err(|_| "service callback failed or cancelled")?,
         };
         if response["version"] != 1 {
             return Err("unsupported service response".into());

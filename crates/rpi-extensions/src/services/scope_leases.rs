@@ -201,12 +201,12 @@ impl Services {
             grant
         };
         static CALLS: std::sync::OnceLock<Arc<Semaphore>> = std::sync::OnceLock::new();
-        let _global = CALLS
+        let global = CALLS
             .get_or_init(|| Arc::new(Semaphore::new(MAX_CALLS)))
             .clone()
             .try_acquire_owned()
             .map_err(|_| "scope service lease capacity exhausted")?;
-        let _local = grant
+        let local = grant
             .calls
             .clone()
             .try_acquire_owned()
@@ -218,7 +218,7 @@ impl Services {
         let closing = grant.closing.clone().unwrap_or_default();
         let call_signal = signal.child_token();
         let _cancel = call_signal.clone().drop_guard();
-        let work = self.call_instance(grant.owner.clone(), json!({"service":grant.service.0,"serviceVersion":grant.service.1,"method":args["method"],"input":args["input"]}), call_signal.clone(), Some(&grant.instance));
+        let work = self.call_instance(grant.owner.clone(), json!({"service":grant.service.0,"serviceVersion":grant.service.1,"method":args["method"],"input":args["input"]}), call_signal.clone(), Some(&grant.instance), Some(Box::new((global, local))));
         let work = rpi_agent::tool_execution_scope::inherit(scope, async {
             match grant.operation.clone() {
                 Some(identity) => rpi_ai::identity::scope(identity, work).await,

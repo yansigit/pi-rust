@@ -62,6 +62,20 @@ pub(crate) async fn invoke_scoped(
     drain: bool,
     bridge: Option<Arc<crate::ActionBridge>>,
 ) -> Result<serde_json::Value, AuthError> {
+    invoke_scoped_guarded(callback, keepalive, request, signal, drain, bridge, None).await
+}
+
+/// Retain admission until foreign execution and output deallocation finish,
+/// even when the async caller stops waiting for the blocking callback.
+pub(crate) async fn invoke_scoped_guarded(
+    callback: Callback,
+    keepalive: Arc<crate::PluginKeepalive>,
+    request: String,
+    signal: CancellationToken,
+    drain: bool,
+    bridge: Option<Arc<crate::ActionBridge>>,
+    execution_guard: Option<Box<dyn Send>>,
+) -> Result<serde_json::Value, AuthError> {
     let background = bridge
         .as_ref()
         .and_then(|bridge| bridge.tool_scope.as_ref())
@@ -72,6 +86,7 @@ pub(crate) async fn invoke_scoped(
     let bridge = bridge.map(|bridge| bridge.with_callback_signal(signal.clone()));
     let callback_signal = signal.clone();
     let mut pending = tokio::task::spawn_blocking(move || {
+        let _execution_guard = execution_guard;
         let _keepalive = keepalive;
         let _background = background;
         let _invocation = bridge.as_ref().map(|bridge| bridge.enter_invocation());
