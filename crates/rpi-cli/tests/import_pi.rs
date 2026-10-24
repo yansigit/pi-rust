@@ -68,8 +68,8 @@ impl Fixture {
     }
 
     fn session_snapshot(&self, sha12_of: &[u8]) -> PathBuf {
-        self.home.join("project/.rpi/sessions").join(format!(
-            "pi-import/--home-u-proj--/s1.{}.jsonl",
+        self.dest.join(format!(
+            "sessions/pi-import/--home-u-proj--/s1.{}.jsonl",
             &sha256_hex(sha12_of)[..12]
         ))
     }
@@ -293,9 +293,10 @@ fn full_import_copies_each_category_and_reports_every_skip_reason() {
     assert_eq!(header["imported"]["sha256"], sha256_hex(&session_bytes));
     assert_eq!(rest.as_bytes(), &session_bytes[HEADER.len() + 1..]);
     assert!(!fixture
-        .home
-        .join("project/.rpi/sessions/pi-import/--home-u-proj--/broken.jsonl")
+        .dest
+        .join("sessions/pi-import/--home-u-proj--/broken.jsonl")
         .exists());
+    assert!(!fixture.home.join("project/.rpi").exists());
 
     assert_eq!(
         tree(&fixture.src),
@@ -315,7 +316,7 @@ fn only_limits_the_categories_that_are_imported() {
     assert!(!fixture.dest.join("settings.json").exists());
     assert!(!fixture.dest.join("multiprovider-auth.json").exists());
     assert!(!fixture.dest.join("sessions").exists());
-    assert!(!fixture.home.join("project/.rpi/sessions").exists());
+    assert!(!fixture.home.join("project/.rpi").exists());
 }
 
 #[test]
@@ -372,7 +373,7 @@ fn custom_session_env_root_is_used_for_dry_run_import_and_rerun() {
         let ledger = read_json(&fixture.dest.join("import-ledger.json"));
         assert!(ledger.to_string().contains(&snapshot.display().to_string()));
         assert!(!fixture.dest.join("sessions").exists());
-        assert!(!fixture.home.join("project/.rpi/sessions").exists());
+        assert!(!fixture.home.join("project/.rpi").exists());
 
         let before = tree(fixture._temp.path());
         let again = run(&["--yes"]);
@@ -405,6 +406,8 @@ fn saved_session_dir_wins_over_environment_and_is_not_imported_from_pi() {
         .join("project/saved-sessions/pi-import/--home-u-proj--");
     assert_eq!(fs::read_dir(root).unwrap().count(), 1);
     assert!(!fixture.home.join("unused-sessions").exists());
+    assert!(!fixture.dest.join("sessions").exists());
+    assert!(!fixture.home.join("project/.rpi").exists());
     assert_eq!(
         read_json(&fixture.dest.join("settings.json"))["sessionDir"],
         "saved-sessions"
@@ -555,4 +558,28 @@ fn the_source_and_the_rpi_agent_directory_must_differ() {
         "{}",
         stderr(&output)
     );
+}
+
+#[test]
+fn no_configured_root_archives_under_agent_dir_and_creates_nothing_in_cwd() {
+    let fixture = Fixture::new();
+    let before = tree(fixture._temp.path());
+    let dry = fixture.run(&["--dry-run", "--only", "sessions"]);
+    assert_eq!(dry.status.code(), Some(0), "{}", stderr(&dry));
+    let dry_text = stdout(&dry);
+    let expected_dest = fixture.dest.join("sessions/pi-import");
+    assert!(
+        dry_text.contains(&expected_dest.display().to_string()),
+        "{dry_text}"
+    );
+    assert_eq!(tree(fixture._temp.path()), before);
+
+    let output = fixture.run(&["--yes", "--only", "sessions"]);
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let source = fs::read(fixture.src.join("sessions/--home-u-proj--/s1.jsonl")).unwrap();
+    let snapshot = fixture.session_snapshot(&source);
+    assert!(snapshot.is_file());
+    assert!(snapshot.starts_with(&expected_dest));
+    assert_eq!(mode_of(&snapshot), 0o600);
+    assert!(!fixture.home.join("project/.rpi").exists());
 }

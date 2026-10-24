@@ -40,7 +40,7 @@ mod source;
 mod util;
 
 use std::io::{BufRead, IsTerminal, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{EXIT_RUNTIME, EXIT_USAGE};
 use ledger::Ledger;
@@ -106,7 +106,7 @@ impl Prepared {
     }
 
     /// `source -> destination` for the category heading.
-    fn heading(&self, dest: &Path, session_dir: &Path) -> String {
+    fn heading(&self, dest: &Path, archive_dest: &Path) -> String {
         let to = |name: &str| dest.join(name).display().to_string();
         match self {
             Prepared::Credentials(_) => {
@@ -121,13 +121,45 @@ impl Prepared {
                 to(multiprovider::DEST_FILE)
             ),
             Prepared::Sessions(_) => {
-                format!(
-                    "{}/ -> {}/",
-                    source::SESSIONS_DIR,
-                    session_dir.join(sessions::DEST_DIR).display()
-                )
+                format!("{}/ -> {}/", source::SESSIONS_DIR, archive_dest.display())
             }
         }
+    }
+}
+
+/// Archive directory for imported Pi sessions.
+///
+/// If an explicit session root is configured (saved rpi `sessionDir` or
+/// `RPI_CODING_AGENT_SESSION_DIR`), imported sessions land under `<that root>/pi-import`.
+/// Otherwise, they land under the global agent directory (`<agent>/sessions/pi-import`),
+/// never under a cwd-local project directory.
+fn archive_root(cwd: &Path) -> PathBuf {
+    let explicit = crate::settings::load_settings()
+        .ok()
+        .and_then(|settings| settings.session_dir)
+        .or_else(|| {
+            std::env::var("RPI_CODING_AGENT_SESSION_DIR")
+                .ok()
+                .map(PathBuf::from)
+        });
+    if let Some(dir) = explicit {
+        let resolved = if dir.is_relative() && !dir.has_root() {
+            cwd.join(dir)
+        } else {
+            dir
+        };
+        resolved.join(sessions::DEST_DIR)
+    } else {
+        crate::config::agent_dir()
+            .map(|agent| agent.join("sessions").join(sessions::DEST_DIR))
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_default()
+                    .join(".rpi")
+                    .join("agent")
+                    .join("sessions")
+                    .join(sessions::DEST_DIR)
+            })
     }
 }
 
@@ -153,9 +185,10 @@ async fn execute(options: Options) -> Result<i32, String> {
         ));
     }
 
-    // Match normal startup, including a saved sessionDir and the environment
-    // fallback. Resolve before applying settings (Pi's sessionDir is ignored).
-    let session_dir = crate::session::configured_session_dir(&crate::args::Args::default(), &cwd);
+    // Match normal startup for explicit roots: saved sessionDir or the environment
+    // override. When no explicit root is configured, bulk archives land under the
+    // global agent directory (<agent>/sessions/pi-import) rather than cwd/.rpi/sessions.
+    let archive_dest = archive_root(&cwd);
     let mut import_ledger = Ledger::load(&dest.join(ledger::LEDGER_FILE))?;
     let mut prepared = Vec::new();
     for category in &options.categories {
@@ -176,14 +209,14 @@ async fn execute(options: Options) -> Result<i32, String> {
                 &import_ledger,
             )?),
             Category::Sessions => {
-                Prepared::Sessions(sessions::plan(&source, &session_dir, &import_ledger)?)
+                Prepared::Sessions(sessions::plan(&source, &archive_dest, &import_ledger)?)
             }
         });
     }
 
     report::print_header(&source, &dest);
     for item_group in &prepared {
-        let heading = item_group.heading(&dest, &session_dir);
+        let heading = item_group.heading(&dest, &archive_dest);
         report::print_category(item_group.category(), &heading, item_group.items());
     }
     let all_items: Vec<&Item> = prepared.iter().flat_map(|p| p.items().iter()).collect();
@@ -325,6 +358,37 @@ mod tests {
             let mut input = answer.as_bytes();
             let mut out = Vec::new();
             assert_eq!(confirm(&mut input, &mut out), expected, "answer {answer:?}");
+        }
+    }
+
+    #[test]
+    fn archive_root_falls_back_to_agent_dir_and_honors_explicit_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("project");
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        {
+            let _env = crate::config::test_support::SessionDirEnv::new(None);
+            let expected_default = crate::config::agent_dir()
+                .unwrap()
+                .join("sessions")
+                .join(sessions::DEST_DIR);
+            assert_eq!(archive_root(&cwd), expected_default);
+        }
+
+        let custom = tmp.path().join("custom");
+        {
+            let _env = crate::config::test_support::SessionDirEnv::new(Some(&custom));
+            assert_eq!(archive_root(&cwd), custom.join(sessions::DEST_DIR));
+        }
+
+        {
+            let _env =
+                crate::config::test_support::SessionDirEnv::new(Some(Path::new("relative-dir")));
+            assert_eq!(
+                archive_root(&cwd),
+                cwd.join("relative-dir").join(sessions::DEST_DIR)
+            );
         }
     }
 }

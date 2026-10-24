@@ -1,8 +1,10 @@
 //! Pi session files: archival copies with visible origin metadata.
 //!
-//! Each `sessions/**.jsonl` file is copied into `<session-root>/pi-import/`,
-//! keeping its sub-directory name. The copy is byte-identical to the source
-//! except for the header line (the first line), which gains one field:
+//! Each `sessions/**.jsonl` file is copied into `<archive-root>/`,
+//! keeping its sub-directory name. `<archive-root>` is `<explicit-root>/pi-import/`
+//! when an explicit session root is configured, else `<agent>/sessions/pi-import/`.
+//! The copy is byte-identical to the source except for the header line (the first
+//! line), which gains one field:
 //!
 //! ```json
 //! "imported": {"source": "pi", "sourcePath": "...", "sha256": "...", "sessionVersion": 3}
@@ -31,7 +33,7 @@ use super::plan::{record, Item, Outcome, Plan};
 use super::source::{self, SessionEntry};
 use super::util::{sha256_hex, write_private};
 
-/// Archive directory under the same resolved session root used by startup.
+/// Archive directory under an explicit session root or `<agent>/sessions`.
 pub(crate) const DEST_DIR: &str = "pi-import";
 /// Header field that records where a copy came from.
 pub(crate) const ORIGIN_FIELD: &str = "imported";
@@ -47,13 +49,8 @@ pub(crate) struct Write {
 
 pub(crate) type Writes = Vec<Write>;
 
-pub(crate) fn plan(
-    root: &Path,
-    session_dir: &Path,
-    ledger: &Ledger,
-) -> Result<Plan<Writes>, String> {
+pub(crate) fn plan(root: &Path, dest_root: &Path, ledger: &Ledger) -> Result<Plan<Writes>, String> {
     let mut plan = Plan::new(Vec::new());
-    let dest_root = session_dir.join(DEST_DIR);
     for entry in source::list_sessions(root)? {
         match entry {
             SessionEntry::Skipped { relative, reason } => {
@@ -65,7 +62,7 @@ pub(crate) fn plan(
                 ));
             }
             SessionEntry::File { relative, path } => {
-                plan_file(&mut plan, &dest_root, ledger, &relative, &path)?;
+                plan_file(&mut plan, dest_root, ledger, &relative, &path)?;
             }
         }
     }
