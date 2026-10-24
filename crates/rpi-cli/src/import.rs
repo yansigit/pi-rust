@@ -133,34 +133,29 @@ impl Prepared {
 /// `RPI_CODING_AGENT_SESSION_DIR`), imported sessions land under `<that root>/pi-import`.
 /// Otherwise, they land under the global agent directory (`<agent>/sessions/pi-import`),
 /// never under a cwd-local project directory.
-fn archive_root(cwd: &Path) -> PathBuf {
-    let explicit = crate::settings::load_settings()
+fn archive_root(cwd: &Path, agent: &Path) -> PathBuf {
+    let saved = crate::settings::load_settings()
         .ok()
-        .and_then(|settings| settings.session_dir)
-        .or_else(|| {
-            std::env::var("RPI_CODING_AGENT_SESSION_DIR")
-                .ok()
-                .map(PathBuf::from)
-        });
-    if let Some(dir) = explicit {
-        let resolved = if dir.is_relative() && !dir.has_root() {
-            cwd.join(dir)
-        } else {
-            dir
-        };
-        resolved.join(sessions::DEST_DIR)
-    } else {
-        crate::config::agent_dir()
-            .map(|agent| agent.join("sessions").join(sessions::DEST_DIR))
-            .unwrap_or_else(|_| {
-                dirs::home_dir()
-                    .unwrap_or_default()
-                    .join(".rpi")
-                    .join("agent")
-                    .join("sessions")
-                    .join(sessions::DEST_DIR)
-            })
+        .and_then(|settings| settings.session_dir);
+    let env = std::env::var_os("RPI_CODING_AGENT_SESSION_DIR").map(PathBuf::from);
+    resolve_archive_root(cwd, agent, saved, env)
+}
+
+/// Pure resolution behind [`archive_root`]: saved `sessionDir` wins over the
+/// environment override; relative roots resolve against the launch cwd; with
+/// neither, archives go under `<agent>/sessions`.
+fn resolve_archive_root(
+    cwd: &Path,
+    agent: &Path,
+    saved: Option<PathBuf>,
+    env: Option<PathBuf>,
+) -> PathBuf {
+    match saved.or(env) {
+        Some(dir) if dir.is_relative() && !dir.has_root() => cwd.join(dir),
+        Some(dir) => dir,
+        None => agent.join("sessions"),
     }
+    .join(sessions::DEST_DIR)
 }
 
 async fn execute(options: Options) -> Result<i32, String> {
@@ -188,7 +183,7 @@ async fn execute(options: Options) -> Result<i32, String> {
     // Match normal startup for explicit roots: saved sessionDir or the environment
     // override. When no explicit root is configured, bulk archives land under the
     // global agent directory (<agent>/sessions/pi-import) rather than cwd/.rpi/sessions.
-    let archive_dest = archive_root(&cwd);
+    let archive_dest = archive_root(&cwd, &dest);
     let mut import_ledger = Ledger::load(&dest.join(ledger::LEDGER_FILE))?;
     let mut prepared = Vec::new();
     for category in &options.categories {
@@ -365,30 +360,35 @@ mod tests {
     fn archive_root_falls_back_to_agent_dir_and_honors_explicit_root() {
         let tmp = tempfile::tempdir().unwrap();
         let cwd = tmp.path().join("project");
-        std::fs::create_dir_all(&cwd).unwrap();
+        let agent = tmp.path().join("agent");
+        let resolve = |saved: Option<&str>, env: Option<&str>| {
+            resolve_archive_root(
+                &cwd,
+                &agent,
+                saved.map(PathBuf::from),
+                env.map(PathBuf::from),
+            )
+        };
 
-        {
-            let _env = crate::config::test_support::SessionDirEnv::new(None);
-            let expected_default = crate::config::agent_dir()
-                .unwrap()
-                .join("sessions")
-                .join(sessions::DEST_DIR);
-            assert_eq!(archive_root(&cwd), expected_default);
-        }
+        let archives = Path::new("sessions").join(sessions::DEST_DIR);
+        assert_eq!(resolve(None, None), agent.join(&archives));
+        assert!(!resolve(None, None).starts_with(&cwd));
 
         let custom = tmp.path().join("custom");
-        {
-            let _env = crate::config::test_support::SessionDirEnv::new(Some(&custom));
-            assert_eq!(archive_root(&cwd), custom.join(sessions::DEST_DIR));
-        }
+        let custom_str = custom.to_str().unwrap();
+        assert_eq!(
+            resolve(None, Some(custom_str)),
+            custom.join(sessions::DEST_DIR)
+        );
+        assert_eq!(
+            resolve(None, Some("relative-dir")),
+            cwd.join("relative-dir").join(sessions::DEST_DIR)
+        );
 
-        {
-            let _env =
-                crate::config::test_support::SessionDirEnv::new(Some(Path::new("relative-dir")));
-            assert_eq!(
-                archive_root(&cwd),
-                cwd.join("relative-dir").join(sessions::DEST_DIR)
-            );
-        }
+        let saved = tmp.path().join("saved");
+        assert_eq!(
+            resolve(Some(saved.to_str().unwrap()), Some(custom_str)),
+            saved.join(sessions::DEST_DIR)
+        );
     }
 }
