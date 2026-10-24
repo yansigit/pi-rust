@@ -454,3 +454,64 @@ async fn loaded_cancel_revoke_and_unload_drain_blocked_foreign_emit() {
         fixture.session.begin_shutdown();
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn loaded_cancel_reclaims_tables_before_blocked_callback_and_library_drain() {
+    let fixture = Fixture::new();
+    let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    let directory = tempfile::tempdir().unwrap();
+    let marker = directory.path().join("blocked");
+    let mut options = SimpleStreamOptions::default();
+    options.metadata = Some(std::collections::BTreeMap::from([(
+        "marker".into(),
+        serde_json::json!(marker),
+    )]));
+    let stream = scope.run(fixture.stream("reclaim", &options)).await;
+    wait_file(&marker).await;
+    let descriptor = PathBuf::from(format!("{}.continuation", marker.display()));
+    wait_file(&descriptor).await;
+    let id = std::fs::read_to_string(descriptor).unwrap();
+    let observe = || rpi_extensions::delegation_test_hooks::continuation_storage(&id);
+    assert_eq!(observe(), Some((false, 0, 1, 1)));
+    options.signal.cancel();
+    let message = tokio::time::timeout(Duration::from_secs(8), stream.result())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(message.stop_reason, StopReason::Aborted);
+    wait_file(&PathBuf::from(format!("{}.waiting", marker.display()))).await;
+    tokio::time::timeout(Duration::from_secs(8), async {
+        while observe() != Some((true, 0, 0, 0)) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("host storage must reclaim while foreign callback is blocked");
+    assert!(!PathBuf::from(format!("{}.returned", marker.display())).exists());
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), scope.wait_idle())
+            .await
+            .is_err()
+    );
+    let library = Arc::downgrade(&fixture.session.keepalive());
+    fixture.session.begin_shutdown();
+    drop(fixture);
+    assert!(
+        library.upgrade().is_some(),
+        "executing foreign code must retain its library"
+    );
+    std::fs::write(format!("{}.release", marker.display()), "resume").unwrap();
+    wait_file(&PathBuf::from(format!("{}.returned", marker.display()))).await;
+    wait_file(&PathBuf::from(format!("{}.finished", marker.display()))).await;
+    assert!(PathBuf::from(format!("{}.nonzero", marker.display())).exists());
+    tokio::time::timeout(Duration::from_secs(8), scope.wait_idle())
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(8), async {
+        while observe().is_some() || library.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("producer, continuation and library ownership must drain after callback return");
+}
