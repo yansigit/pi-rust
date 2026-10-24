@@ -18,8 +18,9 @@ Test: `lifecycle_context_edit::context_edit_backends_validate_and_reopen` passes
 on Rust 1.95, memory/SQLite/JSONL reopen. JSONL uses the in-memory filesystem;
 SQLite uses an isolated temporary database. Mutation A1 disabled the off-branch
 check: killed (exit 101, `unwrap_err()` received a committed edit), reverted.
-Custom projected entries are not editable yet; only typed user/assistant/tool
-messages are supported. This is an explicit residual gap, not full Pi parity.
+Typed user/assistant/tool messages and the generic `custom` message role are
+editable. Arbitrary custom-entry projectors are not editable storage targets;
+this remains an explicit residual gap, not full Pi parity.
 
 ## A2 — canonical projection
 
@@ -32,8 +33,9 @@ branch-local; retained-tail ownership/serialization is unchanged.
 `lifecycle_context_edit` (2 tests) passes. Mutation A2 skipped edit replay:
 killed by the projection message-count assertion (exit 101), reverted.
 Reference: original `session-manager.js:238-270` (same absolute directory as A1).
-Unsupported typed replacement blocks are a remaining limitation; this is not
-qualification of arbitrary custom-message projectors or loaded Cursor.
+Unsupported typed replacement blocks are refused before acknowledgment rather
+than silently falling back to old content. This is a host typed-model constraint,
+not qualification of arbitrary custom-entry projectors or loaded Cursor.
 
 ## A3 — compaction continuation and brackets
 
@@ -110,3 +112,21 @@ The wider harness suite caught an admission regression on a lane with no
 provider: its prompt must still be placed before returning `no_provider`.
 That check now runs after the transcript boundary; all 210 harness unit tests
 and both pre-prompt tests pass with the correction.
+
+## Follow-up — replacement validation hardening
+
+Storage now refuses unsupported content blocks before acknowledging an edit
+(`Context edit content is not supported by the target message`, a host-only
+constraint of the closed typed message model). Generic `custom` messages accept
+string replacements with host-shell normalization; their durable edit still
+contains the original string, unlike assistant/tool edits. Canonical and
+compaction projection share that normalization. Other special custom roles and
+arbitrary custom-entry projectors remain non-editable, as they can render from
+opaque data rather than content.
+
+The existing backend fixture now covers assistant normalization, custom string
+replacement, and invalid-block refusal on memory/SQLite/JSONL. All eight new
+lifecycle tests pass. Mutation disabled typed-content validation: killed by the
+invalid-block refusal assertion (exit 101), reverted. This is a compatibility
+restriction relative to TypeScript's open content model, explicitly not a new
+C ABI contract.

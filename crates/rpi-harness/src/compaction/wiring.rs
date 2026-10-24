@@ -311,7 +311,11 @@ fn host_messages(
         return projected
             .messages
             .iter()
-            .filter_map(|message| serde_json::from_value(message.clone()).ok())
+            .filter_map(|message| {
+                let original =
+                    serde_json::from_value(projected.source.get("message")?.clone()).ok()?;
+                crate::session::context::replace_message_content(&original, message)
+            })
             .collect();
     }
     let Some(id) = projected.source.get("id").and_then(Value::as_str) else {

@@ -60,6 +60,73 @@ async fn qualify(repo: &impl SessionRepo) {
     let mut absent = wire;
     absent.as_object_mut().unwrap().remove("replacement");
     assert!(serde_json::from_value::<Entry>(absent).is_err());
+    assert!(store
+        .append_context_edit(
+            "unsupported".into(),
+            "message".into(),
+            json!({"content":[{"type":"unsupported-host-block"}]}),
+            "main"
+        )
+        .await
+        .is_err());
+    assert!(store.get_entry("unsupported").await.unwrap().is_none());
+    for (id, message) in [
+        (
+            "assistant",
+            AgentMessage::Assistant(Box::new(rpi_ai::providers::faux::faux_assistant_message(
+                "original",
+                rpi_ai::types::StopReason::Stop,
+            ))),
+        ),
+        (
+            "custom",
+            rpi_harness::messages::create_custom_message(
+                "fixture",
+                rpi_ai::types::UserContent::Text("original".into()),
+                true,
+                None,
+                1,
+            ),
+        ),
+    ] {
+        store
+            .append_entry(
+                ProvisionedEntry {
+                    id: id.into(),
+                    kind: ProvisionedKind::Message {
+                        message,
+                        terminate: None,
+                    },
+                },
+                "main",
+            )
+            .await
+            .unwrap();
+        let replaced = store
+            .append_context_edit(
+                format!("edit-{id}"),
+                id.into(),
+                json!({"content":"replaced"}),
+                "main",
+            )
+            .await
+            .unwrap();
+        if id == "assistant" {
+            assert_eq!(
+                replaced.to_flat_json()["replacement"],
+                json!({"content":[{"type":"text","text":"replaced"}]})
+            );
+        }
+    }
+    let mut entries = store.find_entries(&Default::default()).await.unwrap();
+    entries.sort_by_key(Entry::seq);
+    let context =
+        rpi_harness::session::context::build_session_context(&entries, &Default::default());
+    assert_eq!(context.messages.len(), 2);
+    assert!(context
+        .messages
+        .iter()
+        .all(|message| serde_json::to_string(message).unwrap().contains("replaced")));
     store.sync().await.unwrap();
     let reopened = repo.open(&store.metadata()).await.unwrap();
     assert_eq!(reopened.get_entry("omit").await.unwrap(), Some(edit));
