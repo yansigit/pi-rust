@@ -87,6 +87,7 @@ pub use oauth::{
     OAuthExtensionError, OAuthProviderInfo, OAuthResponseKind,
 };
 pub use prompt_transform::emit_before_agent_start;
+pub use provider::delegation;
 pub use provider::wrappers::{wrap_providers, RegisteredWrapper, WrapperManifest};
 pub use provider::PluggableProvider;
 pub use provider_hooks::ExtensionProviderHooks;

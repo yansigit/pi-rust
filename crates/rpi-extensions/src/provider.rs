@@ -58,6 +58,7 @@ use crate::PluginKeepalive;
 
 #[cfg(all(test, feature = "provider-performance"))]
 mod compact_tests;
+pub mod delegation;
 #[cfg(test)]
 mod lifetime_tests;
 #[cfg(all(test, feature = "provider-performance"))]
