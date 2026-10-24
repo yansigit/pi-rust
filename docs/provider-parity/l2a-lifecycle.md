@@ -34,3 +34,21 @@ killed by the projection message-count assertion (exit 101), reverted.
 Reference: original `session-manager.js:238-270` (same absolute directory as A1).
 Unsupported typed replacement blocks are a remaining limitation; this is not
 qualification of arbitrary custom-message projectors or loaded Cursor.
+
+## A3 — compaction continuation and brackets
+
+`will_retry` is explicit, not inferred from overflow. The host progress guard
+now includes before-hooks, extension overrides, cancellation, and persistence.
+Success hooks precede end; failure/cancel end precedes the failure hook. Drop
+also ends progress if the future is cancelled.
+
+Rust 1.95 `lifecycle_compaction` tests default/override/veto/signal and a completed
+over-window response with `willRetry:false`. Mutation A3 inferred retry from
+reason again: killed by the false assertion, reverted. Existing `life_compaction`
+tests also pass. This is a host-hook fixture, not a loaded native DLL.
+
+Reference: `/home/user/Projects/provider-references/multiprovider/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js:2511-2610`
+(embedded TS `agent-session.ts:3143-3272`). Public Pi-shaped start/end events
+are not added: `events.rs` is outside lane ownership; the existing host progress
+channel is explicitly not the Pi event payload. Lane integration needs that
+public adapter if exact public event payload parity is required.

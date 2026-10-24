@@ -89,6 +89,7 @@ impl AgentHarness {
         branch_entries: &[Entry],
         options: &CompactionLlmOptions,
         reason: CompactionReason,
+        will_retry: bool,
     ) -> Result<Option<(CompactResult, Entry)>, CompactionError> {
         let metadata = self
             .session
@@ -96,7 +97,6 @@ impl AgentHarness {
             .await
             .map_err(|e| CompactionError::summarization_failed(e.to_string()))?;
         let manual = matches!(reason, CompactionReason::Manual);
-        let will_retry = matches!(reason, CompactionReason::Overflow);
         let identity = RequestIdentity {
             session_id: Some(metadata.id),
             operation_id: if manual {
@@ -117,8 +117,14 @@ impl AgentHarness {
             });
         }
         rpi_ai::identity::scope(identity.clone(), async {
+            let mut progress = Some(crate::events::CompactionProgressGuard::new(
+                &self.bus, &self.lane, manual,
+            ));
             let mut from_extension = false;
             let outcome: Result<Option<(CompactResult, Entry)>, CompactionError> = async {
+                if options.signal.is_cancelled() {
+                    return Err(CompactionError::aborted("Compaction cancelled"));
+                }
                 let override_result = if let Some(hooks) = &hooks {
                     hooks
                         .lifecycle(
@@ -149,8 +155,6 @@ impl AgentHarness {
                         CompactionError::summarization_failed("invalid extension compaction result")
                     })?
                 } else {
-                    let _progress =
-                        crate::events::CompactionProgressGuard::new(&self.bus, &self.lane, manual);
                     compact(prep, &options).await?
                 };
                 if options.signal.is_cancelled() {
@@ -163,6 +167,11 @@ impl AgentHarness {
                 Ok(Some((result, entry)))
             }
             .await;
+            // Pi ends failed/cancelled compaction before its awaited failure hook;
+            // successful compaction ends after the awaited success hook.
+            if !matches!(&outcome, Ok(Some(_))) {
+                drop(progress.take());
+            }
             if let Some(hooks) = &hooks {
                 let (event, payload) = match &outcome {
                     Ok(Some((_, entry))) => (
@@ -190,6 +199,7 @@ impl AgentHarness {
                     .lifecycle(event, payload, identity, CancellationToken::new())
                     .await;
             }
+            drop(progress);
             outcome
         })
         .await
