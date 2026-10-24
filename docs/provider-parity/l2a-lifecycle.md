@@ -130,3 +130,43 @@ lifecycle tests pass. Mutation disabled typed-content validation: killed by the
 invalid-block refusal assertion (exit 101), reverted. This is a compatibility
 restriction relative to TypeScript's open content model, explicitly not a new
 C ABI contract.
+
+## Final offline gates and integration handoff
+
+Machine-readable commands, log hashes, mutation logs and TS references:
+[l2a-lifecycle-results.json](l2a-lifecycle-results.json).
+
+| Gate | Result |
+| --- | --- |
+| Rust 1.78 workspace/all-targets, `-Dwarnings` | BLOCKED: E0004, CLI exhaustive Entry match |
+| Rust 1.78 harness/all-targets, `-Dwarnings` | PASS |
+| Rust 1.78 SDK minimal / provider-only, `-Dwarnings` | PASS / PASS |
+| Rust 1.95 full workspace tests | BLOCKED: same E0004 before tests |
+| Rust 1.95 workspace tests excluding CLI | PASS: 1643 passed, 0 failed, 8 ignored, including doc-tests |
+| Eight new lifecycle tests | PASS; no new ignores |
+| `cargo fmt --all --check` / `git diff --check` | PASS / PASS |
+| All seven `docs/provider-parity/check-*.mjs` | PASS; no `FAIL` lines |
+
+All cargo invocations were foreground, bounded by `timeout 270`; cold non-CLI
+builds timed out and were rerun to completion. The first broader run caught the
+no-provider transcript regression documented under A5; it was fixed before the
+passing final run. The full workspace baseline (2432/0/26) is **not** requalified.
+
+**Lane B / shared events:** the new Rust Entry variant needs an exhaustive arm at
+`crates/rpi-cli/src/interactive_tui/sessions.rs:365`; current full gates fail
+there, so this branch is not independently merge-green. No B-owned file was
+edited. Display/replay must not treat edits as ordinary messages. A shared host
+event/native JSON adapter is needed for Pi-shaped `entry_appended`, compaction
+start/end result/error/aborted/willRetry (including end-only exhaustion); the
+current progress channel does not carry them. Preserve existing C ABI slots.
+
+**Lane C:** consume authoritative edited context, not raw message entries; do
+loaded Cursor acceptance for omission → compact → restore/continue, late writes,
+queues/tools and cancellation. Existing retained-tail data stays host-owned.
+
+**Lane D:** no required new catalog/runtime interface from this implementation.
+Generation-bound hook providers still need the B/D integration matrix. No edits
+to `model_registry.rs` or `provider_runtime.rs` were made.
+
+H05/H06/H10 remain partial. Neither these component tests nor historical evidence
+files qualify loaded native/plugin, crash, replacement or live provider behavior.
