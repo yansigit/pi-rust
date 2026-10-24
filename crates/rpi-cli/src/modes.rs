@@ -306,9 +306,31 @@ pub async fn rpc(
     .await
 }
 
+/// RPC host with live lifecycle cells. The legacy wrapper remains available to
+/// embedders without a replacement factory and refuses replacement commands.
+pub async fn rpc_with_context(
+    harness: &AgentHarness,
+    agent_events: Option<tokio::sync::broadcast::Receiver<AgentEvent>>,
+    model_catalog: Vec<rpi_ai::Model>,
+    reload: &crate::session::ReloadContext,
+) -> i32 {
+    let extensions = reload.extension_session.lock().unwrap().clone();
+    rpc_with_io_context(
+        harness,
+        agent_events,
+        model_catalog,
+        reload.ui_dialog.clone(),
+        Some(extensions),
+        Some(reload),
+        tokio::io::BufReader::new(tokio::io::stdin()),
+        std::io::stdout(),
+    )
+    .await
+}
+
 async fn rpc_with_io<R, W>(
     harness: &AgentHarness,
-    mut agent_events: Option<tokio::sync::broadcast::Receiver<AgentEvent>>,
+    agent_events: Option<tokio::sync::broadcast::Receiver<AgentEvent>>,
     model_catalog: Vec<rpi_ai::Model>,
     ui_dialog: rpi_extensions::UiDialogMailbox,
     extensions: Option<rpi_extensions::ExtensionSession>,
@@ -319,7 +341,34 @@ where
     R: tokio::io::AsyncBufRead + Unpin,
     W: Write + Send + 'static,
 {
-    let oauth_snapshot = extensions
+    rpc_with_io_context(
+        harness,
+        agent_events,
+        model_catalog,
+        ui_dialog,
+        extensions,
+        None,
+        input,
+        output,
+    )
+    .await
+}
+
+async fn rpc_with_io_context<R, W>(
+    harness: &AgentHarness,
+    mut agent_events: Option<tokio::sync::broadcast::Receiver<AgentEvent>>,
+    model_catalog: Vec<rpi_ai::Model>,
+    ui_dialog: rpi_extensions::UiDialogMailbox,
+    extensions: Option<rpi_extensions::ExtensionSession>,
+    lifecycle: Option<&crate::session::ReloadContext>,
+    input: R,
+    output: W,
+) -> i32
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: Write + Send + 'static,
+{
+    let mut oauth_snapshot = extensions
         .as_ref()
         .and_then(|session| session.snapshot_arc());
     let lane: Arc<dyn AgentLane> = harness.lane("main");
@@ -546,11 +595,16 @@ where
                 break;
             }
             "extension_command" => {
+                let live_extensions = lifecycle
+                    .map(|reload| reload.extension_session.lock().unwrap().clone())
+                    .or_else(|| extensions.clone());
                 let call = (|| {
                     if command_tasks.len() >= 64 {
                         return Err("native command capacity exhausted".to_owned());
                     }
-                    let session = extensions.as_ref().ok_or("extensions are unavailable")?;
+                    let session = live_extensions
+                        .as_ref()
+                        .ok_or("extensions are unavailable")?;
                     let name = msg["name"]
                         .as_str()
                         .ok_or("extension_command requires a name")?
@@ -601,6 +655,56 @@ where
                         });
                     }
                 }
+                continue;
+            }
+            "new_session" | "switch_session" | "fork" => {
+                if command_tasks.len() >= 64 {
+                    write_line(
+                        &stdout,
+                        &rpc_protocol::response(
+                            Some(id),
+                            &kind,
+                            Err("native command capacity exhausted".into()),
+                        ),
+                    )
+                    .await;
+                    continue;
+                }
+                let Some(reload) = lifecycle else {
+                    write_line(
+                        &stdout,
+                        &rpc_protocol::response(
+                            Some(id),
+                            &kind,
+                            Err("session replacement requires a fresh runtime factory".into()),
+                        ),
+                    )
+                    .await;
+                    continue;
+                };
+                let reload = reload.clone();
+                let host = harness.clone();
+                let out = stdout.clone();
+                let active = run_active.clone();
+                command_tasks.spawn(async move {
+                    // An accepted prompt can still be waiting to enter the lane.
+                    // Let admission finish before the before-hook/settlement check.
+                    while active.load(std::sync::atomic::Ordering::Acquire)
+                        && host
+                            .snapshot()
+                            .await
+                            .map(|s| s.active.is_none())
+                            .unwrap_or(false)
+                    {
+                        tokio::task::yield_now().await;
+                    }
+                    let result = rpc_replace_session(&host, &reload, &kind, &msg).await;
+                    write_line(
+                        &out,
+                        &rpc_protocol::response(Some(id), &kind, result.map(Some)),
+                    )
+                    .await;
+                });
                 continue;
             }
             "prompt" | "resume_pending" | "compact" => {
@@ -729,6 +833,9 @@ where
             _ => {}
         }
 
+        if let Some(reload) = lifecycle {
+            oauth_snapshot = reload.extension_session.lock().unwrap().snapshot_arc();
+        }
         let result = match kind.as_str() {
             "abort" if run_active.load(std::sync::atomic::Ordering::Acquire) => {
                 // This also covers abort arriving before the task enters the lane.
@@ -1277,6 +1384,44 @@ async fn rpc_clear_queue(lane: &Arc<dyn AgentLane>) -> Result<serde_json::Value,
         "steering": result.steering,
         "followUp": result.follow_up,
     }))
+}
+
+async fn rpc_replace_session(
+    harness: &AgentHarness,
+    reload: &crate::session::ReloadContext,
+    kind: &str,
+    msg: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use crate::session::{HostSessionRequest, SessionReplacement};
+    let request = match kind {
+        "new_session" => HostSessionRequest::New,
+        "switch_session" => HostSessionRequest::Resume(
+            msg.get("sessionPath")
+                .or_else(|| msg.get("sessionId"))
+                .and_then(|v| v.as_str())
+                .ok_or("switch_session requires a sessionPath")?
+                .to_owned(),
+        ),
+        "fork" => HostSessionRequest::Fork {
+            entry_id: msg
+                .get("entryId")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned),
+            position: match msg.get("position").and_then(|v| v.as_str()) {
+                None | Some("before") => rpi_harness::session::types::ForkPosition::Before,
+                Some("at") => rpi_harness::session::types::ForkPosition::At,
+                _ => return Err("fork position must be before or at".into()),
+            },
+        },
+        _ => return Err("unknown session replacement command".into()),
+    };
+    match crate::session::replace_host_session(harness, reload, request).await? {
+        SessionReplacement::Cancelled { .. } => Ok(serde_json::json!({"cancelled": true})),
+        SessionReplacement::Replaced => Ok(serde_json::json!({
+            "cancelled": false, "sessionId": harness.session().storage().metadata().id,
+            "sessionFile": harness.session().storage().location().await.map_err(|e| e.to_string())?,
+        })),
+    }
 }
 
 async fn rpc_navigate(

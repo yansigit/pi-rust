@@ -23,6 +23,16 @@ pub enum Command {
         message: String,
     },
     Abort,
+    NewSession,
+    SwitchSession {
+        #[serde(rename = "sessionPath")]
+        session_path: String,
+    },
+    Fork {
+        #[serde(rename = "entryId")]
+        entry_id: Option<String>,
+        position: Option<String>,
+    },
     GetState,
     GetCommands,
     ExtensionCommand {
@@ -98,6 +108,9 @@ pub enum Command {
 
 pub const SUPPORTED_COMMANDS: &[&str] = &[
     "get_state",
+    "new_session",
+    "switch_session",
+    "fork",
     "get_commands",
     "extension_command",
     "get_messages",

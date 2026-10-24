@@ -142,4 +142,49 @@ pub extern "C" fn rpi_plugin_register(_: *const u8) -> i32 { 0 }
         .as_ref()
         .unwrap()
         .is_active());
+    let source_id = harness.session().storage().metadata().id.clone();
+    let anchor = harness
+        .session()
+        .append_message(rpi_agent::AgentMessage::User(rpi_ai::UserMessage::new(
+            "fork-anchor",
+            0,
+        )))
+        .await
+        .unwrap();
+    harness.session().sync().await.unwrap();
+    replace_host_session(
+        &harness,
+        &context,
+        HostSessionRequest::Fork {
+            entry_id: Some(anchor.clone()),
+            position: rpi_harness::session::types::ForkPosition::Before,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(harness
+        .session()
+        .get_entry(&anchor)
+        .await
+        .unwrap()
+        .is_none());
+    replace_host_session(&harness, &context, HostSessionRequest::Resume(source_id))
+        .await
+        .unwrap();
+    replace_host_session(
+        &harness,
+        &context,
+        HostSessionRequest::Fork {
+            entry_id: Some(anchor.clone()),
+            position: rpi_harness::session::types::ForkPosition::At,
+        },
+    )
+    .await
+    .unwrap();
+    assert!(harness
+        .session()
+        .get_entry(&anchor)
+        .await
+        .unwrap()
+        .is_some());
 }

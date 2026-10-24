@@ -26,18 +26,24 @@ impl SlashCommand for ClearChatCommand {
     fn name(&self) -> &'static str {
         "/clear"
     }
-    fn aliases(&self) -> &'static [&'static str] {
-        &["/new"]
-    }
-    // `/new` carries its own weight as a discoverable entry, so surface it.
-    fn alias_visible(&self) -> &'static [&'static str] {
-        &["/new"]
-    }
     fn description(&self) -> &'static str {
-        "Clear the conversation"
+        "Clear the display (keep the session)"
     }
     fn execute(&self, ctx: &CommandContext, _args: &str) {
         let _ = ctx.tx.send(TuiMessage::ClearChat);
+    }
+}
+
+pub(super) struct NewSessionCommand;
+impl SlashCommand for NewSessionCommand {
+    fn name(&self) -> &'static str {
+        "/new"
+    }
+    fn description(&self) -> &'static str {
+        "Start a new session"
+    }
+    fn execute(&self, ctx: &CommandContext, _args: &str) {
+        let _ = ctx.tx.send(TuiMessage::NewSession);
     }
 }
 
@@ -831,6 +837,7 @@ pub(super) fn build_builtin_registry() -> CommandRegistry {
     let mut r = CommandRegistry::new();
     r.register(Arc::new(HelpCommand));
     r.register(Arc::new(ClearChatCommand));
+    r.register(Arc::new(NewSessionCommand));
     r.register(Arc::new(ExitCommand));
     r.register(Arc::new(VersionCommand));
     r.register(Arc::new(ChangelogCommand));

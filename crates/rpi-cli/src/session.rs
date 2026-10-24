@@ -1128,6 +1128,8 @@ fn extension_tool_result_hook(sessions: ExtensionSessionCell) -> rpi_agent::Afte
 /// placeholder during the swap.
 pub type ExtensionSessionCell = Arc<Mutex<ExtensionSession>>;
 
+mod replacement_requests;
+pub use replacement_requests::{replace_host_session, HostSessionRequest};
 mod runtime_factory;
 pub use runtime_factory::SessionRuntimeFactory;
 
@@ -2982,6 +2984,8 @@ pub enum SessionReplacementReason {
     New,
     Resume,
     Fork,
+    /// Pi's command default: exclude the selected entry.
+    ForkBefore,
     Import,
 }
 
@@ -2990,7 +2994,7 @@ impl SessionReplacementReason {
         match self {
             Self::New => "new",
             Self::Resume => "resume",
-            Self::Fork => "fork",
+            Self::Fork | Self::ForkBefore => "fork",
             Self::Import => "import",
         }
     }
@@ -3027,10 +3031,7 @@ pub struct SessionReplacementContext<'a> {
 /// the action would deadlock.
 ///
 /// Order (Pi `agent-session-runtime.ts`):
-/// 1. require an idle lane. Pi settles the active response first
-///    (`teardownCurrent`); rpi refuses while an operation is active so a plugin
-///    action invoked from that operation cannot deadlock waiting for itself.
-///    Interactive callers abort and wait before calling;
+/// 1. admit a non-overlapping request (runtime callbacks must be idle);
 /// 2. `session_before_switch` (new/resume/import) or `session_before_fork`
 ///    (fork) — a handler can cancel and the old session stays active;
 /// 3. `session_shutdown { reason, targetSessionFile }`;
@@ -3096,16 +3097,22 @@ async fn replace_active_session_inner(
         .flatten();
     let target_file = session.storage().location().await.ok().flatten();
 
-    let before = if reason == SessionReplacementReason::Fork {
+    let before = if matches!(
+        reason,
+        SessionReplacementReason::Fork | SessionReplacementReason::ForkBefore
+    ) {
         rpi_plugin_sdk::EventTag::SessionBeforeFork
     } else {
         rpi_plugin_sdk::EventTag::SessionBeforeSwitch
     };
-    let before_payload = if reason == SessionReplacementReason::Fork {
+    let before_payload = if matches!(
+        reason,
+        SessionReplacementReason::Fork | SessionReplacementReason::ForkBefore
+    ) {
         serde_json::json!({
             "reason": reason.as_str(),
             "entryId": fork_entry_id,
-            "position": "at",
+            "position": if reason == SessionReplacementReason::ForkBefore { "before" } else { "at" },
             "targetSessionFile": target_file,
         })
     } else {
@@ -3220,9 +3227,37 @@ pub(crate) async fn fork_session_storage(
     cwd: &str,
     dir: &Path,
 ) -> Result<Session, String> {
+    fork_session_storage_at(
+        harness,
+        cwd,
+        dir,
+        None,
+        rpi_harness::session::types::ForkPosition::Before,
+    )
+    .await
+}
+
+pub(crate) async fn fork_session_storage_at(
+    harness: &AgentHarness,
+    cwd: &str,
+    dir: &Path,
+    entry_id: Option<String>,
+    position: rpi_harness::session::types::ForkPosition,
+) -> Result<Session, String> {
     use rpi_harness::session::jsonl::{JsonlSessionRepo, JsonlSessionRepoOptions};
     use rpi_tools::FileSystem;
 
+    if let Some(id) = &entry_id {
+        if harness
+            .session()
+            .get_entry(id)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            return Err("Invalid entry ID for forking".into());
+        }
+    }
     let env = Arc::new(OsExecutionEnv::with_cwd(PathBuf::from(cwd)));
     let fs: Arc<dyn FileSystem> = env.clone();
     let repo = JsonlSessionRepo::with_env_cwd(JsonlSessionRepoOptions {
@@ -3252,7 +3287,10 @@ pub(crate) async fn fork_session_storage(
                 cwd: cwd.to_string(),
                 metadata: None,
             },
-            &rpi_harness::session::types::ForkOptions::default(),
+            &rpi_harness::session::types::ForkOptions::Branch {
+                entry_id,
+                position: Some(position),
+            },
         )
         .await
         .map_err(|e| e.to_string())?;
