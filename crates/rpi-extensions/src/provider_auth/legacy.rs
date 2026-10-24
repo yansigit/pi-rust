@@ -26,6 +26,9 @@ impl LegacyOAuthAuth {
                     id: "oauth".into(),
                     name: "OAuth".into(),
                     kind: AuthMethodKind::Oauth,
+                    // The old registration exposes no login label.
+                    login_label: None,
+                    interactive_login: None,
                 }],
             },
             snapshot,

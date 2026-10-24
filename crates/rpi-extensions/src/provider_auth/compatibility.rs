@@ -28,6 +28,9 @@ impl ProviderAuthentication {
                         id: "api_key".into(),
                         name: "API key".into(),
                         kind: AuthMethodKind::ApiKey,
+                        login_label: None,
+                        // The host's own key prompt is interactive, not paste-only.
+                        interactive_login: Some(true),
                     }],
                 }))
             },
