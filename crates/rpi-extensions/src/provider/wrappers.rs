@@ -198,6 +198,9 @@ impl Continuation {
             None => work.await,
         }
     }
+    pub(super) fn epoch_signal(&self) -> Option<CancellationToken> {
+        self.caller.as_ref().map(|caller| caller.epoch().signal())
+    }
     pub(super) fn descriptor(&self) -> Value {
         json!({"version":1,"id":self.id,"generation":self.generation})
     }

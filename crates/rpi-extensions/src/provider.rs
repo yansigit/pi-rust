@@ -269,7 +269,9 @@ impl Provider for PluggableProvider {
         // `'static`. `SimpleStreamOptions` IS `Clone` (verified, provider.rs:27),
         // so a single clone carries every field into the task.
         let mut opts = opts.clone();
-        opts.signal = prod.cancellation_token();
+        // Internal admission cancellation must not cancel the public producer:
+        // otherwise epoch revocation is normalized into a user-abort terminal.
+        opts.signal = prod.cancellation_token().child_token();
         let shutdown = self._keepalive.shutdown_signal();
         let admission = opts.signal.clone();
         self.runtime.spawn(async move {
@@ -599,6 +601,10 @@ async fn drive_streaming_plugin_provider(
     // `options.signal` is the same cancellation contract the built-in providers
     // honor: the agent loop cancels this token when the user aborts the run.
     let cancel = opts.signal.clone();
+    let epoch_signal = lifetime
+        .continuation
+        .as_ref()
+        .and_then(|continuation| continuation.epoch_signal());
     let request_json = if let Some(continuation) = &lifetime.continuation {
         let mut request =
             serde_json::json!({"model":model,"context":ctx,"options":options_json(opts)});
@@ -755,6 +761,12 @@ async fn drive_streaming_plugin_provider(
             },
         }
     };
+    // Revocation is an authority failure, not a user abort. Keep that cause even
+    // when its admission monitor also cancelled the owning FFI invocation.
+    if epoch_signal.is_some_and(|signal| signal.is_cancelled()) {
+        message.stop_reason = rpi_ai::types::StopReason::Error;
+        message.error_message = Some("delegation epoch revoked".into());
+    }
     if message.provider.is_empty() {
         message.provider = record.provider_id.clone();
     }
