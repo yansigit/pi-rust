@@ -350,12 +350,25 @@ async fn scope_lease_cancelled_foreign_work_retains_local_and_global_admission()
     struct Held {
         entered: AtomicUsize,
         finished: AtomicUsize,
+        dealloc_entered: AtomicUsize,
         release: AtomicBool,
+        release_dealloc: AtomicBool,
+    }
+    static DEALLOC_STATE: std::sync::Mutex<Option<Arc<Held>>> = std::sync::Mutex::new(None);
+    extern "C" fn held_free(output: StbString) {
+        let held = DEALLOC_STATE.lock().unwrap().as_ref().unwrap().clone();
+        held.dealloc_entered.fetch_add(1, Ordering::SeqCst);
+        while !held.release_dealloc.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        // SAFETY: held transfers an SDK-allocated string to this deallocator.
+        unsafe { rpi_plugin_sdk::callbacks::free_string(output) };
     }
     struct Release(Arc<Held>);
     impl Drop for Release {
         fn drop(&mut self) {
             self.0.release.store(true, Ordering::SeqCst);
+            self.0.release_dealloc.store(true, Ordering::SeqCst);
         }
     }
     extern "C" fn held(
@@ -383,8 +396,11 @@ async fn scope_lease_cancelled_foreign_work_retains_local_and_global_admission()
     let held_state = Arc::new(Held {
         entered: AtomicUsize::new(0),
         finished: AtomicUsize::new(0),
+        dealloc_entered: AtomicUsize::new(0),
         release: AtomicBool::new(false),
+        release_dealloc: AtomicBool::new(false),
     });
+    *DEALLOC_STATE.lock().unwrap() = Some(held_state.clone());
     let _release_on_panic = Release(held_state.clone());
     {
         let mut state = f.root.services.state.lock().unwrap();
@@ -396,6 +412,7 @@ async fn scope_lease_cancelled_foreign_work_retains_local_and_global_admission()
             .registration
             .callback;
         callback.request = held;
+        callback.free = held_free;
         callback.context = Arc::as_ptr(&held_state) as *mut c_void;
     }
     let epoch = CancellationToken::new();
@@ -456,6 +473,29 @@ async fn scope_lease_cancelled_foreign_work_retains_local_and_global_admission()
         "scope service lease capacity exhausted"
     );
     held_state.release.store(true, Ordering::SeqCst);
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while held_state.dealloc_entered.load(Ordering::SeqCst) != 256 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    // All foreign callbacks have returned, but their registered output
+    // deallocators are still blocked: both admission budgets must remain held.
+    assert_eq!(held_state.finished.load(Ordering::SeqCst), 256);
+    for (fixture, id) in [(&f, &ids[0]), (&other, &other_id)] {
+        assert_eq!(
+            tokio::time::timeout(
+                std::time::Duration::from_secs(1),
+                call(fixture, id, "resolve")
+            )
+            .await
+            .expect("blocked output deallocator released admission")
+            .unwrap_err(),
+            "scope service lease capacity exhausted"
+        );
+    }
+    held_state.release_dealloc.store(true, Ordering::SeqCst);
     tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
             if held_state.finished.load(Ordering::SeqCst) >= 256

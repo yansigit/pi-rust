@@ -42,15 +42,14 @@ extern "C" fn service(
         let response =
             unsafe { sdk::callbacks::OwnedString::from_raw(response, Some(api.free_string)) };
         let mut response: Value = serde_json::from_str(&response.to_string_lossy()).unwrap();
+        if rc != 0 {
+            return out(output, json!({"version":1,"error":response["error"]}));
+        }
         let client = Client::new(&api).unwrap().scoped().unwrap();
         let context = tokio::runtime::Runtime::new().unwrap().block_on(client.request(
             json!({"port":"context","action":"inspect"}), Default::default())).unwrap();
         response["serviceScopeId"] = context["scopeId"].clone();
-        if rc == 0 {
-            out(output, json!({"version":1,"result":response}))
-        } else {
-            out(output, json!({"version":1,"error":response["error"]}))
-        }
+        out(output, json!({"version":1,"result":response}))
     })
 }
 extern "C" fn request(input: StbStringRef, output: *mut StbString, _: *mut c_void) -> i32 {
