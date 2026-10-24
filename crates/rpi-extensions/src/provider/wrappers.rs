@@ -248,6 +248,12 @@ impl Continuation {
         input: Value,
         signal: CancellationToken,
     ) -> Result<Value, AuthError> {
+        // Parse before preflight or any target authentication callback.
+        let v2_options = if input["version"] == 2 {
+            Some(v2::account_auth_options(&input["options"]).map_err(|_| AuthError::Resolve)?)
+        } else {
+            None
+        };
         let target = if input["version"] == 2 {
             Some(self.target(&input).map_err(|_| AuthError::Resolve)?)
         } else {
@@ -284,7 +290,9 @@ impl Continuation {
             account_id,
         )
         .ok_or(AuthError::Store)?;
-        let options = if input["options"].is_null() {
+        let options = if let Some(options) = v2_options {
+            options
+        } else if input["options"].is_null() {
             AuthOptions::default()
         } else {
             #[derive(Deserialize)]

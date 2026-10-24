@@ -1,5 +1,31 @@
 use super::*;
 
+/// v2 credentials come only from the selected target account or host ambient
+/// auth. An empty env is accepted for SDK compatibility; no caller overrides
+/// (including apparently non-secret ones) have trusted target provenance.
+pub(super) fn account_auth_options(input: &Value) -> Result<AuthOptions, String> {
+    #[derive(Default, Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+    struct Options {
+        env: std::collections::BTreeMap<String, String>,
+        minimum_validity_ms: Option<i64>,
+    }
+    let options: Options = if input.is_null() {
+        Options::default()
+    } else {
+        serde_json::from_value(input.clone()).map_err(|_| {
+            "v2 auth options permit only minimumValidityMs and empty env".to_string()
+        })?
+    };
+    if !options.env.is_empty() {
+        return Err("v2 auth options forbid caller environment overrides".into());
+    }
+    Ok(AuthOptions {
+        minimum_validity_ms: options.minimum_validity_ms,
+        ..Default::default()
+    })
+}
+
 impl Continuation {
     pub(super) fn target(&self, input: &Value) -> Result<ResolvedDelegationTarget, String> {
         let caller = self.caller.as_ref().ok_or("delegation v2 unavailable")?;
@@ -41,6 +67,7 @@ impl Continuation {
                     Ok(json!({"version":2,"target":id,"model":model}))
                 }
                 Some("auth.resolveAmbient") => {
+                    account_auth_options(&input["options"])?;
                     let target = self.target(&input)?;
                     if input["provider"].as_str() != Some(target.model().provider.as_str())
                         || input["model"].as_str() != Some(target.model().id.as_str())
@@ -63,6 +90,7 @@ impl Continuation {
                     Ok(json!({"version":2,"receipt":id}))
                 }
                 Some("resolveAuth") => {
+                    account_auth_options(&input["options"])?;
                     let target = self.target(&input)?;
                     let released = target.signal();
                     tokio::select! { biased;
