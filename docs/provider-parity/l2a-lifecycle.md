@@ -52,3 +52,35 @@ Reference: `/home/user/Projects/provider-references/multiprovider/node_modules/@
 are not added: `events.rs` is outside lane ownership; the existing host progress
 channel is explicitly not the Pi event payload. Lane integration needs that
 public adapter if exact public event payload parity is required.
+
+## A4 — persisted omission and one continuation
+
+Runtime orchestration now gives ordinary retry scheduling precedence, settles the
+failed generation, resolves source IDs before editing, writes null edits through
+the opt-in backend API, prepares from the edited path, compacts and invokes the
+agent loop once more. The recovery budget is separate from ordinary retries;
+invocation settlement indices advance independently. A second overflow/length
+returns the exact terminal error and emits host end before the failure hook.
+No second summarizer is entered on exhaustion. Post-run compaction does not
+repeat a recovery already evaluated in the invocation loop.
+
+References (original source-map TS): `agent-session.ts:1241-1256`,
+`agent-session.ts:1943`, `agent-session.ts:2977-3272`; executable
+`/home/user/Projects/provider-references/multiprovider/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js:839-855`,
+`:1501-1537`, `:2362-2610` (exact errors at 2418-2419, 2594).
+
+Tests: `lifecycle_overflow` (3/3), plus restored A1/A3 tests (2/2), pass.
+The Faux fixtures explicitly give continuation errors timestamps after the
+compaction clock: default Faux timestamp 1 correctly triggers Pi's stale-error
+suppression and is not a valid second-overflow fixture. Mutation A4 reset the
+budget supplied to the decision before continuation: both exact-error tests
+failed (exit 101); reverted and all tests rerun. The mutation did not necessarily
+make a third call: after omission, preparation can correctly be empty.
+
+Remaining cross-lane work: `HarnessEvent::CompactionProgress` carries only
+active/manual/lane, not Pi end payload/error; it cannot by itself qualify public
+Pi-shaped event parity. There is no host entry-appended event in this bus. Lane B
+must bridge omission entries and compaction start/end into existing native JSON
+transport without changing C ABI. These tests use real host/provider hooks but
+not a loaded native DLL. Crash/restart budgeting and loaded queue/tool-result
+recovery matrix remain unqualified; the in-process one-use budget is covered.

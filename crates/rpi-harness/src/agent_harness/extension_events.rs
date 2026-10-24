@@ -82,6 +82,34 @@ impl AgentHarness {
         }
     }
 
+    /// Exhaustion has no new start/summarizer. The public end adapter must
+    /// precede this failure hook (the host progress channel has no payload).
+    pub(super) async fn recovery_exhausted(&self, run_id: &str, error: &str) {
+        self.bus.emit(&HarnessEvent::CompactionProgress(
+            crate::events::CompactionProgressEvent {
+                lane: self.lane.clone(),
+                manual: false,
+                active: false,
+            },
+        ));
+        let hooks = self.inner.lock().unwrap().provider_hooks.clone();
+        if let Some(hooks) = hooks {
+            let identity =
+                RequestIdentity::operation(Some(self.session.storage().metadata().id), run_id);
+            let _ = hooks
+                .lifecycle(
+                    "session_compact_failed",
+                    serde_json::json!({
+                        "reason":"overflow", "automatic":true, "fromExtension":false,
+                        "aborted":false, "willRetry":false, "errorMessage":error,
+                    }),
+                    identity,
+                    CancellationToken::new(),
+                )
+                .await;
+        }
+    }
+
     pub(super) async fn compact_with_extensions(
         &self,
         run_id: &str,
