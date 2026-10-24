@@ -42,5 +42,25 @@ Mutation: abort-and-settle before the veto is killed (exit 101, `veto must not
 abort the response`); reverted; five integration tests and loaded fixture pass.
 The harness tests require a multi-thread Tokio runtime for its blocking hooks.
 
+## B3 — host commands
+
+`/new` has a distinct command and TUI message: it creates and activates a native
+JSONL session through the coordinator; `/clear` clears widgets only. RPC now
+advertises `new_session`, `switch_session` (`sessionPath`) and `fork` (`entryId`,
+`position` before/at), runs replacement off the input loop, and reads live
+registrations for command/auth discovery. Legacy factory-free RPC embedders
+refuse replacement. The host-owned API `rpc_with_context` enables it. No SDK or
+ABI change. The TUI and RPC both reuse `replace_host_session`.
+
+Fork command default is now `before`, matching
+`/home/user/Projects/provider-references/multiprovider/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session-runtime.js:175-195`.
+The explicit `at` path remains supported without changing harness defaults.
+
+Tests: real offline RPC process creates a different session/file, fails a bad
+resume without changing identity, resumes the original, and rejects invalid fork
+IDs; loaded fixture checks before excludes and at retains the selected message.
+Command-registry test distinguishes `/clear` and `/new`. Mutation: alias `/new`
+back to ClearChat, killed by registry dispatch (exit 101), reverted.
+
 Remaining qualification and final gates are recorded below as they run. Do not
 interpret this lane's component tests as closure of H05/H06/H10 or C09.

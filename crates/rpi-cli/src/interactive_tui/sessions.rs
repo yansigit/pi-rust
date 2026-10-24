@@ -283,7 +283,7 @@ pub(super) async fn fork_session(
             )),
         },
         new_session,
-        crate::session::SessionReplacementReason::Fork,
+        crate::session::SessionReplacementReason::ForkBefore,
         leaf.as_deref(),
     )
     .await

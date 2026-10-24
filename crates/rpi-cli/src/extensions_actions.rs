@@ -920,24 +920,41 @@ impl RuntimeActionHost for HarnessActionHost {
         Ok(serde_json::json!({ "sessionId": id }))
     }
 
-    async fn fork(&self, _args: serde_json::Value) -> Result<serde_json::Value, String> {
+    async fn fork(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
         let harness = self.harness()?;
         let cwd_str = self.cwd.to_string_lossy().to_string();
-        let leaf = harness
-            .lane("main")
-            .get_leaf_id()
-            .await
-            .map_err(|e| e.to_string())?;
-        let new_session =
-            crate::session::fork_session_storage(&harness, &cwd_str, &self.session_dir)
+        let leaf = match arg_str_opt(&args, "entryId") {
+            Some(id) => Some(id),
+            None => harness
+                .lane("main")
+                .get_leaf_id()
                 .await
-                .map_err(|e| format!("fork session: {e}"))?;
+                .map_err(|e| e.to_string())?,
+        };
+        let position = match args.get("position").and_then(|value| value.as_str()) {
+            None | Some("before") => rpi_harness::session::types::ForkPosition::Before,
+            Some("at") => rpi_harness::session::types::ForkPosition::At,
+            _ => return Err("fork position must be before or at".into()),
+        };
+        let new_session = crate::session::fork_session_storage_at(
+            &harness,
+            &cwd_str,
+            &self.session_dir,
+            leaf.clone(),
+            position,
+        )
+        .await
+        .map_err(|e| format!("fork session: {e}"))?;
         let id = new_session.storage().metadata().id.clone();
         match self
             .replace_session(
                 &harness,
                 new_session,
-                crate::session::SessionReplacementReason::Fork,
+                if position == rpi_harness::session::types::ForkPosition::Before {
+                    crate::session::SessionReplacementReason::ForkBefore
+                } else {
+                    crate::session::SessionReplacementReason::Fork
+                },
                 leaf.as_deref(),
             )
             .await?
