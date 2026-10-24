@@ -40,12 +40,24 @@ struct Entry {
     info: ProviderInfo,
     provider: Option<Arc<dyn Provider>>,
     owner: Option<NativeOwner>,
+    // Keep the pre-config catalog so deleted overrides cannot linger.
+    config_base: Option<Vec<Model>>,
+    config_only: bool,
 }
 #[derive(Clone, Default)]
 struct State {
     entries: Vec<Entry>,
     revision: u64,
     last_refresh: Option<std::time::Instant>,
+    availability_sequence: u64,
+    provider_sequences: std::collections::BTreeMap<String, u64>,
+}
+/// An availability result is valid only for this catalog and credential pass.
+#[derive(Clone)]
+pub(crate) struct AvailabilityTicket {
+    revision: u64,
+    global: u64,
+    providers: std::collections::BTreeMap<String, u64>,
 }
 pub struct ModelRegistry {
     state: RwLock<State>,
@@ -119,6 +131,8 @@ impl ModelRegistry {
                 },
                 provider: None,
                 owner: None,
+                config_base: None,
+                config_only: false,
             },
             false,
         )
@@ -148,6 +162,8 @@ impl ModelRegistry {
                 },
                 provider: Some(provider),
                 owner,
+                config_base: None,
+                config_only: false,
             },
             enforce_owner,
         )
@@ -177,6 +193,8 @@ impl ModelRegistry {
                 },
                 provider: None,
                 owner,
+                config_base: None,
+                config_only: false,
             },
             true,
         )
@@ -288,12 +306,92 @@ impl ModelRegistry {
             .find(|entry| entry.info.id == id)
             .ok_or_else(|| RegistryError::ProviderNotFound(id.into()))?;
         entry.info.auth_status = status.clone();
+        state.availability_sequence = state
+            .availability_sequence
+            .checked_add(1)
+            .ok_or(RegistryError::RevisionExhausted)?;
+        let sequence = state.provider_sequences.entry(id.into()).or_default();
+        *sequence = sequence
+            .checked_add(1)
+            .ok_or(RegistryError::RevisionExhausted)?;
         drop(state);
         let _ = self.event_tx.send(ModelRegistryEvent::AuthStatusChanged {
             provider_id: id.into(),
             authenticated: status == AuthStatus::Authenticated,
         });
         Ok(())
+    }
+    pub(crate) fn begin_availability(
+        &self,
+        selected: Option<&[String]>,
+    ) -> Result<AvailabilityTicket, RegistryError> {
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RegistryError::LockPoisoned)?;
+        state.availability_sequence = state
+            .availability_sequence
+            .checked_add(1)
+            .ok_or(RegistryError::RevisionExhausted)?;
+        let ids: Vec<String> = selected.map_or_else(
+            || {
+                state
+                    .entries
+                    .iter()
+                    .map(|entry| entry.info.id.clone())
+                    .collect()
+            },
+            |ids| ids.to_vec(),
+        );
+        let mut providers = std::collections::BTreeMap::new();
+        for id in ids {
+            let sequence = state.provider_sequences.entry(id).or_default();
+            *sequence = sequence
+                .checked_add(1)
+                .ok_or(RegistryError::RevisionExhausted)?;
+        }
+        for (id, sequence) in &state.provider_sequences {
+            if selected.map_or(true, |ids| ids.contains(id)) {
+                providers.insert(id.clone(), *sequence);
+            }
+        }
+        Ok(AvailabilityTicket {
+            revision: state.revision,
+            global: if selected.is_none() {
+                state.availability_sequence
+            } else {
+                0
+            },
+            providers,
+        })
+    }
+    pub(crate) fn finish_availability(
+        &self,
+        ticket: AvailabilityTicket,
+        statuses: Vec<(String, AuthStatus)>,
+    ) -> Result<bool, RegistryError> {
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RegistryError::LockPoisoned)?;
+        if state.revision != ticket.revision
+            || (ticket.global != 0 && ticket.global != state.availability_sequence)
+        {
+            return Ok(false);
+        }
+        let mut applied = false;
+        for (id, status) in statuses {
+            if ticket.providers.get(&id).is_none()
+                || ticket.providers.get(&id) != state.provider_sequences.get(&id)
+            {
+                continue;
+            }
+            if let Some(entry) = state.entries.iter_mut().find(|entry| entry.info.id == id) {
+                entry.info.auth_status = status;
+                applied = true;
+            }
+        }
+        Ok(applied)
     }
     pub fn get_auth_status(&self, id: &str) -> Option<AuthStatus> {
         self.get_provider(id).map(|entry| entry.auth_status)
@@ -305,28 +403,68 @@ impl ModelRegistry {
             .state
             .write()
             .map_err(|_| RegistryError::LockPoisoned)?;
+        Self::recompose(&mut state, &config, None)?;
+        drop(state);
+        let _ = self.event_tx.send(ModelRegistryEvent::CatalogRefreshed);
+        Ok(())
+    }
+    pub(crate) fn recompose_config(
+        &self,
+        config: &crate::config::ModelsConfig,
+        selected: Option<&[String]>,
+    ) -> Result<(), RegistryError> {
+        let mut state = self
+            .state
+            .write()
+            .map_err(|_| RegistryError::LockPoisoned)?;
+        Self::recompose(&mut state, config, selected)
+    }
+    fn recompose(
+        state: &mut State,
+        config: &crate::config::ModelsConfig,
+        selected: Option<&[String]>,
+    ) -> Result<(), RegistryError> {
+        let chosen = |id: &str| selected.map_or(true, |ids| ids.iter().any(|known| known == id));
+        if !config.providers.keys().any(|id| chosen(id))
+            && !state.entries.iter().any(|entry| {
+                chosen(&entry.info.id) && (entry.config_base.is_some() || entry.config_only)
+            })
+        {
+            return Ok(());
+        }
         let mut candidate = state.clone();
+        candidate
+            .entries
+            .retain(|entry| !chosen(&entry.info.id) || !entry.config_only);
+        for entry in &mut candidate.entries {
+            if chosen(&entry.info.id) {
+                if let Some(models) = entry.config_base.take() {
+                    Self::replace_models(entry, models)?;
+                }
+            }
+        }
         for (id, config) in &config.providers {
+            if !chosen(id) {
+                continue;
+            }
             let models = crate::config::provider_to_models(id, config).unwrap_or_default();
             if let Some(entry) = candidate
                 .entries
                 .iter_mut()
                 .find(|entry| &entry.info.id == id)
             {
-                if entry.owner.is_some() {
-                    return Err(RegistryError::WrongOwner(id.clone()));
+                entry.config_base = Some(entry.info.models.clone());
+                let mut merged = entry.info.models.clone();
+                for model in models {
+                    if let Some(existing) = merged.iter_mut().find(|known| {
+                        known.api == model.api && known.id.eq_ignore_ascii_case(&model.id)
+                    }) {
+                        *existing = model;
+                    } else {
+                        merged.push(model);
+                    }
                 }
-                if let Some(provider) = &entry.provider {
-                    let replacement = provider.with_catalog(models.clone()).ok_or_else(|| {
-                        RegistryError::InvalidConfiguration(
-                            "provider cannot refresh its execution catalog".into(),
-                        )
-                    })?;
-                    entry.info.models = replacement.models().to_vec();
-                    entry.provider = Some(replacement);
-                } else {
-                    entry.info.models = models;
-                }
+                Self::replace_models(entry, merged)?;
             } else {
                 candidate.entries.push(Entry {
                     info: ProviderInfo {
@@ -338,10 +476,12 @@ impl ModelRegistry {
                     },
                     provider: None,
                     owner: None,
+                    config_base: None,
+                    config_only: true,
                 });
             }
         }
-        state.revision = state
+        let revision = state
             .revision
             .checked_add(1)
             .ok_or(RegistryError::RevisionExhausted)?;
@@ -350,11 +490,26 @@ impl ModelRegistry {
                 model.headers = None;
             }
         }
-        candidate.revision = state.revision;
+        candidate.revision = revision;
         candidate.last_refresh = Some(std::time::Instant::now());
         *state = candidate;
-        drop(state);
-        let _ = self.event_tx.send(ModelRegistryEvent::CatalogRefreshed);
+        Ok(())
+    }
+    fn replace_models(entry: &mut Entry, mut models: Vec<Model>) -> Result<(), RegistryError> {
+        for model in &mut models {
+            model.headers = None;
+        }
+        if let Some(provider) = &entry.provider {
+            let replacement = provider.with_catalog(models).ok_or_else(|| {
+                RegistryError::InvalidConfiguration(
+                    "provider cannot refresh its execution catalog".into(),
+                )
+            })?;
+            entry.info.models = replacement.models().to_vec();
+            entry.provider = Some(replacement);
+        } else {
+            entry.info.models = models;
+        }
         Ok(())
     }
     pub fn last_refresh_time(&self) -> Option<std::time::Instant> {
