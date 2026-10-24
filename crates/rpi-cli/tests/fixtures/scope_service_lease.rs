@@ -9,6 +9,7 @@ use std::{
     },
 };
 static API: Mutex<Option<sdk::PluginApi>> = Mutex::new(None);
+static TRANSPORT: Mutex<Option<sdk::PluginApi>> = Mutex::new(None);
 static STOP: AtomicBool = AtomicBool::new(false);
 static WORKERS: Mutex<Vec<std::thread::JoinHandle<()>>> = Mutex::new(Vec::new());
 fn out(output: *mut StbString, value: Value) -> i32 {
@@ -40,7 +41,11 @@ extern "C" fn service(
         );
         let response =
             unsafe { sdk::callbacks::OwnedString::from_raw(response, Some(api.free_string)) };
-        let response: Value = serde_json::from_str(&response.to_string_lossy()).unwrap();
+        let mut response: Value = serde_json::from_str(&response.to_string_lossy()).unwrap();
+        let client = Client::new(&api).unwrap().scoped().unwrap();
+        let context = tokio::runtime::Runtime::new().unwrap().block_on(client.request(
+            json!({"port":"context","action":"inspect"}), Default::default())).unwrap();
+        response["serviceScopeId"] = context["scopeId"].clone();
         if rc == 0 {
             out(output, json!({"version":1,"result":response}))
         } else {
@@ -51,6 +56,13 @@ extern "C" fn service(
 extern "C" fn request(input: StbStringRef, output: *mut StbString, _: *mut c_void) -> i32 {
     sdk::guard_or(1, || {
         let input: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+        if input["options"]["metadata"]["captureTransport"] == true {
+            let mut api = API.lock().unwrap().unwrap();
+            api.user_data = api.native_context.unwrap()(0, api.user_data);
+            assert!(!api.user_data.is_null());
+            *TRANSPORT.lock().unwrap() = Some(api);
+            return completed(output);
+        }
         let marker = input["options"]["metadata"]["marker"]
             .as_str()
             .unwrap()
@@ -69,6 +81,10 @@ extern "C" fn request(input: StbStringRef, output: *mut StbString, _: *mut c_voi
                 Default::default(),
             ))
             .unwrap();
+        let transport = TRANSPORT.lock().unwrap().take();
+        let cross_id = transport.map(|_| runtime.block_on(client.request(
+            json!({"port":"serviceLeases","action":"acquire","service":"pi-fabric","serviceVersion":1,
+                "methods":["isIdle","compact"],"capability":"services.scopeLease.v1"}), Default::default())).unwrap()["lease"].as_str().unwrap().to_owned());
         WORKERS.lock().unwrap().push(std::thread::spawn(move || {
             let runtime = tokio::runtime::Runtime::new().unwrap();
             runtime.block_on(async move {
@@ -93,7 +109,9 @@ extern "C" fn request(input: StbStringRef, output: *mut StbString, _: *mut c_voi
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 }
                 // Shutdown invalidates owner authority but cannot leave an unjoined DLL thread.
-                let idle = lease.call("isIdle", json!({}), Default::default()).await;
+                let idle = if let Some(api) = transport {
+                    cross_call(api, cross_id.as_ref().unwrap(), "isIdle").await
+                } else { lease.call("isIdle", json!({}), Default::default()).await };
                 let signal = rpi_ai::SimpleStreamOptions::default().signal;
                 if cancel {
                     let signal = signal.clone();
@@ -102,23 +120,41 @@ extern "C" fn request(input: StbStringRef, output: *mut StbString, _: *mut c_voi
                         signal.cancel();
                     });
                 }
-                let compact = lease.call("compact", json!({}), signal).await;
+                let compact = if let Some(api) = transport {
+                    cross_call(api, cross_id.as_ref().unwrap(), "compact").await
+                } else { lease.call("compact", json!({}), signal).await };
                 std::fs::write(
                     format!("{marker}.result"),
                     json!({"idle":idle,"compact":compact}).to_string(),
                 )
                 .unwrap();
                 let _ = lease.release().await;
+                if let Some(api) = transport {
+                    api.native_context.unwrap()(1, api.user_data);
+                }
             });
         }));
-        let mut message = rpi_ai::AssistantMessage::empty(rpi_ai::Api::Faux, "scope-lease", "m", 0);
-        message.stop_reason = rpi_ai::StopReason::Stop;
-        message.content.push(
-            serde_json::from_value(json!({"type":"text","text":"callback returned"})).unwrap(),
-        );
-        out(output, serde_json::to_value(message).unwrap())
+        completed(output)
     })
 }
+fn completed(output: *mut StbString) -> i32 {
+    let mut message = rpi_ai::AssistantMessage::empty(rpi_ai::Api::Faux, "scope-lease", "m", 0);
+    message.stop_reason = rpi_ai::StopReason::Stop;
+    message.content.push(serde_json::from_value(json!({"type":"text","text":"callback returned"})).unwrap());
+    out(output, serde_json::to_value(message).unwrap())
+}
+async fn cross_call(api: sdk::PluginApi, lease: &str, method: &str) -> Result<Value, String> {
+    let request = json!({"version":1,"port":"serviceLeases","action":"call","lease":lease,"method":method,"input":{}}).to_string();
+    tokio::task::spawn_blocking(move || {
+        let api = api;
+        let mut output = StbString::empty();
+        let status = api.native_request.unwrap()(StbStringRef::from_str(&request), std::ptr::null(), &mut output, api.user_data);
+        let output = unsafe { sdk::callbacks::OwnedString::from_raw(output, Some(api.free_string)) };
+        let value: Value = serde_json::from_str(&output.to_string_lossy()).unwrap();
+        if status == 0 { Ok(value["result"].clone()) } else { Err(value["error"].as_str().unwrap().to_owned()) }
+    }).await.unwrap()
+}
+
 extern "C" fn begin(_: *mut c_void) {
     STOP.store(true, Ordering::SeqCst);
 }
