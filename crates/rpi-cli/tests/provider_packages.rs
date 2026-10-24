@@ -8,6 +8,10 @@ use std::{
     time::Duration,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[path = "provider_packages/delegation_gaps.rs"]
+mod delegation_gaps;
+#[path = "provider_packages/delegation_preflight.rs"]
+mod delegation_preflight;
 #[path = "provider_packages/delegation_v2.rs"]
 mod delegation_v2;
 

@@ -171,9 +171,11 @@ files are unchanged CLI lifecycle/TUI and harness/compaction files. Modified
 Rust files and new DLL fixture source were rustfmt-formatted. The unrelated
 baseline was deliberately not reformatted. Full output: `/tmp/h-deleg-v2/fmt.log`.
 
-## Limits and coordinator decisions
+## Original H1–H7 limits and coordinator decisions (historical)
 
-The core host path is implemented, but this is not full design acceptance:
+The following records the original handoff at `61baa99`; see the follow-up
+verification below for the added coverage and current gate results.
+The core host path was implemented, but this was not full design acceptance:
 
 - Parent/child scope and wrong-epoch authority are covered by host unit tests,
   not a new loaded-DLL parent/child transfer scenario.
@@ -205,3 +207,124 @@ retry/exit; preserve the original continuation for independent retries. Do not
 fallback to v1 cross-provider delegation. Preserve package error and notification
 strings listed above and bind retry/compaction services to the selected execution
 scope. Package service negotiation and retry policy remain package-lane work.
+
+## Verification-gap follow-up
+
+All new loaded tests compile the same independent Rust cdylib, without a package
+checkout, network fetch, environment-dependent success skip, or new ignored test.
+The build helper is shared between the integration target and runtime unit test.
+Unloading tests wait for explicit entry notifications, then check both the DLL's
+error return and destruction of the pending Rust future. File handshakes wait for
+nonempty/completed content rather than racing file creation. No sleeps were added.
+
+### Coverage by requested gap
+
+1. **Capability transfer** —
+   `loaded_parent_child_capabilities_cannot_be_used_or_released_in_either_direction`
+   passes actual target/receipt strings between the loaded parent's `a` and
+   delegated child's `b` continuations. Both directions attempt ambient use,
+   target release, receipt release, and delegate with an own target plus foreign
+   receipt. The test then starts another loaded session with a fresh execution
+   scope/epoch and continuation and attempts reuse of the saved authority.
+   Own-capability delegation still succeeds after all denied foreign releases.
+2. **Publication during a loaded stream** —
+   `loaded_runtime_publication_terminates_active_stream_and_rejects_stale_capabilities`
+   uses an actual `ProviderRuntime` and its catalog `publish` action while the
+   loaded synchronous emit path is blocked by backpressure. It checks epoch
+   cancellation, exactly one error terminal (`delegation epoch revoked`), stream
+   closure, and rejected target/receipt lookup. In addition, all three loaded
+   wrappers try stale ambient use, receipt release, and delegation through the
+   real C continuation/delegate callbacks after publication, with the same error.
+   The test waits for the C emitter and every wrapper's completion handshake.
+3. **Pending auth/preflight unload** —
+   `loaded_unload_cancels_pending_target_auth_and_drops_the_future` and
+   `loaded_unload_cancels_pending_target_preflight_and_drops_the_future` stop the
+   loaded session only after the selected target's ambient resolver or provider
+   preflight has entered a deliberately pending future. Each verifies bounded
+   stream completion, `authentication cancelled` returned to the DLL, and the
+   pending future's drop notification. Auth must not reach its success marker.
+4. **Retry/compaction host boundaries** —
+   `retry_targets_accept_selected_scope_and_reject_other_scope_or_revoked_epoch`
+   resolves two compatible retry targets in the selected runtime, rejects a
+   different runtime scope, rejects the old epoch after publication, and accepts
+   the freshly published epoch. Actual repeated loaded delegation is already
+   covered by `loaded_sequential_retries_derive_from_the_original_ancestry`.
+   `compaction_succeeds_on_selected_child_and_rejects_foreign_or_closed_scope`
+   invokes the host compaction action on a real child harness, then refuses a
+   foreign scope and the closed child instead of falling back to main. This
+   exercises successful host operation admission (empty history can decline
+   summarization), not a model-generated summary. Existing
+   `calls_are_private_versioned_and_retain_the_callers_identity` covers generic
+   service version incompatibility. These tests cover host execution/authority
+   contracts; they do **not** introduce or claim an end-to-end package-specific
+   retry/compaction service negotiation protocol. That protocol/policy remains
+   package-lane work, as in the original design handoff.
+5. **C adapter → typed bounded queue** — existing
+   `loaded_bounded_forwarding_resumes_without_loss_or_reordering` already sends
+   1,024 events through the actual synchronous C callback and consumes in order
+   after deliberate backpressure. Existing
+   `loaded_cancel_revoke_and_unload_drain_blocked_foreign_emit` now additionally
+   requires the DLL's nonzero-emit marker for cancel, revoke, and unload.
+   `loaded_c_emit_drains_more_than_four_mib_in_order` adds 1,024 independently
+   checked 8-KiB deltas (over 8 MiB total), waits until the producer is blocked,
+   consumes every delta in order, and requires exactly one successful terminal.
+   The real host defaults remain 64 events / 4 MiB; no test increases them.
+
+### Bug proved and minimal production fix
+
+The combined publication test first failed with `left: Aborted / right: Error`:
+revocation cancelled the public producer token, which rewrote the epoch failure
+into `Request aborted`. Commit `9d3a07a` changes only admission ownership and error
+preservation: internal FFI admission uses a child of the public producer token;
+the streaming driver retains the continuation's epoch signal and publishes the
+revocation cause as an error terminal. User cancellation still propagates to the
+child and keeps its aborted terminal. No ABI, service port, routing, auth policy,
+or production queue limit changed.
+
+### Mutation checks (temporary changes, all reverted)
+
+Each row was run with a single named test, offline, on Rust 1.95.0. Every killed
+mutant compiled and exited 101 with `test result: FAILED`; none was a compile
+failure or outer 270-second cargo timeout. Restored sources pass the final gates.
+
+| New test | Temporarily broken production guard | Observed failure |
+| --- | --- | --- |
+| `loaded_parent_child_capabilities_cannot_be_used_or_released_in_either_direction` | Ignore `CapabilityTables::release_target` error in `provider/wrappers/v2.rs` | DLL assertion `foreign capability accepted`; host terminal Error instead of Stop |
+| `loaded_runtime_publication_terminates_active_stream_and_rejects_stale_capabilities` | Restore `opts.signal = prod.cancellation_token()` in `provider.rs` | Aborted instead of Error, `Request aborted` |
+| `loaded_unload_cancels_pending_target_auth_and_drops_the_future` | Replace `operate_v2` epoch/signal cancellation select with `work.await` | Pending resolver destruction misses bounded notification deadline (`Elapsed(())`) |
+| `loaded_unload_cancels_pending_target_preflight_and_drops_the_future` | Same removal of cancellation select | Pending preflight destruction misses bounded notification deadline (`Elapsed(())`) |
+| `retry_targets_accept_selected_scope_and_reject_other_scope_or_revoked_epoch` | Remove scope/epoch identity comparison from `InvocationAncestry::validate` (keep revoked-token check) | Other-scope resolution unexpectedly succeeds |
+| `compaction_succeeds_on_selected_child_and_rejects_foreign_or_closed_scope` | Remove `for_current_execution()` from host `compact` | Foreign scope unexpectedly gets a successful main-lane compaction response |
+| `loaded_c_emit_drains_more_than_four_mib_in_order` | Remove `.min(self.payload_bytes)` from typed queue permit weight | Oversized accumulated snapshot cannot acquire capacity; test's 15-second timeout fails |
+
+An exploratory mutation removing only the outer `!continuation.active()` check
+survived the auth test: the independent async cancellation select still drops the
+pending future. It was reverted; the two pending-call rows above remove that
+actual guarded cancellation mechanism and are killed. Runtime-publication
+mutation was also rerun after adding the loaded stale-callback handshakes.
+
+### Offline gates
+
+Environment: sourced `/home/user/Projects/.parity-env.sh`, explicit existing
+`RUSTUP_HOME` / `CARGO_HOME`, `RUSTUP_AUTO_INSTALL=0`, `CARGO_NET_OFFLINE=true`,
+`CARGO_BUILD_JOBS=6`. Tests use an isolated mode-0700 temporary HOME and the explicit
+Rust 1.95.0 compiler for DLL fixtures. No real auth files or credentials were used.
+Cargo ran in the foreground under `timeout 270`, with exit status printed.
+
+- Rust 1.78.0 `check --workspace --all-targets --locked`, `RUSTFLAGS="-D warnings"`:
+  **PASS** (target `/home/user/Projects/.targets/h-deleg-v2-178`).
+- Rust 1.95.0 `test -p rpi-cli --test provider_packages --locked`:
+  **19 passed, 0 failed, 11 pre-existing ignored**; all 12 delegation tests run.
+- Rust 1.95.0 `test --workspace --locked`: **2,374 passed, 0 failed,
+  26 pre-existing ignored**, 89 test/doc-test result groups (excluding the
+  separately spawned CLI test worker's nested result). CLI lib:
+  **710 passed, 0 failed, 7 pre-existing ignored**.
+- `rustfmt --check --edition 2021` on changed Rust files only and
+  `git diff --check`: **PASS**. Unrelated baseline formatting is untouched.
+
+The first full run used a HOME inside the worktree and hit the unrelated
+self-update safety test's `refusing to create a self-update command directory
+inside the caller project`. Moving isolated HOME outside the worktree corrected
+that setup. The next run hit the existing updater test race `Text file busy (os
+error 26)` in `direct_update_rolls_back_when_post_replace_validation_fails`.
+A full, unchanged rerun passed; no assertions or unrelated code were modified.

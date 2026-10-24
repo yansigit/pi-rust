@@ -6,71 +6,14 @@ use rpi_ai::{
 use rpi_extensions::delegation::*;
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::Arc,
     time::Duration,
 };
 use tokio_util::sync::CancellationToken;
 
-fn library() -> &'static Path {
-    static FIXTURE: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
-    &FIXTURE
-        .get_or_init(|| {
-            let directory = tempfile::tempdir().unwrap();
-            let library = directory.path().join(format!(
-                "{}delegation_v2{}",
-                std::env::consts::DLL_PREFIX,
-                std::env::consts::DLL_SUFFIX
-            ));
-            let deps = std::env::current_exe()
-                .unwrap()
-                .parent()
-                .unwrap()
-                .to_path_buf();
-            let mut compiler = std::process::Command::new(
-                std::env::var_os("RPI_TEST_RUSTC").unwrap_or_else(|| "rustc".into()),
-            );
-            compiler
-                .args(["--edition=2021", "--crate-type=cdylib", "-C", "debuginfo=0"])
-                .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/delegation_v2.rs"))
-                .arg("-L")
-                .arg(format!("dependency={}", deps.display()))
-                .arg("-o")
-                .arg(&library);
-            for name in ["rpi_plugin_sdk", "rpi_ai", "serde_json"] {
-                let mut candidates: Vec<_> = std::fs::read_dir(&deps)
-                    .unwrap()
-                    .map(|entry| entry.unwrap().path())
-                    .filter(|path| {
-                        path.file_name()
-                            .unwrap()
-                            .to_string_lossy()
-                            .starts_with(&format!("lib{name}-"))
-                            && path
-                                .extension()
-                                .is_some_and(|extension| extension == "rlib")
-                    })
-                    .collect();
-                candidates.sort_by_key(|path| {
-                    std::cmp::Reverse(std::fs::metadata(path).unwrap().modified().unwrap())
-                });
-                compiler.arg("--extern").arg(format!(
-                    "{name}={}",
-                    candidates
-                        .first()
-                        .expect("build host dependencies first")
-                        .display()
-                ));
-            }
-            let output = compiler.output().unwrap();
-            assert!(
-                output.status.success(),
-                "independent delegation DLL must build: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            (directory, library)
-        })
-        .1
-}
+#[path = "../fixtures/delegation_library.rs"]
+mod delegation_library;
+use delegation_library::library;
 #[test]
 fn loaded_frozen_legacy_prefix_still_registers_on_the_new_host() {
     let directory = tempfile::tempdir().unwrap();
@@ -156,7 +99,7 @@ fn loaded_cli_runtime_resolves_the_target_binding_without_source_credentials() {
         }
     }
 }
-struct Resolver(Arc<DelegationEpoch>);
+pub(super) struct Resolver(pub(super) Arc<DelegationEpoch>);
 #[async_trait::async_trait]
 impl DelegationResolver for Resolver {
     async fn resolve_target(
@@ -186,14 +129,14 @@ impl DelegationResolver for Resolver {
         ))
     }
 }
-struct Fixture {
-    session: rpi_extensions::ExtensionSession,
-    chains: Vec<Arc<dyn Provider>>,
-    epoch: Arc<DelegationEpoch>,
-    resolver: Arc<dyn DelegationResolver>,
+pub(super) struct Fixture {
+    pub(super) session: rpi_extensions::ExtensionSession,
+    pub(super) chains: Vec<Arc<dyn Provider>>,
+    pub(super) epoch: Arc<DelegationEpoch>,
+    pub(super) resolver: Arc<dyn DelegationResolver>,
 }
 impl Fixture {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let session = rpi_extensions::load_session_mixed(
             &[],
             &[library().into()],
@@ -219,7 +162,7 @@ impl Fixture {
             resolver,
         }
     }
-    async fn stream(
+    pub(super) async fn stream(
         &self,
         scenario: &str,
         options: &SimpleStreamOptions,
@@ -413,9 +356,9 @@ async fn loaded_bounded_forwarding_resumes_without_loss_or_reordering() {
     assert_eq!(terminals, 1);
     fixture.session.begin_shutdown();
 }
-async fn wait_file(path: &Path) {
+pub(super) async fn wait_file(path: &Path) {
     tokio::time::timeout(Duration::from_secs(8), async {
-        while !path.exists() {
+        while !std::fs::metadata(path).is_ok_and(|metadata| metadata.len() > 0) {
             tokio::task::yield_now().await;
         }
     })
@@ -458,10 +401,19 @@ async fn loaded_cancel_revoke_and_unload_drain_blocked_foreign_emit() {
             .unwrap();
         assert_eq!(
             message.stop_reason,
-            StopReason::Aborted,
-            "{mode}: {message:?}"
+            if mode == "revoke" {
+                StopReason::Error
+            } else {
+                StopReason::Aborted
+            },
+            "{mode}: {:?}",
+            message.error_message
         );
         wait_file(&finished).await;
+        assert!(
+            PathBuf::from(format!("{}.nonzero", marker.display())).exists(),
+            "C emit must observe cancellation"
+        );
         fixture.session.begin_shutdown();
     }
 }

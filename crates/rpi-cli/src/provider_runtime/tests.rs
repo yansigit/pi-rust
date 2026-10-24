@@ -2,6 +2,7 @@ use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 mod children;
 mod delegation;
+mod loaded_delegation;
 mod refresh;
 
 #[derive(Default)]

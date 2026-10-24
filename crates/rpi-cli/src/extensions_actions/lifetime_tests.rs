@@ -235,6 +235,67 @@ async fn compaction_refuses_missing_child_target_instead_of_falling_back_to_main
 }
 
 #[tokio::test]
+async fn compaction_succeeds_on_selected_child_and_rejects_foreign_or_closed_scope() {
+    use rpi_harness::session::types::SessionMetadata;
+    use rpi_harness::session::{DefaultIdGenerator, InMemorySessionStorage, Session, SystemClock};
+    let provider = FauxProvider::new(FauxScript::new().with_text("unused"));
+    let parent = AgentHarness::create(AgentHarnessOptions {
+        model: provider.default_model().clone(),
+        models: vec![provider],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let (host, cell) = HarnessActionHost::new_empty(
+        vec![],
+        std::env::temp_dir(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    HarnessActionHost::set_harness(&cell, Arc::new(parent.clone()));
+    let session = Session::new(
+        Arc::new(InMemorySessionStorage::new(
+            SessionMetadata {
+                id: "compaction-child".into(),
+                created_at: 0,
+                parent_session_id: None,
+            },
+            Arc::new(SystemClock),
+            Arc::new(DefaultIdGenerator::new()),
+        )),
+        None,
+    );
+    let child = parent
+        .create_child(
+            session,
+            Arc::new(rpi_agent::CollectorEmitter::new().0),
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+    let scope = child.execution_scope.clone();
+    let response = scope.run(host.compact(json!({}))).await.unwrap();
+    assert!(response["runId"].is_string(), "{response}");
+    assert_eq!(
+        scope
+            .run(host.get_execution_context(json!({})))
+            .await
+            .unwrap()["sessionId"],
+        "compaction-child"
+    );
+    let foreign = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    assert!(foreign
+        .run(host.compact(json!({})))
+        .await
+        .unwrap_err()
+        .contains("child execution target is unavailable"));
+    drop(child);
+    assert!(scope.run(host.compact(json!({}))).await.is_err());
+}
+
+#[tokio::test]
 async fn native_flags_only_return_requested_names_before_harness_construction() {
     let (host, _) = HarnessActionHost::new_empty(
         vec![],
