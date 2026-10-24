@@ -1,6 +1,8 @@
 //! Offline H05 coordinator qualification (no service calls).
 use super::*;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[path = "catalog_lifecycle_races.rs"]
+mod races;
 #[derive(Default)]
 struct Host {
     fail: AtomicBool,
@@ -167,6 +169,8 @@ struct Callback {
     calls: AtomicUsize,
     network: AtomicUsize,
     fail: AtomicBool,
+    host: std::sync::Mutex<Weak<Host>>,
+    installs_seen: std::sync::Mutex<Vec<usize>>,
 }
 extern "C" fn catalog(
     input: rpi_plugin_sdk::StbStringRef,
@@ -179,6 +183,13 @@ extern "C" fn catalog(
         return 1;
     };
     callback.calls.fetch_add(1, Ordering::SeqCst);
+    if let Some(host) = callback.host.lock().unwrap().upgrade() {
+        callback
+            .installs_seen
+            .lock()
+            .unwrap()
+            .push(host.installs.load(Ordering::SeqCst));
+    }
     // The fixture's only network path is instrumented rather than executed.
     if input["input"]["allowNetwork"] == true {
         callback.network.fetch_add(1, Ordering::SeqCst);
@@ -195,7 +206,7 @@ extern "C" fn catalog(
     0
 }
 fn loaded(callback: &Arc<Callback>) -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
-    fixture_with(|registry| {
+    let fixture = fixture_with(|registry| {
         registry.register_provider_runtime(
             rpi_extensions::provider_runtime::RegisteredProviderRuntime {
                 action_bridge: None,
@@ -210,7 +221,9 @@ fn loaded(callback: &Arc<Callback>) -> (Arc<ProviderRuntime>, NativeOwner, Arc<H
                 context: Arc::as_ptr(callback).cast_mut().cast(),
             },
         );
-    })
+    });
+    *callback.host.lock().unwrap() = Arc::downgrade(&fixture.2);
+    fixture
 }
 
 #[tokio::test]
@@ -228,6 +241,15 @@ async fn config_recomposition_precedes_callback_and_removal_restores_base_catalo
     )
     .await;
     assert!(result["errors"]["test"].is_string());
+    assert_eq!(*callback.installs_seen.lock().unwrap(), vec![1]);
+    assert_eq!(
+        runtime.providers().await[0].models()[0].base_url,
+        "https://config.invalid"
+    );
+    assert_eq!(
+        runtime.state.lock().await.catalog.get_auth_status("test"),
+        Some(crate::model_registry::AuthStatus::Unauthenticated)
+    );
     assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
     assert_eq!(callback.network.load(Ordering::SeqCst), 0);
     assert!(host
@@ -252,6 +274,10 @@ async fn config_recomposition_precedes_callback_and_removal_restores_base_catalo
     )
     .await;
     assert_eq!(runtime.providers().await[0].models()[0].id, "old");
+    assert_eq!(
+        runtime.providers().await[0].models()[0].base_url,
+        "https://provider.invalid"
+    );
     assert!(!runtime
         .state
         .lock()

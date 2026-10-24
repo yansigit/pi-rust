@@ -455,6 +455,11 @@ impl ModelRegistry {
             {
                 entry.config_base = Some(entry.info.models.clone());
                 let mut merged = entry.info.models.clone();
+                if let Some(base_url) = &config.base_url {
+                    for model in &mut merged {
+                        model.base_url = base_url.clone();
+                    }
+                }
                 for model in models {
                     if let Some(existing) = merged.iter_mut().find(|known| {
                         known.api == model.api && known.id.eq_ignore_ascii_case(&model.id)
