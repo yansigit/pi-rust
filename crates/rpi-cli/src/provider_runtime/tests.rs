@@ -164,7 +164,7 @@ async fn authentication_discovery_uses_registered_native_legacy_or_protocol_auth
         .unwrap();
     assert_eq!(
         methods,
-        json!([{"id":"api_key","name":"API key","kind":"api_key"}])
+        json!([{"id":"api_key","name":"API key","kind":"api_key","interactiveLogin":true}])
     );
     assert!(runtime
         .auth_request(

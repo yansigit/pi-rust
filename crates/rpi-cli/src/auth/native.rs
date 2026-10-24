@@ -67,7 +67,11 @@ async fn execute(
                 .iter()
                 .map(|method| AuthChoice {
                     id: method.id.clone(),
-                    label: method.name.clone(),
+                    // Pi renders `loginLabel ?? name`.
+                    label: method
+                        .login_label
+                        .clone()
+                        .unwrap_or_else(|| method.name.clone()),
                 })
                 .collect();
             let method = match args.iter().position(|arg| arg == "--method") {
