@@ -277,3 +277,165 @@ fn captured_wrapper_state_is_isolated_and_retained_until_shutdown() {
         assert!(state.upgrade().is_none());
     }
 }
+
+// A handle registry models host invalidation/destruction without ever dereferencing
+// an expired user_data pointer. Counts observe the synchronous Drop wire request.
+#[derive(Default)]
+struct LeaseHost {
+    releases: std::sync::atomic::AtomicUsize,
+    calls: std::sync::atomic::AtomicUsize,
+    active: std::sync::atomic::AtomicBool,
+}
+fn lease_hosts() -> &'static std::sync::Mutex<std::collections::HashMap<usize, Arc<LeaseHost>>> {
+    static HOSTS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<usize, Arc<LeaseHost>>>,
+    > = std::sync::OnceLock::new();
+    HOSTS.get_or_init(Default::default)
+}
+extern "C" fn lease_native(
+    input: sdk::StbStringRef,
+    _: *const sdk::AuthRequestControl,
+    out: *mut sdk::StbString,
+    data: *mut c_void,
+) -> i32 {
+    use std::sync::atomic::Ordering::SeqCst;
+    let request: serde_json::Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+    let host = lease_hosts().lock().unwrap().get(&(data as usize)).cloned();
+    let (status, value) = match host {
+        None => (
+            1,
+            serde_json::json!({"version":1,"error":"expired native invocation context"}),
+        ),
+        Some(host) => {
+            if request["action"] == "release" {
+                host.releases.fetch_add(1, SeqCst);
+            }
+            if !host.active.load(SeqCst) {
+                (
+                    1,
+                    serde_json::json!({"version":1,"error":"scope service lease revoked"}),
+                )
+            } else {
+                let result = match request["port"].as_str().unwrap() {
+                    "capabilities" => serde_json::json!(["services.scopeLease.v1"]),
+                    _ if request["action"] == "acquire" => {
+                        serde_json::json!({"lease":"test-grant"})
+                    }
+                    _ if request["action"] == "call" => {
+                        host.calls.fetch_add(1, SeqCst);
+                        serde_json::json!("ok")
+                    }
+                    _ => serde_json::Value::Null,
+                };
+                (0, serde_json::json!({"version":1,"result":result}))
+            }
+        }
+    };
+    unsafe {
+        *out = sdk::StbString::from_string(value.to_string());
+    }
+    status
+}
+struct LeaseFixture {
+    id: usize,
+    host: Arc<LeaseHost>,
+}
+impl LeaseFixture {
+    fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1);
+        let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let host = Arc::new(LeaseHost::default());
+        host.active.store(true, std::sync::atomic::Ordering::SeqCst);
+        lease_hosts().lock().unwrap().insert(id, host.clone());
+        Self { id, host }
+    }
+    async fn acquire(&self) -> sdk::provider::native::ScopeServiceLease {
+        let mut api = api();
+        api.native_request = Some(lease_native);
+        api.user_data = self.id as *mut c_void;
+        sdk::provider::native::Client::new(&api)
+            .unwrap()
+            .scope_service_lease("service", 1, &["method"], Default::default())
+            .await
+            .unwrap()
+    }
+    fn releases(&self) -> usize {
+        self.host.releases.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+impl Drop for LeaseFixture {
+    fn drop(&mut self) {
+        lease_hosts().lock().unwrap().remove(&self.id);
+    }
+}
+#[tokio::test]
+async fn scope_service_lease_only_final_clone_releases() {
+    let host = LeaseFixture::new();
+    let lease = host.acquire().await;
+    let clone = lease.clone();
+    drop(lease);
+    assert_eq!(host.releases(), 0);
+    assert_eq!(
+        clone
+            .call("method", serde_json::json!({}), Default::default())
+            .await
+            .unwrap(),
+        "ok"
+    );
+    drop(clone);
+    assert_eq!(host.releases(), 1);
+}
+#[tokio::test]
+async fn scope_service_lease_explicit_release_is_shared_and_idempotent() {
+    let host = LeaseFixture::new();
+    let lease = host.acquire().await;
+    let clone = lease.clone();
+    lease.release().await.unwrap();
+    clone.release().await.unwrap();
+    assert_eq!(
+        clone
+            .call("method", serde_json::json!({}), Default::default())
+            .await
+            .unwrap_err(),
+        "scope service lease revoked"
+    );
+    assert_eq!(host.host.calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    drop(lease);
+    drop(clone);
+    assert_eq!(host.releases(), 1);
+}
+#[test]
+fn scope_service_lease_drop_without_runtime() {
+    let host = LeaseFixture::new();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let lease = runtime.block_on(host.acquire());
+    drop(runtime);
+    assert!(tokio::runtime::Handle::try_current().is_err());
+    drop(lease);
+    assert_eq!(host.releases(), 1);
+}
+#[test]
+fn scope_service_lease_drop_after_host_invalidation_or_destruction() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let host = LeaseFixture::new();
+    let lease = runtime.block_on(host.acquire());
+    host.host
+        .active
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    drop(lease);
+    assert_eq!(
+        host.releases(),
+        1,
+        "best-effort release tolerates host rejection"
+    );
+    let host = LeaseFixture::new();
+    let lease = runtime.block_on(host.acquire());
+    let observer = host.host.clone();
+    drop(host); // Remove host registry entry; the transport handle is now stale.
+    drop(runtime);
+    drop(lease);
+    assert_eq!(
+        observer.releases.load(std::sync::atomic::Ordering::SeqCst),
+        0
+    );
+}

@@ -132,6 +132,8 @@ pub(super) struct Continuation {
     runtime: Handle,
     storage: Mutex<ContinuationStorage>,
     destroyed: CancellationToken,
+    #[cfg(test)]
+    monitor_exited: CancellationToken,
     binding: Option<DelegationBinding>,
     caller: Option<DelegationCaller>,
 }
@@ -183,6 +185,8 @@ impl WrapperNext {
             runtime: Handle::current(),
             storage: Mutex::new(ContinuationStorage::default()),
             destroyed: CancellationToken::new(),
+            #[cfg(test)]
+            monitor_exited: CancellationToken::new(),
             binding,
             caller,
         });
@@ -202,7 +206,11 @@ impl WrapperNext {
             .map(|scope| scope.runtime_closing())
             .unwrap_or_default();
         let shutdown = value.session.shutdown_signal();
+        #[cfg(test)]
+        let monitor_exited = value.monitor_exited.clone().drop_guard();
         value.runtime.spawn(async move {
+            #[cfg(test)]
+            let _monitor_exited = monitor_exited;
             tokio::select! {
                 _ = destroyed.cancelled() => return,
                 _ = invocation.cancelled() => {},
