@@ -51,7 +51,14 @@ impl Provider for Source {
         panic!("not dispatched")
     }
 }
+mod auth_options;
+
 async fn fixture() -> (Arc<Continuation>, Arc<Continuation>, Arc<Resolver>) {
+    fixture_with_registry(&crate::ExtensionRegistry::new()).await
+}
+async fn fixture_with_registry(
+    registry: &crate::ExtensionRegistry,
+) -> (Arc<Continuation>, Arc<Continuation>, Arc<Resolver>) {
     let base = super::tests::base(false);
     let epoch = DelegationEpoch::new(
         DelegationScopeId::fresh(),
@@ -60,7 +67,7 @@ async fn fixture() -> (Arc<Continuation>, Arc<Continuation>, Arc<Resolver>) {
     let resolver = Arc::new(Resolver(epoch.clone()));
     let port: Arc<dyn DelegationResolver> = resolver.clone();
     let binding = DelegationBinding::root(Arc::downgrade(&port), epoch, "source").unwrap();
-    let session = super::tests::session(&crate::ExtensionRegistry::new());
+    let session = super::tests::session(registry);
     let next = WrapperNext {
         next: base.clone(),
         session,

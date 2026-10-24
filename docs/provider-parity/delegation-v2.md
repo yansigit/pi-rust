@@ -12,6 +12,19 @@ Continuation envelopes accept these actions:
 - v2 `resolveAuth {target,storeId,accountId,options}`: `{version:2,receipt}`.
 - v2 `releaseTarget {target}` and `releaseAuth {receipt}`: `{version:2}`.
 
+For v2 `resolveAuth` and `auth.resolveAmbient`, `options` may be absent/null or
+contain only `minimumValidityMs` and an empty `env` object (SDK compatibility).
+Caller `apiKey`, headers (including Authorization), authentication objects, and
+all other unknown fields are rejected before target preflight/auth callbacks.
+Nonempty environment overrides are rejected even for seemingly non-secret keys:
+caller overrides have no trusted target provenance. Account credentials and their
+environment originate only from the selected target credential store; ambient
+credentials/environment originate only from the host's target auth binding.
+No source-provider environment is accepted through these options. Errors are
+`v2 auth options permit only minimumValidityMs and empty env` or
+`v2 auth options forbid caller environment overrides`, without echoing values.
+The v1 options parser and its explicit-key/environment behavior are unchanged.
+
 Every envelope also contains `continuation`. Old hosts may reject `capabilities`;
 SDK users must not downgrade cross-provider requests in response.
 

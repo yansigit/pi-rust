@@ -149,6 +149,20 @@ Temporary mutations were reverted. Observed expected failures:
 This is targeted mutation coverage, **not** a claim that every individual new
 validation predicate has been independently mutated.
 
+## Review fixes on `lane/h-deleg-v2-fixes`
+
+- `raw_v2_auth_rejects_caller_credentials_before_target_callbacks_or_account_lookup`
+  exercises raw continuation JSON for both v2 auth actions. API keys, headers,
+  authentication objects, secret and non-secret env overrides fail with a clear
+  redacted options error before any registered target auth/store callback runs.
+  Empty env/minimum validity still reaches account lookup (a missing account
+  fails rather than producing a receipt). No real credentials or HOME access.
+- Negative control: temporarily accepting `apiKey` in the v2 parser makes this
+  test fail with `credential store operation failed` instead of the required
+  options rejection (exit 101); reverted. Restored test passes.
+- No new loaded-library fixture here: the raw host callback is exercised directly;
+  the concurrent test lane owns loaded-library fixture changes.
+
 ## Gates
 
 Offline Rust 1.78 workspace/all-target `-D warnings` checks passed at H2, H4 and
