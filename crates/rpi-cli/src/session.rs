@@ -3115,7 +3115,11 @@ async fn replace_active_session_inner(
     // authority. Cwd-bound services must not silently keep the outgoing cwd.
     session.get_metadata().await.map_err(|e| e.to_string())?;
     if let Some(factory) = ctx.runtime_factory {
-        factory.validate_destination(target_file.as_deref())?;
+        // Import copies history into the caller's repository; the preserved
+        // source header's cwd is provenance, not a request to switch projects.
+        if reason != SessionReplacementReason::Import {
+            factory.validate_destination(target_file.as_deref())?;
+        }
     }
     session
         .find_entries(&rpi_harness::session::types::EntryQuery::default())

@@ -34,7 +34,9 @@ entry point, refusing busy calls rather than deadlocking on their invoking run.
 A shared factory admission guard refuses overlapping/reentrant replacements.
 TUI switch/import/fork no longer abort before the veto hook. Destination metadata,
 entries and JSONL cwd header are checked before shutdown. Missing/cross-cwd
-services fail closed; cwd service migration is not claimed.
+services fail closed for resume; cwd service migration is not claimed. Import
+copies history into the caller's repository: its preserved source cwd is
+provenance, not a project-switch instruction (existing cross-cwd import test).
 
 Tests cover active veto, active external settlement, immediate busy refusal,
 missing-cwd preparation with a live DLL, and replacement admission refusal.
@@ -87,5 +89,38 @@ not atomic rollback; the host can retry. Lane C must join late inherited journal
 leases to its actual worker routing. Lane D owns refresh/config recomposition
 and availability; this lane only rebuilds provider bindings per fresh runtime.
 
-Remaining qualification and final gates are recorded below as they run. Do not
-interpret this lane's component tests as closure of H05/H06/H10 or C09.
+## Final qualification
+
+All commands were offline with isolated mode-0700 HOME/TMP outside the worktree,
+explicit shared toolchain homes, six build jobs and lane-specific target dirs.
+Cargo ran foreground under `timeout 270`; incomplete compilation was rerun.
+
+- Rust 1.78.0 `RUSTFLAGS=-Dwarnings cargo +1.78.0 check --workspace --all-targets`: pass.
+- Rust 1.78.0 SDK checks `--no-default-features` and
+  `--no-default-features --features provider`, both with `-Dwarnings`: pass.
+- Rust 1.95.0 `cargo +1.95.0 test --workspace`: **2437 passed, 0 failed, 26 ignored**
+  across 92 test/doc-test suites (baseline 2432/0/26; no new ignores).
+- `cargo +1.95.0 fmt --check`: pass.
+- Seven `docs/provider-parity/check-*.mjs` in default check mode: all pass
+  (branch summary, compaction pure, compaction, compaction trigger, selection,
+  tree, turn). No evidence regenerator or generated JSON was modified.
+
+Gate recovery: the first full suite exposed the existing cross-cwd import
+contract; the coordinator now explicitly preserves it. A subsequent default
+parallel run exposed an unrelated harness environment race in
+`child_turn_budget_is_per_instance_and_does_not_change_parent_or_environment`
+(`Some("7")` vs `None`); no harness edit was made. A serial attempt exceeded
+270 seconds, and the final unmodified default-parallel workspace run passed.
+
+SDK/ABI: no `rpi-plugin-sdk` source, PluginApi layout/slot, EventTag number or
+native JSON contract changed. Rust CLI embedders must add `runtime_factory` to
+`SessionReplacementContext` literals and use `rpc_with_context` for replacement.
+Package pins need no SDK source update from this lane. Runtime behavior changes
+intentionally: captured ordinary contexts become stale on replacement; narrow
+persistence/scope leases retain only their pre-existing authority.
+
+Do not interpret these component tests as full closure of H05/H06/H10 or C09.
+No lane A/C/D-owned source was edited. Integration interfaces: C uses existing
+`ActionBridge::invalidate`/`finish_native_writes` and native owner retirement;
+D continues to own `ProviderRuntime::initialize/new/activate`, refresh and
+catalog availability. Construction failure never reactivates old registrations.
