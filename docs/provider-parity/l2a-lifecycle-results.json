@@ -1,0 +1,144 @@
+{
+  "status": "Lane A component implementation; NOT a green full-workspace or loaded-cross-lane qualification",
+  "worktree": "/home/user/Projects/pi-rust--l2a",
+  "branch": "lane/l2a-lifecycle",
+  "base": "e9c052653975c1d648092ab52e817a0b2f4b575c",
+  "checks": {
+    "msrvWorkspace": {
+      "command": "RUSTFLAGS=-Dwarnings cargo +1.78.0 check --workspace --all-targets",
+      "exit": 101,
+      "log": "/tmp/l2a-isolated/gate178-restored.log",
+      "sha256": "9de209521de850a8452c484ba13895c0bb75ff3d72a7614141ad437b49b69b79"
+    },
+    "msrvHarness": {
+      "command": "RUSTFLAGS=-Dwarnings cargo +1.78.0 check -p rpi-harness --all-targets",
+      "exit": 0,
+      "log": "/tmp/l2a-isolated/gate178-harness-restored.log",
+      "sha256": "bdde8355ea0168aca6efa706301c8bada8682c327062d7f5fbf6dd020bd46f2a"
+    },
+    "sdkMinimal": {
+      "command": "RUSTFLAGS=-Dwarnings cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features",
+      "exit": 0,
+      "log": "/tmp/l2a-isolated/gate-sdk-min-final.log",
+      "sha256": "4a6e66bbe890656a5ca831a4dfbb7296d4ce7d22ce63363371d945097aa6611a"
+    },
+    "sdkProvider": {
+      "command": "RUSTFLAGS=-Dwarnings cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features --features provider",
+      "exit": 0,
+      "log": "/tmp/l2a-isolated/gate-sdk-provider-final.log",
+      "sha256": "8ec518fef18981ec8ea7490974fa212aec6bdc5b282a08eed08280aca4b67080"
+    },
+    "workspaceTests": {
+      "command": "cargo +1.95.0 test --workspace",
+      "exit": 101,
+      "log": "/tmp/l2a-isolated/gate195-workspace-final.log",
+      "sha256": "3688c2a8b7a31ea489ce2ba6699091055f6c151738733e5e815adf7b5d99a50b"
+    },
+    "nonCliTests": {
+      "command": "cargo +1.95.0 test --workspace --exclude rpi-cli",
+      "exit": 0,
+      "log": "/tmp/l2a-isolated/gate195-noncli-restored.log",
+      "sha256": "ce161b4b4c153b785730a5332c323b29d87098bf6a39bb11334d017432a219a5",
+      "totalsIncludingDocTests": {
+        "passed": 1643,
+        "failed": 0,
+        "ignored": 8
+      }
+    },
+    "format": {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "exit": 0,
+      "log": "/tmp/l2a-isolated/gate-fmt-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "piReferences": {
+      "command": "for f in docs/provider-parity/check-*.mjs; do node \"$f\" || echo FAIL \"$f\"; done",
+      "exit": 0,
+      "log": "/tmp/l2a-isolated/reference-checks-final.log",
+      "sha256": "a1e075c92ae20c5dcb0bac228d77bb9d07936404fa8e165a171e997cbb52991c",
+      "scriptsPassed": 7
+    }
+  },
+  "newLifecycleTests": {
+    "passed": 8,
+    "failed": 0,
+    "newIgnores": 0
+  },
+  "mutations": [
+    {
+      "mutation": "A1: permit off-branch target",
+      "outcome": "killed; reverted",
+      "exit": 101,
+      "log": "/tmp/l2a-isolated/a1-mutation.log",
+      "sha256": "1251655d146a02506b9b68df99ce31fe308fcf443cf54ded1ced988311c7d83e"
+    },
+    {
+      "mutation": "A2: skip canonical edit replay",
+      "outcome": "killed; reverted",
+      "exit": 101,
+      "log": "/tmp/l2a-isolated/a2-mutation.log",
+      "sha256": "8b8c20d313b428ebf13b84eb3f2009bf702376cfa669a397c54726da7839ba36"
+    },
+    {
+      "mutation": "A3: infer retry from overflow reason",
+      "outcome": "killed; reverted",
+      "exit": 101,
+      "log": "/tmp/l2a-isolated/a3-mutation.log",
+      "sha256": "e82772b0f0ca7071020bbc2751504ea0647e0ae43d278dc2b9e0c0e9e43404b2"
+    },
+    {
+      "mutation": "A4: reset recovery budget in decision",
+      "outcome": "killed; reverted",
+      "exit": 101,
+      "log": "/tmp/l2a-isolated/a4-mutation.log",
+      "sha256": "ff75008c02047d5f5e6ebbd547e24463b276c887e0cbaf80ced08a59d0f492af"
+    },
+    {
+      "mutation": "A5: include admitted prompt before preparation",
+      "outcome": "killed; reverted",
+      "exit": 101,
+      "log": "/tmp/l2a-isolated/a5-mutation.log",
+      "sha256": "07e31cfeff554135f3c2d847b0d4010a1340dce86cbc7a877a09498ade6b77c2"
+    },
+    {
+      "mutation": "hardening: disable typed-content validation",
+      "outcome": "killed; reverted",
+      "exit": 101,
+      "log": "/tmp/l2a-isolated/hardening-mutation.log",
+      "sha256": "28aa917337ba2be0cf05cc6c3f13efa5e33ed07fe3d975c4567638ab2fb45ef9"
+    }
+  ],
+  "referenceSource": "/home/user/Projects/provider-references/multiprovider/node_modules/@earendil-works/pi-coding-agent/dist/core",
+  "verifiedEmbeddedTs": {
+    "session-manager.ts": [
+      "1360-1380 (validation and normalization)"
+    ],
+    "agent-session.ts": [
+      "1241-1256 (omission/source ID)",
+      "1890-1943 (pre-prompt and post-run precedence)",
+      "3051-3054 (exact exhaustion errors and end)",
+      "3127-3272 (auto-compaction)",
+      "3149 (start)",
+      "3235 (success end)",
+      "3249-3250 (failure prefixes)"
+    ]
+  },
+  "blockers": [
+    "Adding Entry::ContextEdit requires Lane B to cover the new variant at crates/rpi-cli/src/interactive_tui/sessions.rs:365. Both full workspace gates fail E0004 there. Lane A did not edit this file.",
+    "The allowed host progress bus lacks Pi public start/end payloads and entry_appended; needs a shared event/native JSON adapter, without a C ABI change."
+  ],
+  "notQualified": [
+    "Loaded native DLL/Cursor recovery and cancellation at every persistence boundary",
+    "Tool-result and queued-message loaded recovery differential matrix",
+    "Recovery-budget behavior across process crash/restart",
+    "Arbitrary custom-entry projectors/open TypeScript content blocks; host refuses unsupported typed blocks",
+    "Full workspace baseline 2432/0/26 comparison: compilation is blocked before execution"
+  ],
+  "compatibility": [
+    "No EventTag/PluginApi/C ABI changes",
+    "New Rust Entry variant is source-breaking for exhaustive matches",
+    "New storage method defaults to refusal",
+    "Retained-tail representation unchanged",
+    "No new ignored tests"
+  ]
+}
