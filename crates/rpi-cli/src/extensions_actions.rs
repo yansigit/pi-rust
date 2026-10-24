@@ -864,10 +864,17 @@ impl RuntimeActionHost for HarnessActionHost {
             .harness()?
             .for_current_execution()
             .map_err(|error| error.to_string())?;
+        // compact_core atomically installs its ActiveRun under the same gate
+        // used by prompts. Never abort/wait for a run after an idle observation.
         let result = lane
             .compact(custom.as_deref())
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| match error {
+                rpi_harness::result::HarnessError::LaneBusy { .. } => {
+                    "selected execution scope is busy".to_owned()
+                }
+                error => error.to_string(),
+            })?;
         Ok(
             serde_json::json!({ "runId": result.run_id, "outcome": format!("{:?}", result.outcome) }),
         )
@@ -1253,6 +1260,27 @@ mod idle_tests {
             assert_eq!(
                 scope.run(host.is_idle(json!({}))).await.unwrap(),
                 json!({"isIdle":!child_active})
+            );
+            // Idle was observed before admission; a retry has now won the lane.
+            // Delayed compaction must lose without cancelling that newer run.
+            let compact = if child_active {
+                scope.run(host.compact(json!({}))).await
+            } else {
+                host.compact(json!({})).await
+            };
+            assert_eq!(compact.unwrap_err(), "selected execution scope is busy");
+            assert!(
+                !run.is_finished(),
+                "compaction must not abort the newer run"
+            );
+            assert_eq!(
+                if child_active {
+                    scope.run(host.is_idle(json!({}))).await
+                } else {
+                    host.is_idle(json!({})).await
+                }
+                .unwrap(),
+                json!({"isIdle":false})
             );
             provider.release.notify_one();
             tokio::time::timeout(std::time::Duration::from_secs(3), run)
