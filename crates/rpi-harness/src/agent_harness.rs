@@ -3929,7 +3929,9 @@ impl AgentHarness {
                             stream_options: snap.stream_options.clone(),
                         };
                         match self
-                            .compact_with_extensions(&run_id, &prep, &path, &llm_opts, reason)
+                            .compact_with_extensions(
+                                &run_id, &prep, &path, &llm_opts, reason, false,
+                            )
                             .await
                         {
                             Ok(_) => {}
@@ -4209,7 +4211,7 @@ impl AgentHarness {
                             let prep = match projected_preparation(&entries, settings) { Some(p) => p, None => return None };
                             let branch_entries = match harness.branch_path_oldest_first().await { Ok(entries) => entries, Err(_) => return None };
                             let opts = CompactionLlmOptions { provider, model: model.clone(), api_key: None, signal: compaction_signal, thinking_level: None, retry: None, custom_instructions: None, stream_options };
-                            let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &branch_entries, &opts, CompactionReason::Threshold).await { Ok(Some((result, _))) => result, _ => return None };
+                            let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &branch_entries, &opts, CompactionReason::Threshold, false).await { Ok(Some((result, _))) => result, _ => return None };
                             // Mid-loop compaction fires because the turn pushed the
                             // context over the threshold.
                             cut.store(new_messages_len, Ordering::Release);
@@ -4497,7 +4499,7 @@ impl AgentHarness {
                                     };
                                     match self
                                         .compact_with_extensions(
-                                            &run_id, &prep, &path, &llm_opts, reason,
+                                            &run_id, &prep, &path, &llm_opts, reason, false,
                                         )
                                         .await
                                     {
@@ -4770,6 +4772,7 @@ impl AgentHarness {
                             &path,
                             &llm_opts,
                             CompactionReason::Manual,
+                            false,
                         )
                         .await
                     {
