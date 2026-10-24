@@ -429,3 +429,98 @@ No new ignore attributes or weakened assertions, no network or push, and no
 access to real `~/.pi`, `~/.rpi`, or credentials. Concurrent-worker fixture,
 `delegation_v2.rs`, `lifetime_tests.rs`, and `forwarding_identity.rs` files are
 untouched.
+
+## Remaining verification tests on `lane/h-deleg-v2-tests`
+
+Base: `95cf5f2`; worktree: `/home/user/Projects/pi-rust--h-deleg-v2-tests`.
+This section supersedes the empty-compaction and handwritten-SDK coverage limits
+above, not the separate runtime-publication finding in the rereview. The two
+files assigned to the concurrent runtime-fix lane were not edited.
+
+### Requested coverage
+
+1. `loaded_sdk_adapters_forward_release_and_propagate_caller_cancellation`
+   compiles `tests/fixtures/delegation_sdk.rs` as a real cdylib against the actual
+   provider-feature SDK rlib and its dependencies. The plugin uses
+   `Continuation::supports_delegation_v2`, `resolve_target`, `resolve_ambient`,
+   `delegate`, `release_auth`, `release_target`, and `AmbientTarget`; it does not
+   handwrite the delegation protocol. The real host loads it alongside the
+   independent physical-provider fixture. The test requires the physical target's
+   exact text delta, one successful terminal and target result, a completed
+   release handshake, second receipt-release rejection and released-target
+   rejection. A second request cancels the caller after a forwarded event and
+   requires SDK cancellation, nonzero physical C emit, foreign completion and an
+   Aborted result. Fixtures and fake credentials remain entirely local.
+2. `loaded_cancel_revoke_and_unload_drain_blocked_foreign_emit` now waits for a
+   host-side queue waiter handshake before **each** cancel, revoke, unload and
+   stream-drop action. The opt-in `delegation-test-hooks` feature increments a
+   count while holding the actual bounded C-emit queue mutex, immediately before
+   `Condvar::wait`, and decrements after reacquiring it. The observer locks that
+   same mutex: seeing a waiter proves the capacity predicate was true and the
+   synchronous C emit released the mutex inside its pending wait. Requests are
+   keyed by their unique temp marker; only weak queue references are retained.
+   The test then requires nonzero emit, foreign completion and an under-eight-
+   second drain. No sleep or marker-before-emit inference is used for this proof.
+3. `loaded_frozen_legacy_prefix_still_registers_on_the_new_host` now actually
+   declares and registers a provider via its frozen ABI-v4 short prefix, invokes
+   its legacy one-shot callback through the real host and requires a successful
+   completed stream containing `legacy executed`. The fixture stays dependency-
+   free, defines the old two-word string layout and never accesses a v2 tail.
+4. `compaction_succeeds_on_selected_child_and_rejects_foreign_or_closed_scope`
+   now creates distinct nonempty parent/child histories, installs the child's own
+   selected provider/model and compacts via the scoped host action. The selected
+   child's provider asserts child-only summary input and no parent-only history.
+   The test requires a persisted nonempty compaction summary with positive input
+   tokens, exactly one child provider call, zero parent provider calls, and
+   byte-equivalent serialized parent history before/after. Foreign/closed-scope
+   refusal assertions remain intact.
+5. `runtime_provider_forwarding_preserves_caller_operation_and_options_fallback`
+   now runs actual `AuthBinding::prepare` and native `requestAuth` through the
+   published RuntimeProvider, then observes execution inside the returned
+   source's `next` future. It asserts caller identity at native invocation and
+   source consumption for both task-local precedence and options-only fallback,
+   including preserved turn state and the shared newly-created request ID.
+   Native callbacks inspect their captured ActionBridge invocation, not Tokio
+   task locals on a blocking thread. The source poll observer and native bridge
+   accessor are opt-in test hooks, absent from default production builds.
+
+All five items are implemented; no item was deferred as infeasible. Test-only
+observation features are enabled by CLI dev-dependencies. They change no normal
+queue capacity, cancellation, routing, authentication or ABI behavior. No new
+production bug was found, and there is no production-fix commit in this lane.
+
+### Mutation checks for these five items
+
+The following nonoverlapping mutations were temporarily co-applied for a single
+build; each named test was then run separately under Rust 1.95.0. Every mutant
+compiled and the corresponding test exited **101**, not a cargo timeout. All
+mutations were reverted before the final passing gates.
+
+| Item / test | Temporarily broken production line | Observed failure |
+| --- | --- | --- |
+| SDK loaded adapter test | `CapabilityTables::release_auth`: replace `.remove(receipt)` with `.get(receipt)` | DLL `receipt remained live`; host terminal Error instead of Stop |
+| Blocked C emit test | Disable the capacity-wait loop in `bounded::Sender::send` with `&& false` | `C emit never waited on bounded queue capacity: Elapsed(())`; the new handshake rejects a nonblocking emitter |
+| Frozen legacy execution test | Change successful legacy `record.request_fn` status to 1 in the host request driver | Error instead of Stop; `plugin provider legacy returned error code 1` |
+| Nonempty child compaction test | Restore `self.harness()?` instead of `for_current_execution()` in host `compact` | `nonempty child history must actually compact` (no child compaction entry) |
+| Native auth / source identity test | Replace auth's captured `rpi_ai::identity::current()` with `None` | `native-requestAuth, task_local=true`: observed None instead of caller identity |
+
+### Final offline gates for this lane
+
+All cargo commands ran in the foreground with `timeout 270 cargo ...; echo
+exit=$?`, sourced `/home/user/Projects/.parity-env.sh`, used locked offline
+resolution, six jobs and the explicit requested toolchains/target directories.
+HOME was an isolated mode-0700 temp directory outside the worktree. No network,
+real credential files, `~/.pi`, `~/.rpi`, push, new ignore or assertion weakening.
+
+| Gate | Result |
+| --- | --- |
+| Rust 1.78.0 workspace/all-targets check, `RUSTFLAGS="-D warnings"`, target `h-deleg-v2-tests-178` | Exit 0 |
+| Rust 1.95.0 `test -p rpi-cli --locked`, target `h-deleg-v2-tests-195` | Exit 0; **758 passed, 0 failed, 18 pre-existing ignored**, plus one passing nested subprocess summary; loaded provider target **20 passed, 11 pre-existing ignored** |
+| Rust 1.95.0 `test -p rpi-plugin-sdk --features provider --locked`, same target | Exit 0; **78 passed, 0 failed, 3 pre-existing ignored** |
+| `rustfmt --check --edition 2021` on every changed Rust file | Exit 0; unrelated baseline files unchanged |
+| `git diff --check` | Exit 0 |
+
+Gate logs: `/tmp/h-deleg-v2-tests-{check-178,cli,sdk,fmt}.log`. Targeted restored
+runs of all five named tests also passed. The separate public runtime epoch-
+revocation regression/fix remains owned by the other lane; this work deliberately
+neither edits its files nor claims to fix that rereview finding.
