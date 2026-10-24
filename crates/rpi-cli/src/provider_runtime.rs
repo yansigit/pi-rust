@@ -548,6 +548,7 @@ impl ProviderRuntime {
             generations
         };
         let mut errors = BTreeMap::new();
+        let mut selected_error = None;
         let mut revision = self.state.lock().await.catalog.revision();
         for (id, generation) in ids {
             if signal.is_cancelled() {
@@ -570,7 +571,7 @@ impl ProviderRuntime {
                 .await
             {
                 Ok(result) => revision = result["revision"].as_u64().unwrap_or(revision),
-                Err(error) if args.get("providerId").is_some() => return Err(error),
+                Err(error) if args.get("providerId").is_some() => selected_error = Some(error),
                 Err(error) => {
                     errors.insert(id, error);
                 }
@@ -578,6 +579,9 @@ impl ProviderRuntime {
         }
         self.refresh_availability(caller, selected.as_deref(), signal.clone())
             .await?;
+        if let Some(error) = selected_error {
+            return Err(error);
+        }
         if args.get("providerId").is_some() {
             Ok(json!({"revision":revision}))
         } else {
@@ -644,6 +648,10 @@ impl ProviderRuntime {
             return Err("provider catalog changed during the operation".into());
         }
         let result = result?;
+        self.validate_owner(&caller)?;
+        if signal.is_cancelled() {
+            return Err("provider catalog refresh cancelled".into());
+        }
         let committed = publication.committed.load(Ordering::Acquire);
         if committed != 0 || result.get("published").is_some() {
             if committed == 0 || result != json!({"published":true}) {
