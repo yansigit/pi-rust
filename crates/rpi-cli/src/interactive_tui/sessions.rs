@@ -109,14 +109,6 @@ pub(super) async fn switch_to_session(
     tool_context: &rpi_extensions::ToolCallContext,
     reload_context: &crate::session::ReloadContext,
 ) -> bool {
-    if *state.status.lock().unwrap() == RunStatus::Working {
-        state.set_status(RunStatus::Aborting);
-        let _ = lane.abort().await;
-    }
-    if let Err(error) = lane.wait_for_idle().await {
-        add_error_message(chat, &format!("Could not switch session: {error}"));
-        return false;
-    }
     let cwd_str = cwd.to_string_lossy().to_string();
     match crate::session::open_session_by_id_in_dir(id, &cwd_str, &state.session_dir).await {
         Ok(new_session) => {
@@ -201,14 +193,6 @@ pub(super) async fn import_session(
         add_error_message(chat, "Import source must be a .jsonl session file.");
         return;
     }
-    if *state.status.lock().unwrap() == RunStatus::Working {
-        state.set_status(RunStatus::Aborting);
-        let _ = lane.abort().await;
-    }
-    if let Err(error) = lane.wait_for_idle().await {
-        add_error_message(chat, &format!("Could not import session: {error}"));
-        return;
-    }
     let new_session =
         match crate::session::import_session_file(src, &cwd.to_string_lossy(), &state.session_dir)
             .await
@@ -272,14 +256,6 @@ pub(super) async fn fork_session(
     reload_context: &crate::session::ReloadContext,
 ) {
     let lane = harness.lane("main");
-    if *state.status.lock().unwrap() == RunStatus::Working {
-        state.set_status(RunStatus::Aborting);
-        let _ = lane.abort().await;
-    }
-    if let Err(error) = lane.wait_for_idle().await {
-        add_error_message(chat, &format!("Could not fork session: {error}"));
-        return;
-    }
     let new_session = match crate::session::fork_session_storage(
         harness,
         &cwd.to_string_lossy(),

@@ -945,6 +945,7 @@ pub async fn build_prepared(
     let mut reload_args = args.clone();
     reload_args.session_dir = Some(session_dir);
     let reload_context = ReloadContext {
+        replacement_gate: Arc::new(tokio::sync::Mutex::new(())),
         execution_env: env,
         extension_session: extension_session_cell,
         action_bridge: Arc::new(Mutex::new(Some(Arc::clone(&action_bridge)))),
@@ -1145,6 +1146,7 @@ pub type ActionBridgeCell = Arc<Mutex<Option<Arc<rpi_extensions::ActionBridge>>>
 /// reload callback without borrowing the harness).
 #[derive(Clone)]
 pub struct ReloadContext {
+    replacement_gate: Arc<tokio::sync::Mutex<()>>,
     execution_env: Arc<OsExecutionEnv>,
     provider_runtime: Arc<std::sync::RwLock<Arc<crate::provider_runtime::ProviderRuntime>>>,
     /// The live extension-session cell (swapped on reload).
@@ -3020,6 +3022,10 @@ pub struct SessionReplacementContext<'a> {
 
 /// Point the harness at another session using Pi 1.3.0's replacement lifecycle.
 ///
+/// External callers abort only after a successful before-hook. Runtime actions
+/// use [`replace_active_session_idle`]: waiting for the operation that invoked
+/// the action would deadlock.
+///
 /// Order (Pi `agent-session-runtime.ts`):
 /// 1. require an idle lane. Pi settles the active response first
 ///    (`teardownCurrent`); rpi refuses while an operation is active so a plugin
@@ -3031,22 +3037,47 @@ pub struct SessionReplacementContext<'a> {
 /// 4. swap the durable backing ([`set_active_session`]);
 /// 5. `session_start { reason, previousSessionFile }`.
 ///
-/// Unlike Pi this keeps the harness object (and its extension runner) alive;
-/// the session-scoped state the harness owns (queues, children, pending
-/// context) is rebuilt by `AgentHarness::set_session`.
+/// The harness facade remains stable; extension authority, registrations,
+/// hooks, tools, provider bindings and emitter are freshly constructed.
 pub async fn replace_active_session(
     ctx: &SessionReplacementContext<'_>,
     session: Session,
     reason: SessionReplacementReason,
     fork_entry_id: Option<&str>,
 ) -> Result<SessionReplacement, String> {
-    if ctx
-        .harness
-        .snapshot()
-        .await
-        .map_err(|e| e.to_string())?
-        .active
-        .is_some()
+    replace_active_session_inner(ctx, session, reason, fork_entry_id, true).await
+}
+
+/// Runtime-action entry point: refuse busy calls instead of awaiting ourselves.
+pub async fn replace_active_session_idle(
+    ctx: &SessionReplacementContext<'_>,
+    session: Session,
+    reason: SessionReplacementReason,
+    fork_entry_id: Option<&str>,
+) -> Result<SessionReplacement, String> {
+    replace_active_session_inner(ctx, session, reason, fork_entry_id, false).await
+}
+
+async fn replace_active_session_inner(
+    ctx: &SessionReplacementContext<'_>,
+    session: Session,
+    reason: SessionReplacementReason,
+    fork_entry_id: Option<&str>,
+    settle: bool,
+) -> Result<SessionReplacement, String> {
+    // Refuse reentrant/concurrent replacements rather than waiting under a hook.
+    let _admission = ctx
+        .runtime_factory
+        .map(|factory| factory.try_admit())
+        .transpose()?;
+    if !settle
+        && ctx
+            .harness
+            .snapshot()
+            .await
+            .map_err(|e| e.to_string())?
+            .active
+            .is_some()
     {
         return Err("wait for the active operation to finish before replacing the session".into());
     }
@@ -3093,6 +3124,44 @@ pub async fn replace_active_session(
     .await
     {
         return Ok(SessionReplacement::Cancelled { reason });
+    }
+
+    // Validate the opened destination before any destructive teardown. The
+    // caller stages storage creation/opening; read faults cannot retire the old
+    // authority. Cwd-bound services must not silently keep the outgoing cwd.
+    session.get_metadata().await.map_err(|e| e.to_string())?;
+    if let Some(factory) = ctx.runtime_factory {
+        factory.validate_destination(target_file.as_deref())?;
+    }
+    session
+        .find_entries(&rpi_harness::session::types::EntryQuery::default())
+        .await
+        .map_err(|e| e.to_string())?;
+    if settle {
+        if ctx
+            .harness
+            .snapshot()
+            .await
+            .map_err(|e| e.to_string())?
+            .active
+            .is_some()
+        {
+            if let Err(error) = ctx.lane.abort().await {
+                // A response may finish between snapshot and abort. Other
+                // errors must not lead to teardown of a still-active operation.
+                if ctx
+                    .harness
+                    .snapshot()
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .active
+                    .is_some()
+                {
+                    return Err(error.to_string());
+                }
+            }
+        }
+        ctx.lane.wait_for_idle().await.map_err(|e| e.to_string())?;
     }
 
     let _ = dispatch_session_lifecycle_event(

@@ -158,7 +158,7 @@ impl HarnessActionHost {
             crate::session::set_active_session(harness, session, Some(&self.tool_context)).await?;
             return Ok(crate::session::SessionReplacement::Replaced);
         };
-        crate::session::replace_active_session(
+        crate::session::replace_active_session_idle(
             &crate::session::SessionReplacementContext {
                 runtime_factory: Some(&cells.runtime_factory),
                 harness,

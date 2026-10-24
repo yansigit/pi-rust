@@ -73,6 +73,42 @@ pub extern "C" fn rpi_plugin_register(_: *const u8) -> i32 { 0 }
     let old_bridge = context.action_bridge.lock().unwrap().clone().unwrap();
     let host = old_bridge.clone_host();
     let old_id = context.tool_context.session_id();
+    let factory = SessionRuntimeFactory::from_reload(&context);
+    let admission = factory.try_admit().unwrap();
+    assert!(host
+        .new_session(serde_json::json!({}))
+        .await
+        .unwrap_err()
+        .contains("already in progress"));
+    drop(admission);
+    assert!(old_bridge.is_active());
+    assert_eq!(old_id, context.tool_context.session_id());
+    let invalid = create_jsonl_session(
+        &temporary.path().join("other-sessions"),
+        temporary.path().join("missing-cwd").to_str().unwrap(),
+    )
+    .await
+    .unwrap();
+    let lane = harness.lane("main");
+    let ctx = SessionReplacementContext {
+        harness: &harness,
+        lane: lane.as_ref(),
+        extension_session: &context.extension_session,
+        action_bridge: &context.action_bridge,
+        tool_context: &context.tool_context,
+        runtime_factory: Some(&factory),
+    };
+    assert!(
+        replace_active_session(&ctx, invalid, SessionReplacementReason::Resume, None)
+            .await
+            .unwrap_err()
+            .contains("working directory does not exist")
+    );
+    assert!(
+        old_bridge.is_active(),
+        "destination preparation must precede retirement"
+    );
+    assert!(!old_session.shutdown_signal().is_cancelled());
     host.new_session(serde_json::json!({})).await.unwrap();
     assert_ne!(old_id, context.tool_context.session_id());
     assert!(
