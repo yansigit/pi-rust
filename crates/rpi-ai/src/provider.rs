@@ -148,6 +148,7 @@ impl std::fmt::Debug for SimpleStreamOptions {
             .field("env", &"[redacted]")
             .field("headers", &self.headers.as_ref().map(|_| "[redacted]"))
             .field("timeout", &self.timeout)
+            .field("stream_idle_timeout", &self.stream_idle_timeout)
             .field("max_retries", &self.max_retries)
             .field("max_retry_delay", &self.max_retry_delay)
             .field("cache_retention", &self.cache_retention)
@@ -274,6 +275,15 @@ mod tests {
 
         options.timeout = None;
         assert_eq!(options.request_timeout(), Duration::from_secs(600));
+    }
+
+    #[test]
+    fn debug_redacts_api_key_and_includes_stream_idle_timeout() {
+        let options = SimpleStreamOptions::default().with_api_key("sk-secret-sample-key-12345");
+        let debug = format!("{options:?}");
+        assert!(debug.contains("stream_idle_timeout"));
+        assert!(!debug.contains("sk-secret-sample-key-12345"));
+        assert!(debug.contains("[redacted]"));
     }
 }
 
