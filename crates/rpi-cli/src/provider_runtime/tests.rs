@@ -258,9 +258,11 @@ async fn publication_revokes_pending_calls_and_old_proxies_use_current_registrat
     )
     .await
     .unwrap();
+    let revoked = old_stream.result().await.unwrap();
+    assert_eq!(revoked.stop_reason, rpi_ai::StopReason::Error);
     assert_eq!(
-        old_stream.result().await.unwrap().stop_reason,
-        rpi_ai::StopReason::Aborted
+        revoked.error_message.as_deref(),
+        Some("delegation epoch revoked")
     );
     assert_eq!(
         proxy

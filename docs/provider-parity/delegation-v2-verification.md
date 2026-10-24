@@ -378,3 +378,54 @@ inside the caller project`. Moving isolated HOME outside the worktree corrected
 that setup. The next run hit the existing updater test race `Text file busy (os
 error 26)` in `direct_update_rolls_back_when_post_replace_validation_fails`.
 A full, unchanged rerun passed; no assertions or unrelated code were modified.
+
+## Public runtime forwarding revocation review fix (base `95cf5f2`)
+
+`forward_scoped` now passes an internal child of its public producer's
+cancellation token to preflight and upstream streaming. Epoch revocation cancels
+only that child and publishes `Error` / `delegation epoch revoked`; genuine
+caller cancellation still propagates to the child and produces `Aborted` /
+`provider request was cancelled`. The forwarding operation is dropped before
+publishing the failure, so it cannot forward events after that terminal. No ABI,
+auth policy, queue bound, or extension fixture changed.
+
+New tests in `crates/rpi-cli/src/provider_runtime/tests/loaded_delegation.rs`:
+
+- `public_loaded_runtime_publication_reports_epoch_revoked_and_stops_upstream`
+- `public_loaded_runtime_caller_cancel_remains_aborted_and_stops_upstream`
+
+Both enter via `runtime.providers()` (the public `RuntimeProvider` and
+`forward_scoped`), run the loaded a→b→c delegation chain, and wait for the loaded
+emitter's active marker before publication or caller cancellation. Synthetic
+ambient auth is supplied by a test-only provider adapter; it never consults real
+credentials or HOME. Both assert the exact error reason, stop reason and message,
+stream closure immediately after the terminal, nonzero foreign emit return, and
+upstream completion within eight seconds. The publication test additionally waits
+for all loaded wrappers' stale-capability probes to finish. The older
+`publication_revokes_pending_calls_and_old_proxies_use_current_registrations`
+assertion was updated from the obsolete Aborted expectation to Error plus the
+exact epoch-revoked message (the first full CLI gate exposed that expectation).
+
+Mutation check: temporarily replace the internal child token with
+`options.signal = producer.cancellation_token()` in `forward_scoped`, leaving
+the epoch error publication intact. The new public publication test compiles and
+fails with `left: Aborted / right: Error`, exit 101 (not a timeout). Mutation
+reverted; both new tests pass, and the restored full CLI gate passes.
+
+All requested gates completed offline with exit 0, using the sourced parity
+environment, `CARGO_BUILD_JOBS=6`, `RUSTUP_AUTO_INSTALL=0`, explicit existing
+Rust/Cargo homes, and isolated mode-0700 temporary HOME directories outside the
+worktree. Cargo ran in the foreground as `timeout 270 cargo ...; echo exit=$?`.
+
+| Gate | Result |
+| --- | --- |
+| Rust 1.78.0 `check --workspace --all-targets --locked`, `RUSTFLAGS="-D warnings"`, target `h-deleg-v2-178` | Passed |
+| Rust 1.95.0 `test -p rpi-cli --locked`, target `h-deleg-v2-195` | 759 passed, 0 failed, 18 pre-existing ignored; plus 1 passing nested subprocess summary |
+| Rust 1.95.0 `test -p rpi-extensions -p rpi-ai --locked`, target `h-deleg-v2-195` | 354 passed, 0 failed, 3 pre-existing ignored (rpi-extensions: 233; rpi-ai including doc test: 121) |
+| `rustfmt --check --edition 2021` on the three changed Rust files | Passed |
+| `git diff --check` | Passed |
+
+No new ignore attributes or weakened assertions, no network or push, and no
+access to real `~/.pi`, `~/.rpi`, or credentials. Concurrent-worker fixture,
+`delegation_v2.rs`, `lifetime_tests.rs`, and `forwarding_identity.rs` files are
+untouched.

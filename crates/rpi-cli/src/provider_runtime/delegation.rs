@@ -17,7 +17,9 @@ pub(super) fn forward_scoped(
             &options.signal,
         );
     let mut options = options.clone();
-    options.signal = producer.cancellation_token();
+    // Revocation stops upstream admission without turning the public terminal
+    // into a caller abort. Caller cancellation still propagates to this child.
+    options.signal = producer.cancellation_token().child_token();
     let model = model.clone();
     let context = context.clone();
     // Preserve the shared operation (including turn/request state), not merely
@@ -57,18 +59,20 @@ pub(super) fn forward_scoped(
                     ))
                     .await;
             };
-            tokio::select! { biased;
-                _ = signal.cancelled() => {},
-                _ = revoked.cancelled() => { signal.cancel(); },
-                _ = closing.cancelled() => { signal.cancel(); },
+            let (message, aborted) = tokio::select! { biased;
+                _ = signal.cancelled() => ("provider request was cancelled", true),
+                _ = revoked.cancelled() => {
+                    signal.cancel();
+                    ("delegation epoch revoked", false)
+                },
+                _ = closing.cancelled() => {
+                    signal.cancel();
+                    ("provider request was cancelled", true)
+                },
                 _ = operation => return,
-            }
+            };
             producer
-                .push(failure(
-                    &model,
-                    "provider request was cancelled".into(),
-                    true,
-                ))
+                .push(failure(&model, message.into(), aborted))
                 .await;
         };
         let work = rpi_agent::tool_execution_scope::inherit(scope, binding.scope(work));
