@@ -171,6 +171,39 @@ fn custom_to_context_messages(
     }
 }
 
+/// Project once, retaining source identity for durable recovery omissions.
+/// Edits are branch-local because callers supply only the selected path.
+/// The host-owned retained tail stays owned by its compaction entry.
+pub fn project_context_messages(
+    entries: &[Entry],
+    options: &SessionContextBuildOptions,
+) -> Vec<(String, AgentMessage)> {
+    let mut edits: BTreeMap<&str, &serde_json::Value> = BTreeMap::new();
+    for entry in entries {
+        if let Entry::ContextEdit(edit) = entry {
+            edits.insert(edit.target_id.as_str(), &edit.replacement);
+        }
+    }
+    let mut out = Vec::new();
+    for (index, entry) in entries.iter().enumerate() {
+        let replacement = edits.get(entry.id());
+        if replacement.is_some_and(|value| value.is_null()) {
+            continue;
+        }
+        for mut message in session_entry_to_context_messages(entry, index, entries, options) {
+            if let Some(replacement) = replacement {
+                let mut value = serde_json::to_value(&message).expect("message serialization");
+                value["content"] = replacement["content"].clone();
+                if let Ok(replaced) = serde_json::from_value(value) {
+                    message = replaced;
+                }
+            }
+            out.push((entry.id().to_owned(), message));
+        }
+    }
+    out
+}
+
 /// `deriveSessionContextState` — walk the FULL path (not the truncated context
 /// entries) to capture the latest `thinking_level`/`model`/`active_tool_names`.
 /// Mirrors TS `deriveSessionContextState`.
@@ -208,16 +241,10 @@ pub fn build_session_context(
 ) -> SessionContext {
     let mut ctx = derive_session_context_state(path_entries);
     let context_entries = build_context_entries(path_entries, options);
-    let mut messages = Vec::new();
-    for (index, entry) in context_entries.iter().enumerate() {
-        messages.extend(session_entry_to_context_messages(
-            entry,
-            index,
-            &context_entries,
-            options,
-        ));
-    }
-    ctx.messages = messages;
+    ctx.messages = project_context_messages(&context_entries, options)
+        .into_iter()
+        .map(|(_, message)| message)
+        .collect();
     ctx
 }
 
