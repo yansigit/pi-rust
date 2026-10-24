@@ -159,12 +159,77 @@ impl SessionState {
             ));
         };
         let seq = self.next_sequence();
+        let mut entry = provisioned_into_entry(entry, seq, parent, timestamp);
+        self.validate_context_edit(&mut entry)?;
         Ok(SessionMutation::Entry {
             seq,
             timestamp,
             lane,
-            entry: provisioned_into_entry(entry, seq, parent, timestamp),
+            entry,
         })
+    }
+
+    /// Validate against the actual parent chain while storage holds its write lock.
+    /// Also used during replay/fork, before changing any state.
+    pub(crate) fn validate_context_edit(&self, entry: &mut Entry) -> SessionResult<()> {
+        let parent = entry.parent_id().map(str::to_owned);
+        let Entry::ContextEdit(edit) = entry else {
+            return Ok(());
+        };
+        if !edit.replacement.is_null()
+            && !edit
+                .replacement
+                .get("content")
+                .map(|c| c.is_string() || c.is_array())
+                .unwrap_or(false)
+        {
+            return Err(SessionError::invalid_entry(
+                "Context edit replacement must be null or contain string/array content",
+            ));
+        }
+        let target = self.entries_by_id.get(&edit.target_id).ok_or_else(|| {
+            SessionError::invalid_entry(format!("Entry {} not found", edit.target_id))
+        })?;
+        let mut cursor = parent.as_deref();
+        let mut found = false;
+        while let Some(id) = cursor {
+            if id == edit.target_id {
+                found = true;
+                break;
+            }
+            cursor = self.entries_by_id.get(id).and_then(Entry::parent_id);
+        }
+        if !found {
+            return Err(SessionError::invalid_entry(format!(
+                "Entry {} is not on the active branch",
+                edit.target_id
+            )));
+        }
+        use rpi_agent::message::AgentMessage;
+        let Some(message) = target.as_message() else {
+            return Err(SessionError::invalid_entry(format!(
+                "Entry {} does not contribute editable model content",
+                edit.target_id
+            )));
+        };
+        if !matches!(
+            message,
+            AgentMessage::User(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_)
+        ) {
+            return Err(SessionError::invalid_entry(format!(
+                "Entry {} does not contribute editable model content",
+                edit.target_id
+            )));
+        }
+        if matches!(
+            message,
+            AgentMessage::Assistant(_) | AgentMessage::ToolResult(_)
+        ) {
+            if let Some(text) = edit.replacement.get("content").and_then(|v| v.as_str()) {
+                edit.replacement = serde_json::json!({"content": [{"type": "text", "text": text}]});
+            }
+        }
+        Ok(())
     }
 
     /// New state with a single `main` lane pointing at no leaf (mirrors TS
@@ -269,7 +334,10 @@ impl SessionState {
 
         match mutation {
             SessionMutation::Entry {
-                seq, lane, entry, ..
+                seq,
+                lane,
+                mut entry,
+                ..
             } => {
                 self.validate_unused_id(entry.id())?;
                 // Lane chaining — only when a lane is named (fork passes None).
@@ -295,6 +363,7 @@ impl SessionState {
                     }
                 }
 
+                self.validate_context_edit(&mut entry)?;
                 let is_message = matches!(entry, Entry::Message(_));
                 self.sequence = seq;
                 self.used_ids.insert(entry.id().to_string());
