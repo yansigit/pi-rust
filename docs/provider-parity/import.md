@@ -15,7 +15,14 @@ rpi import pi --from DIR --only credentials,sessions
 
 - Source: `--from DIR`, else `$PI_CODING_AGENT_DIR`, else `~/.pi/agent`.
   Relative paths are resolved against the working directory.
-- Destination: rpi's agent directory (`RPI_CODING_AGENT_DIR`, else `~/.rpi/agent`).
+- Credentials, settings, pool and ledger destination: rpi's agent directory
+  (`RPI_CODING_AGENT_DIR`, else `~/.rpi/agent`).
+- Session destination: `<resolved-session-root>/pi-import/`, using the same
+  `configured_session_dir` resolver as normal startup. For this subcommand
+  (which has no `--session-dir` flag), existing rpi `sessionDir` wins, then
+  `RPI_CODING_AGENT_SESSION_DIR`, then `<cwd>/.rpi/sessions`. Relative roots
+  resolve against the launch working directory. Pi's `sessionDir` is never
+  imported or used to choose this root.
 - The source and destination must differ.
 
 ## What is read
@@ -27,7 +34,7 @@ Only these four items are opened, listed or copied:
 | `auth.json` | `credentials` | `auth.json` (through `CompatibilityCredentialStore`) |
 | `settings.json` | `settings` | `settings.json` (merged) |
 | `multiprovider-auth.json` | `multiprovider` | `multiprovider-auth.json` (byte copy) |
-| `sessions/<dir>/*.jsonl` | `sessions` | `sessions/pi-import/<dir>/<stem>.<sha12>.jsonl` |
+| `sessions/<dir>/*.jsonl` | `sessions` | `<resolved-session-root>/pi-import/<dir>/<stem>.<sha12>.jsonl` |
 
 Everything else in the source tree is never read: vault directories,
 credential backups or stashes, SDK stores, lock files and any other file.
@@ -128,7 +135,7 @@ conflict. Unknown keys already in the destination are preserved on merge.
 ## Sessions (`sessions/`)
 
 Each `sessions/<dir>/*.jsonl` file is copied to
-`sessions/pi-import/<dir>/<stem>.<sha12>.jsonl`, where `sha12` is the first 12
+`<resolved-session-root>/pi-import/<dir>/<stem>.<sha12>.jsonl`, where `sha12` is the first 12
 hex digits of the source file's SHA-256.
 
 - The first line gains an `imported` object:
@@ -146,11 +153,23 @@ hex digits of the source file's SHA-256.
   field, or has a line that is not a JSON object (a torn file). A symbolic link
   is skipped as `symbolic link; not followed`.
 
-**Why not rpi's session directory?** rpi's own reader accepts only its v4
-format, and Pi sessions are v3. Copies placed in `<cwd>/.rpi/sessions` would
-show up in rpi's session list but could not be opened. The archival location
-keeps them out of that list. The `imported.source` field is the contract for
-any later reader or native port.
+**Session-root decision (reconciled 0.8.4 host).** Archives belong under the
+resolved session root, not under a hardcoded `<agent>/sessions`: environment
+and saved settings overrides must select the same storage tree as resume and
+session listing. A dedicated `pi-import` subtree keeps provenance and snapshot
+names intact without colliding with native session paths.
+
+**Discovery is not format conversion.** The current rpi reader accepts only
+its v4 format, whereas these are byte-preserving Pi v1–v3 archives. They live
+under the selected root for future discovery, but are not currently listed as
+native resumable sessions or opened by resume. Upstream's `/import <path>`
+helper validates v4 logs, chooses native repository paths, and returns a live
+session; it cannot be reused for these archives without rejecting or changing
+them. Bulk import instead reuses the existing private atomic-write helper
+(`config::atomic_write` via `write_private`, mode `0600`). The
+`imported.source` field remains the contract for any later reader or native
+port. Adding Pi-to-v4 conversion or archive entries to the native session
+picker is outside this command's archival contract.
 
 **Origin contract for native ports.** A native session port must check
 `imported.source` before it grants resume, cleanup or cloud authority to a
@@ -177,7 +196,10 @@ categories. The digest is the canonical JSON digest for credentials and
 settings, the byte digest for multiprovider and sessions.
 
 - A repeat run whose digest matches reports `already imported` and writes
-  nothing.
+  nothing. Session records store the absolute resolved snapshot destination.
+  Changing the configured root later does not relocate previously recorded
+  snapshots or bypass source-based idempotency; use the recorded destination
+  to find them.
 - A record whose digest differs is reported as `source changed since the last
   import`.
 - A corrupt or unknown-version ledger is an error. Fix it or move it aside.
@@ -198,7 +220,10 @@ cargo test -p rpi-cli --locked --test import_pi
 The integration tests cover: dry run, full import with the mode and
 expiry-unit checks, each skip reason, conflict refusal for each category, the
 idempotent re-run, changed-source detection, the source tree hash before and
-after each run, `--only`, the non-terminal refusal and usage errors.
+after each run, `--only`, the non-terminal refusal and usage errors. Session
+coverage includes the default project root, absolute and relative environment
+overrides (including dry run and idempotent re-run), saved `sessionDir`
+precedence, private HOME (`0700`), and snapshot permissions (`0600`).
 
 ## Not covered
 

@@ -33,7 +33,8 @@ impl Fixture {
         let src = temp.path().join("pi-agent");
         let dest = temp.path().join("rpi-agent");
         let home = temp.path().join("home");
-        fs::create_dir_all(&home).unwrap();
+        fs::create_dir_all(home.join("project")).unwrap();
+        fs::set_permissions(&home, fs::Permissions::from_mode(0o700)).unwrap();
         write_source(&src);
         Fixture {
             _temp: temp,
@@ -48,21 +49,27 @@ impl Fixture {
     }
 
     fn run_from(&self, from: &Path, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_rpi"))
+        self.command(from, args).output().unwrap()
+    }
+
+    fn command(&self, from: &Path, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_rpi"));
+        command
+            .current_dir(self.home.join("project"))
             .args(["import", "pi", "--from"])
             .arg(from)
             .args(args)
             .env_remove("PI_CODING_AGENT_DIR")
+            .env_remove("RPI_CODING_AGENT_SESSION_DIR")
             .env("RPI_CODING_AGENT_DIR", &self.dest)
             .env("HOME", &self.home)
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
+            .stdin(Stdio::null());
+        command
     }
 
     fn session_snapshot(&self, sha12_of: &[u8]) -> PathBuf {
-        self.dest.join(format!(
-            "sessions/pi-import/--home-u-proj--/s1.{}.jsonl",
+        self.home.join("project/.rpi/sessions").join(format!(
+            "pi-import/--home-u-proj--/s1.{}.jsonl",
             &sha256_hex(sha12_of)[..12]
         ))
     }
@@ -192,8 +199,7 @@ fn mode_of(path: &Path) -> u32 {
 #[test]
 fn dry_run_prints_the_plan_and_writes_nothing() {
     let fixture = Fixture::new();
-    let dest_before = tree(&fixture.dest);
-    let src_before = tree(&fixture.src);
+    let before = tree(fixture._temp.path());
 
     let output = fixture.run(&["--dry-run"]);
 
@@ -205,8 +211,7 @@ fn dry_run_prints_the_plan_and_writes_nothing() {
         text.contains("copied OAuth refresh credentials may rotate"),
         "{text}"
     );
-    assert_eq!(tree(&fixture.dest), dest_before);
-    assert_eq!(tree(&fixture.src), src_before);
+    assert_eq!(tree(fixture._temp.path()), before);
 }
 
 #[test]
@@ -276,6 +281,8 @@ fn full_import_copies_each_category_and_reports_every_skip_reason() {
     assert_eq!(mode_of(&fixture.dest.join("import-ledger.json")), 0o600);
 
     let session_bytes = fs::read(fixture.src.join("sessions/--home-u-proj--/s1.jsonl")).unwrap();
+    assert_eq!(mode_of(&fixture.home), 0o700);
+    assert_eq!(mode_of(&fixture.session_snapshot(&session_bytes)), 0o600);
     let snapshot =
         String::from_utf8(fs::read(fixture.session_snapshot(&session_bytes)).unwrap()).unwrap();
     let (first, rest) = snapshot.split_once('\n').unwrap();
@@ -286,8 +293,8 @@ fn full_import_copies_each_category_and_reports_every_skip_reason() {
     assert_eq!(header["imported"]["sha256"], sha256_hex(&session_bytes));
     assert_eq!(rest.as_bytes(), &session_bytes[HEADER.len() + 1..]);
     assert!(!fixture
-        .dest
-        .join("sessions/pi-import/--home-u-proj--/broken.jsonl")
+        .home
+        .join("project/.rpi/sessions/pi-import/--home-u-proj--/broken.jsonl")
         .exists());
 
     assert_eq!(
@@ -308,14 +315,14 @@ fn only_limits_the_categories_that_are_imported() {
     assert!(!fixture.dest.join("settings.json").exists());
     assert!(!fixture.dest.join("multiprovider-auth.json").exists());
     assert!(!fixture.dest.join("sessions").exists());
+    assert!(!fixture.home.join("project/.rpi/sessions").exists());
 }
 
 #[test]
 fn rerunning_a_completed_import_changes_nothing() {
     let fixture = Fixture::new();
     assert_eq!(fixture.run(&["--yes"]).status.code(), Some(0));
-    let dest_before = tree(&fixture.dest);
-    let src_before = tree(&fixture.src);
+    let before = tree(fixture._temp.path());
 
     let output = fixture.run(&["--yes"]);
 
@@ -323,8 +330,85 @@ fn rerunning_a_completed_import_changes_nothing() {
     let text = stdout(&output);
     assert!(text.contains("already imported"), "{text}");
     assert!(text.contains("nothing to import"), "{text}");
-    assert_eq!(tree(&fixture.dest), dest_before);
-    assert_eq!(tree(&fixture.src), src_before);
+    assert_eq!(tree(fixture._temp.path()), before);
+}
+
+#[test]
+fn custom_session_env_root_is_used_for_dry_run_import_and_rerun() {
+    for relative in [false, true] {
+        let fixture = Fixture::new();
+        let root = fixture.home.join("project/custom-sessions");
+        let configured = if relative {
+            Path::new("custom-sessions")
+        } else {
+            &root
+        };
+        let run = |args: &[&str]| {
+            fixture
+                .command(&fixture.src, args)
+                .env("RPI_CODING_AGENT_SESSION_DIR", configured)
+                .output()
+                .unwrap()
+        };
+        let before = tree(fixture._temp.path());
+        let dry = run(&["--dry-run"]);
+        assert_eq!(dry.status.code(), Some(0), "{}", stderr(&dry));
+        assert!(stdout(&dry).contains(&root.display().to_string()));
+        assert_eq!(tree(fixture._temp.path()), before);
+
+        let output = run(&["--yes"]);
+        assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+        let source = fs::read(fixture.src.join("sessions/--home-u-proj--/s1.jsonl")).unwrap();
+        let snapshot = root.join(format!(
+            "pi-import/--home-u-proj--/s1.{}.jsonl",
+            &sha256_hex(&source)[..12]
+        ));
+        assert_eq!(mode_of(&snapshot), 0o600);
+        let bytes = fs::read(&snapshot).unwrap();
+        let newline = bytes.iter().position(|byte| *byte == b'\n').unwrap();
+        let header: Value = serde_json::from_slice(&bytes[..newline]).unwrap();
+        assert_eq!(header["imported"]["source"], "pi");
+        assert_eq!(&bytes[newline + 1..], &source[HEADER.len() + 1..]);
+        let ledger = read_json(&fixture.dest.join("import-ledger.json"));
+        assert!(ledger.to_string().contains(&snapshot.display().to_string()));
+        assert!(!fixture.dest.join("sessions").exists());
+        assert!(!fixture.home.join("project/.rpi/sessions").exists());
+
+        let before = tree(fixture._temp.path());
+        let again = run(&["--yes"]);
+        assert_eq!(again.status.code(), Some(0), "{}", stderr(&again));
+        assert!(stdout(&again).contains("already imported"));
+        assert_eq!(tree(fixture._temp.path()), before);
+    }
+}
+
+#[test]
+fn saved_session_dir_wins_over_environment_and_is_not_imported_from_pi() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(&fixture.dest).unwrap();
+    fs::write(
+        fixture.dest.join("settings.json"),
+        br#"{"sessionDir":"saved-sessions"}"#,
+    )
+    .unwrap();
+    let output = fixture
+        .command(&fixture.src, &["--yes"])
+        .env(
+            "RPI_CODING_AGENT_SESSION_DIR",
+            fixture.home.join("unused-sessions"),
+        )
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{}", stderr(&output));
+    let root = fixture
+        .home
+        .join("project/saved-sessions/pi-import/--home-u-proj--");
+    assert_eq!(fs::read_dir(root).unwrap().count(), 1);
+    assert!(!fixture.home.join("unused-sessions").exists());
+    assert_eq!(
+        read_json(&fixture.dest.join("settings.json"))["sessionDir"],
+        "saved-sessions"
+    );
 }
 
 #[test]
@@ -423,13 +507,13 @@ fn session_conflict_refuses_and_leaves_the_destination_alone() {
     let snapshot = fixture.session_snapshot(&session_bytes);
     fs::create_dir_all(snapshot.parent().unwrap()).unwrap();
     fs::write(&snapshot, b"someone else's file").unwrap();
-    let dest_before = tree(&fixture.dest);
+    let before = tree(fixture._temp.path());
 
     let output = fixture.run(&["--yes", "--only", "sessions"]);
 
     assert_eq!(output.status.code(), Some(1));
     assert!(stdout(&output).contains("exists with different contents; not overwritten"));
-    assert_eq!(tree(&fixture.dest), dest_before);
+    assert_eq!(tree(fixture._temp.path()), before);
 }
 
 #[test]

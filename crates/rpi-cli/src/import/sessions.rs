@@ -1,6 +1,6 @@
 //! Pi session files: archival copies with visible origin metadata.
 //!
-//! Each `sessions/**.jsonl` file is copied into `<agent>/sessions/pi-import/`,
+//! Each `sessions/**.jsonl` file is copied into `<session-root>/pi-import/`,
 //! keeping its sub-directory name. The copy is byte-identical to the source
 //! except for the header line (the first line), which gains one field:
 //!
@@ -31,8 +31,8 @@ use super::plan::{record, Item, Outcome, Plan};
 use super::source::{self, SessionEntry};
 use super::util::{sha256_hex, write_private};
 
-/// Directory under the rpi agent directory that receives imported sessions.
-pub(crate) const DEST_DIR: &str = "sessions/pi-import";
+/// Archive directory under the same resolved session root used by startup.
+pub(crate) const DEST_DIR: &str = "pi-import";
 /// Header field that records where a copy came from.
 pub(crate) const ORIGIN_FIELD: &str = "imported";
 /// Newest Pi session format this importer understands (`1` and `2` are migrated by Pi on load).
@@ -49,11 +49,11 @@ pub(crate) type Writes = Vec<Write>;
 
 pub(crate) fn plan(
     root: &Path,
-    dest_agent: &Path,
+    session_dir: &Path,
     ledger: &Ledger,
 ) -> Result<Plan<Writes>, String> {
     let mut plan = Plan::new(Vec::new());
-    let dest_root = dest_agent.join(DEST_DIR);
+    let dest_root = session_dir.join(DEST_DIR);
     for entry in source::list_sessions(root)? {
         match entry {
             SessionEntry::Skipped { relative, reason } => {
@@ -123,8 +123,8 @@ fn plan_file(
     };
     let rewritten = rewrite(&bytes, header, &source_path, &sha, version)?;
     let dest_relative = dest_relative(relative, &sha);
-    let destination = format!("{DEST_DIR}/{dest_relative}");
     let dest = dest_root.join(&dest_relative);
+    let destination = dest.to_string_lossy().into_owned();
     let record_key = record(Category::Sessions, &source_path, "", &sha, &destination);
 
     match std::fs::read(&dest) {
