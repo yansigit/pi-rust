@@ -51,22 +51,36 @@ Each call has a child cancellation token and is cancelled on caller cancellation
 or grant revocation. Calls do not keep a closed child alive or select main instead.
 
 Limits: 1024 live grants/registry, 32/owner, 8 simultaneous calls/grant, 256 calls
-process-wide; no waiting queue. IDs are unguessable and every use checks owner.
+process-wide; no waiting queue. Admission is retained until the foreign callback
+and output deallocation finish, even if the caller has already returned on
+cancellation. IDs are unguessable and every use checks owner.
 
 Stable failures:
 
 - `scope service lease requires a live provider invocation`
+- `scope service lease capability not negotiated`
 - `scope service lease capacity exhausted`
 - `unknown scope service lease`
 - `scope service lease owner mismatch`
 - `scope service lease revoked`
 - `scope service lease method not permitted`
-- `selected execution scope is busy`
+- `unsupported scope service lease action`
+- `service request cancelled`
+- `selected execution scope is busy` (selected compaction)
 
-Acquire also reports `scope service lease capability not negotiated` for a missing
-receipt, and preserves service lookup/version errors. Removed grants can report
-`unknown scope service lease` rather than retaining unbounded revocation tombstones.
-Underlying service errors are preserved.
+Acquisition/parsing also preserves `missing service service`, `missing service lease`,
+`invalid service version`, and `service unavailable`. Service dispatch preserves
+service-owner, callback and response errors, including arbitrary service-provided
+error strings. Cancellation may surface through the outer transport as
+`native runtime request cancelled` instead of `service request cancelled`.
+Removed grants can report `unknown scope service lease` rather than retaining
+unbounded revocation tombstones.
+
+SDK-specific errors include `invalid scope service lease response` and
+`host is missing required native capabilities: services.scopeLease.v1` (old-host
+capability refusal). Capability discovery transport/parsing failures are wrapped
+as `native capability discovery failed; upgrade rpi: {error}` or reported as
+`invalid native capability response`.
 
 ## Idle-only compaction
 
