@@ -202,6 +202,9 @@ impl Continuation {
         json!({"version":1,"id":self.id,"generation":self.generation})
     }
     fn active(&self) -> bool {
+        if self.session.shutdown_signal().is_cancelled() {
+            return false;
+        }
         !self.options.signal.is_cancelled()
             && self
                 .caller
