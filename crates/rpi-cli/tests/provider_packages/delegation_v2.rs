@@ -12,10 +12,10 @@ use std::{
 use tokio_util::sync::CancellationToken;
 
 #[path = "../fixtures/delegation_library.rs"]
-mod delegation_library;
+pub(super) mod delegation_library;
 use delegation_library::library;
-#[test]
-fn loaded_frozen_legacy_prefix_still_registers_on_the_new_host() {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn loaded_frozen_legacy_prefix_still_registers_on_the_new_host() {
     let directory = tempfile::tempdir().unwrap();
     let library = directory.path().join(format!(
         "{}legacy{}",
@@ -43,6 +43,31 @@ fn loaded_frozen_legacy_prefix_still_registers_on_the_new_host() {
         None,
     );
     assert_eq!(session.loaded_paths().len(), 1);
+    let providers = rpi_extensions::PluggableProvider::from_session(
+        &session,
+        tokio::runtime::Handle::current(),
+    );
+    assert_eq!(providers.len(), 1);
+    let provider = &providers[0];
+    assert_eq!(provider.id(), "legacy");
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        provider
+            .stream_simple(
+                &provider.models()[0],
+                &Context::default(),
+                &SimpleStreamOptions::default(),
+            )
+            .await
+            .result()
+            .await
+            .unwrap()
+    })
+    .await
+    .unwrap();
+    assert_eq!(result.stop_reason, StopReason::Stop, "{result:?}");
+    assert!(serde_json::to_string(&result)
+        .unwrap()
+        .contains("legacy executed"));
     session.begin_shutdown();
 }
 #[test]
@@ -378,6 +403,14 @@ async fn loaded_cancel_revoke_and_unload_drain_blocked_foreign_emit() {
         )]));
         let stream = fixture.stream("flood", &options).await;
         wait_file(&marker).await;
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while !rpi_extensions::delegation_test_hooks::pending_emit(marker.to_str().unwrap()) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("C emit never waited on bounded queue capacity");
+        let stopped = std::time::Instant::now();
         let finished = PathBuf::from(format!("{}.finished", marker.display()));
         assert!(
             !finished.exists(),
@@ -390,6 +423,8 @@ async fn loaded_cancel_revoke_and_unload_drain_blocked_foreign_emit() {
             "drop" => {
                 drop(stream);
                 wait_file(&finished).await;
+                assert!(PathBuf::from(format!("{}.nonzero", marker.display())).exists());
+                assert!(stopped.elapsed() < Duration::from_secs(8));
                 fixture.session.begin_shutdown();
                 continue;
             }
@@ -410,6 +445,7 @@ async fn loaded_cancel_revoke_and_unload_drain_blocked_foreign_emit() {
             message.error_message
         );
         wait_file(&finished).await;
+        assert!(stopped.elapsed() < Duration::from_secs(8));
         assert!(
             PathBuf::from(format!("{}.nonzero", marker.display())).exists(),
             "C emit must observe cancellation"

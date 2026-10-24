@@ -4,11 +4,20 @@ use std::{
 };
 pub(crate) fn library() -> &'static Path {
     static FIXTURE: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
-    &FIXTURE
+    fixture(&FIXTURE, "delegation_v2")
+}
+// Also compiled by runtime unit tests, which only need the handwritten fixture.
+#[allow(dead_code)]
+pub(crate) fn sdk_library() -> &'static Path {
+    static FIXTURE: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
+    fixture(&FIXTURE, "delegation_sdk")
+}
+fn fixture(lock: &'static OnceLock<(tempfile::TempDir, PathBuf)>, name: &str) -> &'static Path {
+    &lock
         .get_or_init(|| {
             let directory = tempfile::tempdir().unwrap();
             let library = directory.path().join(format!(
-                "{}delegation_v2{}",
+                "{}{name}{}",
                 std::env::consts::DLL_PREFIX,
                 std::env::consts::DLL_SUFFIX
             ));
@@ -22,12 +31,20 @@ pub(crate) fn library() -> &'static Path {
             );
             compiler
                 .args(["--edition=2021", "--crate-type=cdylib", "-C", "debuginfo=0"])
-                .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/delegation_v2.rs"))
+                .arg(
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fixtures/{name}.rs")),
+                )
                 .arg("-L")
                 .arg(format!("dependency={}", deps.display()))
                 .arg("-o")
                 .arg(&library);
-            for name in ["rpi_plugin_sdk", "rpi_ai", "serde_json"] {
+            for name in [
+                "rpi_plugin_sdk",
+                "rpi_ai",
+                "serde_json",
+                "async_trait",
+                "tokio",
+            ] {
                 let mut candidates: Vec<_> = std::fs::read_dir(&deps)
                     .unwrap()
                     .map(|entry| entry.unwrap().path())
@@ -36,9 +53,9 @@ pub(crate) fn library() -> &'static Path {
                             .unwrap()
                             .to_string_lossy()
                             .starts_with(&format!("lib{name}-"))
-                            && path
-                                .extension()
-                                .is_some_and(|extension| extension == "rlib")
+                            && path.extension().is_some_and(|extension| {
+                                extension == "rlib" || (name == "async_trait" && extension == "so")
+                            })
                     })
                     .collect();
                 candidates.sort_by_key(|path| {

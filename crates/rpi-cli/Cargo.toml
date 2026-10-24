@@ -98,6 +98,9 @@ default = ["clipboard"]
 clipboard = ["dep:arboard"]
 
 [dev-dependencies]
+rpi-ai = { workspace = true, features = ["delegation-test-hooks"] }
+rpi-extensions = { workspace = true, features = ["delegation-test-hooks"] }
+rpi-plugin-sdk = { workspace = true, features = ["provider"] }
 
 [lib]
 path = "src/lib.rs"
