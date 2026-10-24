@@ -336,6 +336,10 @@ pub struct CapabilityTables {
 }
 impl CapabilityTables {
     pub const LIMIT: usize = 64;
+    #[cfg(any(test, feature = "delegation-test-hooks"))]
+    pub(super) fn counts(&self) -> (usize, usize) {
+        (self.targets.len(), self.receipts.len())
+    }
     pub fn insert_target(&mut self, target: ResolvedDelegationTarget) -> Result<String, String> {
         if self.targets.len() >= Self::LIMIT {
             return Err("delegation target capacity exhausted".into());

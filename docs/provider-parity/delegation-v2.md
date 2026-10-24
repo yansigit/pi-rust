@@ -34,6 +34,23 @@ Targets and receipts are bearer capabilities stored in separate, bounded tables
 owned by a single live continuation (64 targets and 64 receipts). Releasing a
 target removes its dependent receipts. No capability contains serialized secrets.
 
+Cancellation/revocation schedules host-owned target and receipt reclamation
+independently of callback completion. Invocation cancellation, epoch revocation,
+scope closing and session shutdown all terminate capability admission. A weak
+host monitor drains v1 receipts, v2 ambient/replacement receipts and targets;
+inactive lookups also reclaim synchronously. Post-resolution admission is checked
+under the insertion lock, so asynchronous resolution cannot repopulate a terminal
+continuation. Normal continuation destruction stops the monitor without retaining
+foreign execution.
+
+After reclamation completes, explicit releases are unnecessary; release RPCs may
+return `inactive provider continuation` / `delegation epoch revoked` /
+`expired provider continuation`. A rejection alone is not proof of complete drain.
+Admitted work is cancelled, but foreign execution, package lease draining and
+durable credential completion are separate lifecycle obligations. Reclamation
+neither unloads executing code nor force-drops started credential refresh
+transactions; active attempts may still own cloned authentication references.
+
 Host-only scope/epoch/provider-instance/wrapper-instance IDs are distinct types.
 Ancestry is immutable per invocation branch, not a concurrent-active registry.
 Provider ID or generation recurrence fails with `provider delegation cycle`;

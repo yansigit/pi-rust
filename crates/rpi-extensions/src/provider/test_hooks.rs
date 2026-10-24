@@ -28,3 +28,8 @@ pub fn pending_emit(marker: &str) -> bool {
         .and_then(Weak::upgrade)
         .is_some_and(|queue| queue.capacity_waiters() > 0)
 }
+
+/// Observe storage without resolving authority or initiating reclamation.
+pub fn continuation_storage(id: &str) -> Option<(bool, usize, usize, usize)> {
+    super::wrappers::observe_storage(id)
+}
