@@ -383,6 +383,24 @@ impl Provider for RoutedProvider {
             Err("model is not registered in this provider execution binding".into())
         }
     }
+    async fn delegation_auth(
+        &self,
+        model: &Model,
+        signal: tokio_util::sync::CancellationToken,
+    ) -> Result<rpi_ai::auth::AttemptAuth, String> {
+        let route = self
+            .routes
+            .iter()
+            .find(|route| {
+                route.models().iter().any(|known| {
+                    known.provider == model.provider
+                        && known.api == model.api
+                        && known.id.eq_ignore_ascii_case(&model.id)
+                })
+            })
+            .ok_or("unbound delegation model")?;
+        route.delegation_auth(model, signal).await
+    }
     async fn stream_simple(
         &self,
         model: &Model,
@@ -453,6 +471,25 @@ impl Provider for ConfiguredProvider {
     ) -> Result<(), String> {
         self.inner.preflight(model, signal).await
     }
+    async fn delegation_auth(
+        &self,
+        requested: &Model,
+        signal: tokio_util::sync::CancellationToken,
+    ) -> Result<rpi_ai::auth::AttemptAuth, String> {
+        self.preflight(requested, signal.clone()).await?;
+        let options = SimpleStreamOptions::default().with_signal(signal);
+        let (mut model, mut options) = self
+            .binding
+            .prepare(requested, &options)
+            .ok_or("unbound delegation model")?;
+        match &self.auth {
+            Some(auth) => auth
+                .seal(&mut model, &mut options)
+                .await
+                .map_err(|error| error.to_string()),
+            None => Ok(super::auth::sealed(&model, &options)),
+        }
+    }
     async fn stream_simple(
         &self,
         model: &Model,
@@ -513,6 +550,62 @@ mod tests {
     use std::sync::Mutex;
 
     include!("auth_tests.rs");
+
+    #[tokio::test]
+    async fn delegation_seals_private_binding_not_poisoned_public_descriptor() {
+        let canonical = Model::new(
+            "m",
+            "M",
+            Api::OpenaiCompletions,
+            "target",
+            "https://canonical.invalid",
+        );
+        let mut configured = canonical.clone();
+        configured.base_url = "https://configured.invalid".into();
+        configured.headers = Some(BTreeMap::from([(
+            "x-private".into(),
+            "target-header".into(),
+        )]));
+        let provider = ConfiguredProvider {
+            id: "target".into(),
+            api: canonical.api.as_str().into(),
+            inner: Arc::new(RecordingProvider(Calls::default())),
+            binding: Arc::new(ExecutionBinding::new(
+                "target",
+                vec![configured],
+                vec![canonical.clone()],
+                RequestAuth::ApiKey("target-key".into()),
+            )),
+            auth: None,
+        };
+        let mut poisoned = canonical;
+        poisoned.base_url = "https://attacker.invalid".into();
+        poisoned.headers = Some(BTreeMap::from([(
+            "authorization".into(),
+            "caller-secret".into(),
+        )]));
+        let sealed = provider
+            .delegation_auth(&poisoned, tokio_util::sync::CancellationToken::new())
+            .await
+            .unwrap();
+        let rpi_ai::auth::AttemptAuth::Replace(sealed) = sealed else {
+            panic!("unsealed ambient auth")
+        };
+        let auth = sealed.for_provider("target").unwrap();
+        assert_eq!(auth.api_key.as_deref(), Some("target-key"));
+        assert_eq!(auth.base_url.as_deref(), Some("https://configured.invalid"));
+        assert_eq!(
+            auth.headers,
+            BTreeMap::from([("x-private".into(), "target-header".into())])
+        );
+        assert!(auth.env.is_empty());
+        assert!(sealed.for_provider("caller").is_none());
+        poisoned.provider = "caller".into();
+        assert!(provider
+            .delegation_auth(&poisoned, tokio_util::sync::CancellationToken::new())
+            .await
+            .is_err());
+    }
 
     type Calls = Arc<Mutex<Vec<(Model, SimpleStreamOptions)>>>;
     struct RecordingFactory(Calls);

@@ -281,7 +281,13 @@ impl Provider for PluggableProvider {
             invocation
         });
         if let Some(wrapper) = &self.wrapper {
-            lifetime.continuation = Some(wrapper.continuation(&model, &ctx, &opts));
+            match wrapper.continuation(&model, &ctx, &opts) {
+                Ok(continuation) => lifetime.continuation = Some(continuation),
+                Err(error) => {
+                    push_terminal(&mut prod, error_message(&record, &error)).await;
+                    return stream;
+                }
+            }
         }
 
         // `spawn` (not `spawn_blocking`) for the producer task — the producer

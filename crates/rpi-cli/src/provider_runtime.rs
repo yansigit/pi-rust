@@ -574,11 +574,38 @@ impl DelegationResolver for ProviderRuntime {
     }
     async fn resolve_ambient(
         &self,
-        _: &DelegationCaller,
-        _: &ResolvedDelegationTarget,
-        _: CancellationToken,
+        caller: &DelegationCaller,
+        target: &ResolvedDelegationTarget,
+        signal: CancellationToken,
     ) -> Result<ResolvedAmbientAuth, String> {
-        Err("ambient delegation authentication unavailable".into())
+        target.validate(caller)?;
+        let provider = {
+            let state = self.state.lock().await;
+            // Revalidate against the currently published scope, not only a retained Arc.
+            state
+                .epoch
+                .target(caller, &target.model().provider, &target.model().id)?;
+            state
+                .catalog
+                .get_provider_instance(&target.model().provider)
+                .ok_or("provider is no longer registered")?
+        };
+        let revoked = target.signal();
+        let authentication = tokio::select! { biased;
+            _ = revoked.cancelled() => return Err("delegation epoch revoked".into()),
+            _ = signal.cancelled() => return Err("authentication cancelled".into()),
+            result = provider.delegation_auth(target.model(), signal.clone()) => result?,
+        };
+        target.validate(caller)?;
+        if signal.is_cancelled()
+            || !self
+                .session
+                .snapshot()
+                .is_some_and(|snapshot| snapshot.is_active())
+        {
+            return Err("authentication cancelled".into());
+        }
+        Ok(ResolvedAmbientAuth::new(authentication))
     }
 }
 struct RuntimeProvider {

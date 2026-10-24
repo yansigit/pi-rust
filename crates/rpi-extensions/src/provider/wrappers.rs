@@ -1,6 +1,11 @@
 //! Session-owned provider composition. A continuation captures the next provider,
 //! never a registry lookup that could recursively re-enter its own wrapper.
+use super::delegation::{
+    CapabilityTables, DelegationBinding, DelegationCaller, ReceiptKind, ResolvedDelegationTarget,
+    WrapperInstanceId,
+};
 use super::*;
+mod v2;
 use rpi_ai::auth::{AttemptAuth, AuthError, AuthOptions, SystemClock};
 use rpi_plugin_sdk::{
     AuthRequestControl, FreeStringFn, ProviderStreamControl, ProviderStreamEmitFn,
@@ -55,6 +60,7 @@ pub(super) struct WrapperNext {
     session: ExtensionSession,
     plugin: String,
     generation: String,
+    instance: WrapperInstanceId,
 }
 
 /// Compose a fresh chain over unwrapped providers. Calling this during catalog
@@ -99,6 +105,7 @@ pub fn wrap_providers(
                         session: session.clone(),
                         plugin: wrapper.plugin.clone(),
                         generation: uuid::Uuid::new_v4().to_string(),
+                        instance: WrapperInstanceId::fresh(),
                     }),
                 });
             }
@@ -124,6 +131,9 @@ pub(super) struct Continuation {
     options: SimpleStreamOptions,
     runtime: Handle,
     receipts: Mutex<HashMap<String, AttemptAuth>>,
+    binding: Option<DelegationBinding>,
+    caller: Option<DelegationCaller>,
+    capabilities: Mutex<CapabilityTables>,
 }
 impl WrapperNext {
     pub(super) async fn preflight(
@@ -138,7 +148,15 @@ impl WrapperNext {
         model: &Model,
         context: &Context,
         options: &SimpleStreamOptions,
-    ) -> Arc<Continuation> {
+    ) -> Result<Arc<Continuation>, String> {
+        let binding = DelegationBinding::current();
+        let caller = binding
+            .as_ref()
+            .map(|binding| binding.caller(self.instance))
+            .transpose()?;
+        let binding = binding
+            .map(|binding| binding.with_ancestry(caller.as_ref().unwrap().ancestry()))
+            .transpose()?;
         let value = Arc::new(Continuation {
             tool_scope: rpi_agent::tool_execution_scope::current_scope(),
             id: uuid::Uuid::new_v4().to_string(),
@@ -151,12 +169,15 @@ impl WrapperNext {
             options: options.clone(),
             runtime: Handle::current(),
             receipts: Mutex::new(HashMap::new()),
+            binding,
+            caller,
+            capabilities: Mutex::new(CapabilityTables::default()),
         });
         continuations()
             .lock()
             .unwrap()
             .insert(value.id.clone(), Arc::downgrade(&value));
-        value
+        Ok(value)
     }
 }
 impl Drop for Continuation {
@@ -166,19 +187,26 @@ impl Drop for Continuation {
 }
 impl Continuation {
     async fn in_scope<F: std::future::Future>(&self, work: F) -> F::Output {
-        rpi_agent::tool_execution_scope::inherit(self.tool_scope.clone(), async move {
+        let work = rpi_agent::tool_execution_scope::inherit(self.tool_scope.clone(), async move {
             match &self.options.identity {
                 Some(identity) => rpi_ai::identity::scope(identity.clone(), work).await,
                 None => work.await,
             }
-        })
-        .await
+        });
+        match &self.binding {
+            Some(binding) => binding.scope(work).await,
+            None => work.await,
+        }
     }
     pub(super) fn descriptor(&self) -> Value {
         json!({"version":1,"id":self.id,"generation":self.generation})
     }
     fn active(&self) -> bool {
         !self.options.signal.is_cancelled()
+            && self
+                .caller
+                .as_ref()
+                .map_or(true, |caller| caller.validate().is_ok())
             && !self
                 .tool_scope
                 .as_ref()
@@ -198,6 +226,9 @@ impl Continuation {
             .get(id)
             .and_then(Weak::upgrade)
             .ok_or("expired provider continuation")?;
+        if let Some(caller) = &value.caller {
+            caller.validate()?;
+        }
         if descriptor["version"] != 1
             || descriptor["generation"] != value.generation
             || !value.active()
@@ -211,8 +242,17 @@ impl Continuation {
         input: Value,
         signal: CancellationToken,
     ) -> Result<Value, AuthError> {
-        self.next
-            .preflight(&self.model, signal.clone())
+        let target = if input["version"] == 2 {
+            Some(self.target(&input).map_err(|_| AuthError::Resolve)?)
+        } else {
+            None
+        };
+        let model = target.as_ref().map_or(&self.model, |target| target.model());
+        let provider_chain = target
+            .as_ref()
+            .map_or_else(|| self.next.clone(), |target| target.chain());
+        provider_chain
+            .preflight(model, signal.clone())
             .await
             .map_err(|_| AuthError::Resolve)?;
         let store_id = input["storeId"].as_str().ok_or(AuthError::Store)?;
@@ -226,7 +266,7 @@ impl Continuation {
         if !owned {
             return Err(AuthError::Store);
         }
-        let provider_id = &self.model.provider;
+        let provider_id = &model.provider;
         let provider = crate::provider_auth::ProviderAuthentication::for_registered_provider(
             &self.session,
             provider_id,
@@ -274,13 +314,37 @@ impl Continuation {
                 provider,
                 Arc::new(crate::credential_store::NativeStoreHandle(store)),
                 options,
-                signal,
+                signal.clone(),
                 Arc::new(SystemClock),
             )
             .await?;
-        let id = uuid::Uuid::new_v4().to_string();
-        self.receipts.lock().unwrap().insert(id.clone(), auth);
-        Ok(json!({"version":1,"receipt":id}))
+        if let Some(target) = target {
+            let caller = self.caller.as_ref().ok_or(AuthError::Resolve)?;
+            target.validate(caller).map_err(|_| AuthError::Cancelled)?;
+            if signal.is_cancelled() {
+                return Err(AuthError::Cancelled);
+            }
+            let id = self
+                .capabilities
+                .lock()
+                .unwrap()
+                .insert_auth(
+                    input["target"].as_str().ok_or(AuthError::Resolve)?,
+                    caller,
+                    ReceiptKind::Replacement,
+                    auth,
+                )
+                .map_err(|_| AuthError::Resolve)?;
+            Ok(json!({"version":2,"receipt":id}))
+        } else {
+            let mut receipts = self.receipts.lock().unwrap();
+            if receipts.len() >= CapabilityTables::LIMIT {
+                return Err(AuthError::Resolve);
+            }
+            let id = uuid::Uuid::new_v4().to_string();
+            receipts.insert(id.clone(), auth);
+            Ok(json!({"version":1,"receipt":id}))
+        }
     }
 }
 
@@ -315,20 +379,28 @@ pub(crate) extern "C" fn continuation_action(
             }
             let input: Value = serde_json::from_str(unsafe { request.as_str() })
                 .map_err(|_| "invalid continuation request")?;
-            if input["version"] != 1 {
+            if input["version"] != 1 && input["version"] != 2 {
                 return Err("unsupported continuation version".into());
             }
             let continuation = Continuation::resolve(&input["continuation"])?;
-            match input["action"].as_str() {
-                Some("releaseAuth") => {
-                    let id = input["receipt"].as_str().ok_or("missing auth receipt")?;
-                    if continuation.receipts.lock().unwrap().remove(id).is_none() {
-                        return Err("unknown auth receipt".into());
+            if input["version"] == 1 && input["action"] == "capabilities" {
+                let available = continuation.binding.is_some();
+                return Ok(
+                    json!({"version":1,"delegationVersions":if available { vec![1,2] } else { vec![1] },"opaqueTargets":available,"ambientReceipts":available,"epochRevocation":available}),
+                );
+            }
+            if input["version"] == 1 {
+                match input["action"].as_str() {
+                    Some("releaseAuth") => {
+                        let id = input["receipt"].as_str().ok_or("missing auth receipt")?;
+                        if continuation.receipts.lock().unwrap().remove(id).is_none() {
+                            return Err("unknown auth receipt".into());
+                        }
+                        return Ok(json!({"version":1}));
                     }
-                    return Ok(json!({"version":1}));
+                    Some("resolveAuth") => {}
+                    _ => return Err("unknown continuation action".into()),
                 }
-                Some("resolveAuth") => {}
-                _ => return Err("unknown continuation action".into()),
             }
             let signal = continuation.options.signal.child_token();
             let _cancel = signal.clone().drop_guard();
@@ -337,9 +409,17 @@ pub(crate) extern "C" fn continuation_action(
             let task_signal = signal.clone();
             continuation.runtime.spawn(async move {
                 let result = pending
-                    .in_scope(pending.authenticate(input, task_signal))
-                    .await
-                    .map_err(|error| error.to_string());
+                    .in_scope(async {
+                        if input["version"] == 2 {
+                            pending.operate_v2(input, task_signal).await
+                        } else {
+                            pending
+                                .authenticate(input, task_signal)
+                                .await
+                                .map_err(|error| error.to_string())
+                        }
+                    })
+                    .await;
                 let _ = sender.send(result);
             });
             loop {
@@ -567,3 +647,5 @@ fn aborted(mut partial: AssistantMessage) -> AssistantMessage {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod v2_tests;

@@ -149,6 +149,7 @@ impl DelegationEpoch {
         let model = route.models.iter().find(|candidate| candidate.id == model).cloned().ok_or_else(|| format!("multiprovider: virtual backend unavailable: provider \"{provider}\" has no model \"{model}\""))?;
         let ancestry = caller.ancestry.enter_provider(route)?;
         Ok(ResolvedDelegationTarget {
+            admission: self.revoked.child_token(),
             epoch: self.clone(),
             route: route.clone(),
             model,
@@ -207,6 +208,7 @@ impl DelegationCaller {
 
 #[derive(Clone)]
 pub struct ResolvedDelegationTarget {
+    admission: CancellationToken,
     epoch: Arc<DelegationEpoch>,
     route: Arc<DelegationRoute>,
     model: Model,
@@ -224,6 +226,10 @@ impl ResolvedDelegationTarget {
     }
     pub fn validate(&self, caller: &DelegationCaller) -> Result<(), String> {
         caller.validate()?;
+        self.ancestry.validate(&self.epoch)?;
+        if self.admission.is_cancelled() {
+            return Err("delegation target released".into());
+        }
         self.ancestry.validate(&caller.epoch)?;
         if !self.ancestry.same_invocation(&caller.ancestry) {
             return Err("delegation target belongs to a different continuation".into());
@@ -231,7 +237,7 @@ impl ResolvedDelegationTarget {
         Ok(())
     }
     pub fn signal(&self) -> CancellationToken {
-        self.epoch.signal()
+        self.admission.clone()
     }
 }
 
@@ -387,7 +393,9 @@ impl CapabilityTables {
     pub fn release_target(&mut self, target: &str) -> Result<(), String> {
         self.targets
             .remove(target)
-            .ok_or("delegation target belongs to a different continuation")?;
+            .ok_or("delegation target belongs to a different continuation")?
+            .admission
+            .cancel();
         self.receipts.retain(|_, receipt| receipt.target != target);
         Ok(())
     }
