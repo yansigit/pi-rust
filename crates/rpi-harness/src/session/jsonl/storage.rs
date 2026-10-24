@@ -562,6 +562,26 @@ impl SessionStorage for JsonlSessionStorage {
         Ok(())
     }
 
+    async fn append_context_edit(
+        &self,
+        id: String,
+        target_id: String,
+        replacement: serde_json::Value,
+        lane: &str,
+    ) -> SessionResult<Entry> {
+        self.append_entry(
+            ProvisionedEntry {
+                id,
+                kind: crate::session::types::ProvisionedKind::ContextEdit {
+                    target_id,
+                    replacement,
+                },
+            },
+            lane,
+        )
+        .await
+    }
+
     async fn append_entry(&self, entry: ProvisionedEntry, lane: &str) -> SessionResult<Entry> {
         let _g = self.tail.lock().await;
         let state = self.state.lock().await;
@@ -569,7 +589,8 @@ impl SessionStorage for JsonlSessionStorage {
         state.validate_unused_id(&entry.id)?;
         let seq = state.next_sequence();
         let timestamp = self.clock.now_ms();
-        let full = provisioned_into_entry(entry, seq, parent_id, timestamp);
+        let mut full = provisioned_into_entry(entry, seq, parent_id, timestamp);
+        state.validate_context_edit(&mut full)?;
         let mutation = SessionMutation::Entry {
             seq,
             timestamp,

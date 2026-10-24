@@ -45,6 +45,7 @@ const ENTRY_TYPES: &[&str] = &[
     "model_change",
     "thinking_level_change",
     "active_tools_change",
+    "context_edit",
     "compaction",
     "branch_summary",
     "custom",

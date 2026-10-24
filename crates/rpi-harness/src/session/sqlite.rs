@@ -182,6 +182,26 @@ impl SessionStorage for SqliteSessionStorage {
     ) -> SessionResult<super::types::BranchRevision> {
         self.write(|inner| immediate(inner.move_lane_at_revision(lane, revision, to)))
     }
+    async fn append_context_edit(
+        &self,
+        id: String,
+        target_id: String,
+        replacement: serde_json::Value,
+        lane: &str,
+    ) -> SessionResult<Entry> {
+        self.append_entry(
+            ProvisionedEntry {
+                id,
+                kind: crate::session::types::ProvisionedKind::ContextEdit {
+                    target_id,
+                    replacement,
+                },
+            },
+            lane,
+        )
+        .await
+    }
+
     async fn append_entry(&self, entry: ProvisionedEntry, lane: &str) -> SessionResult<Entry> {
         self.write(|inner| immediate(inner.append_entry(entry, lane)))
     }

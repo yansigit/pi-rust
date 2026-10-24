@@ -286,6 +286,26 @@ impl SessionStorage for InMemorySessionStorage {
         })
     }
 
+    async fn append_context_edit(
+        &self,
+        id: String,
+        target_id: String,
+        replacement: serde_json::Value,
+        lane: &str,
+    ) -> SessionResult<Entry> {
+        self.append_entry(
+            ProvisionedEntry {
+                id,
+                kind: crate::session::types::ProvisionedKind::ContextEdit {
+                    target_id,
+                    replacement,
+                },
+            },
+            lane,
+        )
+        .await
+    }
+
     async fn append_entry(&self, entry: ProvisionedEntry, lane: &str) -> SessionResult<Entry> {
         self.inner.with_state(|state| {
             let parent_id = state.require_lane(lane)?;
