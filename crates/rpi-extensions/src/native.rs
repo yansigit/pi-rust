@@ -179,6 +179,13 @@ pub(crate) extern "C" fn request(
             {
                 return Err("native runtime request cancelled".into());
             }
+            let args: Value = serde_json::from_str(unsafe { input.as_str() })
+                .map_err(|_| "invalid native request")?;
+            if args["version"] != 1 {
+                return Err("unsupported native runtime version".into());
+            }
+            let grant_transport = args["port"] == "serviceLeases"
+                && matches!(args["action"].as_str(), Some("call" | "release"));
             let retained = leases()
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -188,7 +195,13 @@ pub(crate) extern "C" fn request(
             let bridge = retained
                 .as_ref()
                 .map(|lease| lease.bridge.clone())
-                .or_else(|| ActionBridge::native_invocation(data as usize))
+                .or_else(|| {
+                    if grant_transport {
+                        ActionBridge::resolve_handle(data as usize)
+                    } else {
+                        ActionBridge::native_invocation(data as usize)
+                    }
+                })
                 .ok_or("expired native runtime handle")?;
             if !bridge.is_active() {
                 return Err("inactive native runtime".into());
@@ -196,11 +209,6 @@ pub(crate) extern "C" fn request(
             let owner = bridge
                 .native_owner()
                 .ok_or("native runtime request has no plugin owner")?;
-            let args: Value = serde_json::from_str(unsafe { input.as_str() })
-                .map_err(|_| "invalid native request")?;
-            if args["version"] != 1 {
-                return Err("unsupported native runtime version".into());
-            }
             let session_persistence = retained
                 .as_ref()
                 .is_some_and(|lease| lease.session_persistence);
@@ -319,12 +327,19 @@ pub(crate) extern "C" fn request(
                     "sessions.location",
                     "sessions.view",
                     "sessions.persistenceLease",
+                    "services.scopeLease.v1",
                     "commands.owned",
                     "ui.notifications",
                     "ui.status"
                 ]));
             }
-            let signal = if session_persistence {
+            if grant_transport && args["action"] == "release" {
+                return bridge.services.release_scope_lease(&owner, &args);
+            }
+            if args["port"] == "serviceLeases" && args["action"] == "acquire" {
+                return bridge.services.acquire_scope_lease(&bridge, &args);
+            }
+            let signal = if session_persistence || grant_transport {
                 CancellationToken::new()
             } else {
                 bridge.native_signal()
@@ -344,7 +359,9 @@ pub(crate) extern "C" fn request(
             let tool_scope = bridge.tool_scope.clone();
             bridge.runtime.spawn(async move {
                 let work = async move {
-                    if args["port"] == "services" {
+                    if grant_transport {
+                        services.scope_lease_request(owner, args, work_signal).await
+                    } else if args["port"] == "services" {
                         services.request(owner, args, work_signal).await
                     } else if args["port"] == "ui" {
                         if work_signal.is_cancelled() {

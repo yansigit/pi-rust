@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex, Weak};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
+mod scope_leases;
+
 const MAX_EVENTS: usize = 64;
 const MAX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SUBSCRIPTIONS: usize = 1024;
@@ -61,6 +63,7 @@ pub(crate) struct RegisteredService {
     pub owner: NativeOwner,
 }
 struct Service {
+    instance: String,
     registration: RegisteredService,
     keepalive: Weak<PluginKeepalive>,
     stopped: CancellationToken,
@@ -80,6 +83,8 @@ struct Subscription {
 struct State {
     services: BTreeMap<(String, u32), Service>,
     subscriptions: BTreeMap<String, Subscription>,
+    grants: BTreeMap<String, Arc<scope_leases::Grant>>,
+    retired_owners: std::collections::BTreeSet<u64>,
     closed: bool,
 }
 #[derive(Default)]
@@ -98,6 +103,7 @@ impl Services {
                 .services
                 .entry((record.manifest.id.clone(), record.manifest.service_version))
                 .or_insert_with(|| Service {
+                    instance: uuid::Uuid::new_v4().to_string(),
                     registration: record.clone(),
                     keepalive: Arc::downgrade(keepalive),
                     stopped: CancellationToken::new(),
@@ -124,11 +130,16 @@ impl Services {
             service.stopped.cancel();
         }
         state.services.clear();
+        for grant in state.grants.values() {
+            grant.revoked.cancel();
+        }
+        state.grants.clear();
         state.subscriptions.clear();
         self.changed.notify_waiters();
     }
     pub(crate) fn remove_owner(&self, owner: u64) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.retired_owners.insert(owner);
         state.services.retain(|_, service| {
             if service.registration.owner.id == owner {
                 service.stopped.cancel();
@@ -143,6 +154,14 @@ impl Services {
             ..
         } = &mut *state;
         subscriptions.retain(|_, sub| sub.owner.id != owner && services.contains_key(&sub.service));
+        state.grants.retain(|_, grant| {
+            if grant.owner.id == owner || !grant.active() {
+                grant.revoked.cancel();
+                false
+            } else {
+                true
+            }
+        });
         self.changed.notify_waiters();
     }
     pub(crate) async fn request(
@@ -241,11 +260,23 @@ impl Services {
         args: Value,
         signal: CancellationToken,
     ) -> Result<Value, String> {
+        self.call_instance(owner, args, signal, None).await
+    }
+    async fn call_instance(
+        &self,
+        owner: NativeOwner,
+        args: Value,
+        signal: CancellationToken,
+        instance: Option<&str>,
+    ) -> Result<Value, String> {
         let key = service_key(&args)?;
         let method = string(&args, "method")?;
         let (record, keepalive, stopped, bridge) = {
             let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             let service = state.services.get(&key).ok_or("service unavailable")?;
+            if instance.is_some_and(|instance| instance != service.instance) {
+                return Err("scope service lease revoked".into());
+            }
             if !service
                 .registration
                 .manifest

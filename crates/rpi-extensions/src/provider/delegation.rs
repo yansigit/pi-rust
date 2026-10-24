@@ -295,6 +295,9 @@ impl DelegationBinding {
     pub fn current() -> Option<Self> {
         BINDING.try_with(Clone::clone).ok()
     }
+    pub(crate) fn epoch_signal(&self) -> CancellationToken {
+        self.epoch.signal()
+    }
     pub async fn scope<F: std::future::Future>(&self, work: F) -> F::Output {
         BINDING.scope(self.clone(), work).await
     }

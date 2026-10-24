@@ -682,6 +682,7 @@ pub struct ActionBridge {
     /// Some(child) only for a live host-created tool invocation.
     invocation: Option<(bool, String, tokio_util::sync::CancellationToken)>,
     callback_signal: Option<tokio_util::sync::CancellationToken>,
+    pub(crate) provider_epoch: Option<tokio_util::sync::CancellationToken>,
     execution_context: Option<serde_json::Value>,
     stdio: crate::StdioLifecycle,
     plugin_identity: Option<(u64, String)>,
@@ -706,7 +707,7 @@ pub struct ActionBridge {
     editor_text: crate::editor_text::EditorTextMailbox,
     /// B5d staleness flag. Shared so [`invalidate`] flips it for every clone.
     /// `true` while this bridge is the live session's bridge.
-    active: Arc<AtomicBool>,
+    pub(crate) active: Arc<AtomicBool>,
 }
 
 impl ActionBridge {
@@ -775,6 +776,7 @@ impl ActionBridge {
             handle: OnceLock::new(),
             invocation: Some((child, uuid::Uuid::new_v4().to_string(), signal)),
             callback_signal: None,
+            provider_epoch: None,
             services: self.services.clone(),
             operation: rpi_ai::identity::current().or_else(|| self.operation.clone()),
             tool_scope: rpi_agent::tool_execution_scope::current_scope()
@@ -813,6 +815,7 @@ impl ActionBridge {
             .as_ref()
             .map(|(child, key, _)| (*child, key.clone(), signal.clone()));
         inner.callback_signal = Some(signal);
+        inner.provider_epoch = self.provider_epoch.clone();
         inner.operation = self.operation.clone();
         inner.tool_scope = self.tool_scope.clone();
         inner.execution_context = self.execution_context.clone();
@@ -843,6 +846,7 @@ impl ActionBridge {
             component_owners: Arc::new(std::sync::Mutex::new(Vec::new())),
             runtime,
             host,
+            provider_epoch: None,
             reload: None,
             ui_dialog: UiDialogMailbox::new(),
             ext_status: crate::status::ExtensionStatusMailbox::new(),
@@ -888,6 +892,7 @@ impl ActionBridge {
             component_owners: Arc::new(std::sync::Mutex::new(Vec::new())),
             runtime,
             host,
+            provider_epoch: None,
             reload: None,
             ui_dialog,
             ext_status: crate::status::ExtensionStatusMailbox::new(),
@@ -919,6 +924,7 @@ impl ActionBridge {
             component_owners: Arc::new(std::sync::Mutex::new(Vec::new())),
             runtime,
             host,
+            provider_epoch: None,
             reload: Some(reload),
             ui_dialog,
             ext_status,
@@ -938,6 +944,7 @@ impl ActionBridge {
             handle: OnceLock::new(),
             invocation: None,
             callback_signal: None,
+            provider_epoch: None,
             services: self.services.clone(),
             operation: None,
             tool_scope: None,

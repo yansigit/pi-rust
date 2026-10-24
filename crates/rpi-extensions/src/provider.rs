@@ -285,6 +285,8 @@ impl Provider for PluggableProvider {
                 rpi_agent::tool_execution_scope::is_child_execution(),
                 opts.signal.clone(),
             );
+            Arc::get_mut(&mut invocation).unwrap().provider_epoch =
+                delegation::DelegationBinding::current().map(|binding| binding.epoch_signal());
             if let Some(identity) = &opts.identity {
                 Arc::get_mut(&mut invocation).unwrap().operation = Some(identity.clone());
             }
