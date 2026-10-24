@@ -98,13 +98,16 @@ Verified by `crates/rpi-cli/tests/life_session.rs` (in-process registry):
 dispatch order, cancellation keeping the old session, fork using the before-fork
 hook, and the plugin tool channel naming the new session.
 
-"Fresh runtime ownership" is only partial. `AgentHarness::set_session` already
-rebuilds the lane queues, drops pending resume/context state and retires child
-executions; the tool context and `RPI_SESSION_ID` are republished. Pi additionally
-tears down the whole `AgentSession` (extension runner, services, captured `ctx`)
-and builds a new one. rpi deliberately keeps the harness and the loaded plugins
-across a switch, so a captured plugin `ctx` is not invalidated. RPC mode has no
-`new_session`/`switch_session`/`fork` commands to wire.
+L2-B now constructs fresh session authority after shutdown: outgoing native
+contexts/commands, registrations, services, hooks and emitter are invalidated;
+new registrations, bridge, tools and provider bindings are constructed before
+start. The stable harness facade and mapped library ownership are not session
+authority. Captured ordinary contexts reject stale generations; existing narrow
+origin persistence leases remain a separate contract. `/new` creates a real
+session, `/clear` clears only presentation, and host RPC exposes `new_session`,
+`switch_session` and `fork` through this same coordinator. Factory-free RPC
+embedders refuse replacement. See [l2b-lifecycle.md](l2b-lifecycle.md) for the
+loaded-DLL qualification, failure behavior, SDK notes and remaining boundaries.
 
 ## History-authorized origin resolution
 
@@ -129,7 +132,6 @@ authority, and the owner/generation checks are unchanged. Regression:
   snapshot.
 - Overflow compact-and-retry (needs `context_edit` entries) and Pi's compaction
   entry representation (`firstKeptEntryId` vs `retainedTail`).
-- Pi's full runtime rebuild across session replacement and captured-`ctx`
-  invalidation; RPC session commands.
-- `/new` in the TUI is still an alias of `/clear`; it does not create a new
-  session file.
+- Cross-cwd reconstruction currently refuses nonexistent/different working
+  directories rather than silently retaining the outgoing cwd. Actual Cursor
+  package/DLL acceptance and lane C late-journal integration remain unclaimed.

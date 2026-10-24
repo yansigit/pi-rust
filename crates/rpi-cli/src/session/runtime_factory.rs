@@ -108,6 +108,29 @@ impl SessionRuntimeFactory {
             bridge.invalidate();
             return Err("Failed to construct fresh extension session runtime".into());
         }
+        // Any later setup error must revoke this unpublished generation too.
+        // Never leave a retained callback with a live bridge on a failed build.
+        struct Unpublished {
+            session: rpi_extensions::ExtensionSession,
+            bridge: Arc<rpi_extensions::ActionBridge>,
+            armed: bool,
+        }
+        impl Drop for Unpublished {
+            fn drop(&mut self) {
+                if self.armed {
+                    self.bridge.invalidate();
+                    if let Some(snapshot) = self.session.snapshot_arc() {
+                        snapshot.active_flag().store(false, Ordering::SeqCst);
+                    }
+                    self.session.begin_shutdown();
+                }
+            }
+        }
+        let mut unpublished = Unpublished {
+            session: session.clone(),
+            bridge: bridge.clone(),
+            armed: true,
+        };
         let initialization =
             crate::provider_runtime::ProviderRuntime::initialize(&session, &bridge).await?;
         let providers = self
@@ -128,11 +151,6 @@ impl SessionRuntimeFactory {
             .set_models(runtime.providers().await)
             .await
             .map_err(|e| e.to_string())?;
-        runtime.activate();
-        if let Some(cell) = self.provider_runtime.upgrade() {
-            *cell.write().unwrap_or_else(|e| e.into_inner()) = runtime;
-        }
-        drop(initialization);
         let emitter: Arc<dyn rpi_agent::AgentEmitter> = match session.snapshot_arc() {
             Some(snapshot) => Arc::new(TeeEmitter::new(vec![
                 self.broadcast.clone(),
@@ -170,6 +188,12 @@ impl SessionRuntimeFactory {
             .set_tools(tools, Some(active))
             .await
             .map_err(|e| e.to_string())?;
+        runtime.activate();
+        if let Some(cell) = self.provider_runtime.upgrade() {
+            *cell.write().unwrap_or_else(|e| e.into_inner()) = runtime;
+        }
+        drop(initialization);
+        unpublished.armed = false;
         *ctx.extension_session.lock().unwrap() = session;
         *ctx.action_bridge.lock().unwrap() = Some(bridge);
         Ok(())

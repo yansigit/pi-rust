@@ -1129,6 +1129,7 @@ fn extension_tool_result_hook(sessions: ExtensionSessionCell) -> rpi_agent::Afte
 pub type ExtensionSessionCell = Arc<Mutex<ExtensionSession>>;
 
 mod replacement_requests;
+pub(crate) use replacement_requests::replace_session_request;
 pub use replacement_requests::{replace_host_session, HostSessionRequest};
 mod runtime_factory;
 pub use runtime_factory::SessionRuntimeFactory;
@@ -3046,7 +3047,7 @@ pub async fn replace_active_session(
     reason: SessionReplacementReason,
     fork_entry_id: Option<&str>,
 ) -> Result<SessionReplacement, String> {
-    replace_active_session_inner(ctx, session, reason, fork_entry_id, true).await
+    replace_active_session_inner(ctx, session, reason, fork_entry_id, true, false).await
 }
 
 /// Runtime-action entry point: refuse busy calls instead of awaiting ourselves.
@@ -3056,7 +3057,7 @@ pub async fn replace_active_session_idle(
     reason: SessionReplacementReason,
     fork_entry_id: Option<&str>,
 ) -> Result<SessionReplacement, String> {
-    replace_active_session_inner(ctx, session, reason, fork_entry_id, false).await
+    replace_active_session_inner(ctx, session, reason, fork_entry_id, false, false).await
 }
 
 async fn replace_active_session_inner(
@@ -3065,12 +3066,16 @@ async fn replace_active_session_inner(
     reason: SessionReplacementReason,
     fork_entry_id: Option<&str>,
     settle: bool,
+    before_dispatched: bool,
 ) -> Result<SessionReplacement, String> {
     // Refuse reentrant/concurrent replacements rather than waiting under a hook.
-    let _admission = ctx
-        .runtime_factory
-        .map(|factory| factory.try_admit())
-        .transpose()?;
+    let _admission = if before_dispatched {
+        None
+    } else {
+        ctx.runtime_factory
+            .map(|factory| factory.try_admit())
+            .transpose()?
+    };
     if !settle
         && ctx
             .harness
@@ -3097,40 +3102,12 @@ async fn replace_active_session_inner(
         .flatten();
     let target_file = session.storage().location().await.ok().flatten();
 
-    let before = if matches!(
-        reason,
-        SessionReplacementReason::Fork | SessionReplacementReason::ForkBefore
-    ) {
-        rpi_plugin_sdk::EventTag::SessionBeforeFork
-    } else {
-        rpi_plugin_sdk::EventTag::SessionBeforeSwitch
-    };
-    let before_payload = if matches!(
-        reason,
-        SessionReplacementReason::Fork | SessionReplacementReason::ForkBefore
-    ) {
-        serde_json::json!({
-            "reason": reason.as_str(),
-            "entryId": fork_entry_id,
-            "position": if reason == SessionReplacementReason::ForkBefore { "before" } else { "at" },
-            "targetSessionFile": target_file,
-        })
-    } else {
-        serde_json::json!({
-            "reason": reason.as_str(),
-            "targetSessionFile": target_file,
-        })
-    };
-    if let Some(reason) = dispatch_session_lifecycle_event(
-        ctx.extension_session,
-        ctx.action_bridge,
-        ctx.tool_context,
-        before,
-        before_payload,
-    )
-    .await
-    {
-        return Ok(SessionReplacement::Cancelled { reason });
+    if !before_dispatched {
+        if let Some(reason) =
+            before_session_replacement(ctx, reason, fork_entry_id, target_file.as_deref()).await
+        {
+            return Ok(SessionReplacement::Cancelled { reason });
+        }
     }
 
     // Validate the opened destination before any destructive teardown. The
@@ -3216,27 +3193,46 @@ async fn replace_active_session_inner(
     Ok(SessionReplacement::Replaced)
 }
 
+async fn before_session_replacement(
+    ctx: &SessionReplacementContext<'_>,
+    reason: SessionReplacementReason,
+    fork_entry_id: Option<&str>,
+    target_file: Option<&str>,
+) -> Option<String> {
+    let fork = matches!(
+        reason,
+        SessionReplacementReason::Fork | SessionReplacementReason::ForkBefore
+    );
+    let tag = if fork {
+        rpi_plugin_sdk::EventTag::SessionBeforeFork
+    } else {
+        rpi_plugin_sdk::EventTag::SessionBeforeSwitch
+    };
+    let payload = if fork {
+        serde_json::json!({
+            "reason": reason.as_str(), "entryId": fork_entry_id,
+            "position": if reason == SessionReplacementReason::ForkBefore { "before" } else { "at" },
+            "targetSessionFile": target_file,
+        })
+    } else {
+        serde_json::json!({"reason": reason.as_str(), "targetSessionFile": target_file})
+    };
+    dispatch_session_lifecycle_event(
+        ctx.extension_session,
+        ctx.action_bridge,
+        ctx.tool_context,
+        tag,
+        payload,
+    )
+    .await
+}
+
 /// Fork the harness's current session into a new JSONL session (new id, parent
 /// set to the source) and wrap it in a `Session`. Mirrors the TUI's
 /// `fork_session` flow (`interactive_tui.rs`) — hoisted here so both the TUI
 /// and the plugin `runtime_action(Fork)` host share one implementation.
 /// Returns the new `Session` (NOT yet swapped onto the harness — the caller
 /// does `harness.set_session(...)`).
-pub(crate) async fn fork_session_storage(
-    harness: &AgentHarness,
-    cwd: &str,
-    dir: &Path,
-) -> Result<Session, String> {
-    fork_session_storage_at(
-        harness,
-        cwd,
-        dir,
-        None,
-        rpi_harness::session::types::ForkPosition::Before,
-    )
-    .await
-}
-
 pub(crate) async fn fork_session_storage_at(
     harness: &AgentHarness,
     cwd: &str,

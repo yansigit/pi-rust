@@ -101,49 +101,27 @@ pub(super) async fn share_session(harness: &AgentHarness, chat: &Arc<Container>)
 /// model/footer stay put (v1 doesn't replay the session's ModelChange entries).
 pub(super) async fn switch_to_session(
     harness: &AgentHarness,
-    lane: &Arc<dyn AgentLane>,
+    _lane: &Arc<dyn AgentLane>,
     id: &str,
-    cwd: &std::path::Path,
+    _cwd: &std::path::Path,
     chat: &Arc<Container>,
     state: &Arc<TuiState>,
-    tool_context: &rpi_extensions::ToolCallContext,
+    _tool_context: &rpi_extensions::ToolCallContext,
     reload_context: &crate::session::ReloadContext,
 ) -> bool {
-    let cwd_str = cwd.to_string_lossy().to_string();
-    match crate::session::open_session_by_id_in_dir(id, &cwd_str, &state.session_dir).await {
-        Ok(new_session) => {
-            // Route through the replacement funnel so the plugin channels
-            // follow the swap and Pi's `session_before_switch` /
-            // `session_shutdown` / `session_start` lifecycle runs around it.
-            let replacement = crate::session::replace_active_session(
-                &crate::session::SessionReplacementContext {
-                    harness,
-                    lane: lane.as_ref(),
-                    extension_session: &reload_context.extension_session,
-                    action_bridge: &reload_context.action_bridge,
-                    tool_context,
-                    runtime_factory: Some(&crate::session::SessionRuntimeFactory::from_reload(
-                        reload_context,
-                    )),
-                },
-                new_session,
-                crate::session::SessionReplacementReason::Resume,
-                None,
-            )
-            .await;
-            match replacement {
-                Ok(crate::session::SessionReplacement::Replaced) => {}
-                Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
-                    add_note_message(chat, &format!("Session switch cancelled: {reason}"));
-                    state.set_status(RunStatus::Idle);
-                    return false;
-                }
-                Err(error) => {
-                    add_error_message(chat, &format!("Could not switch session: {error}"));
-                    state.set_status(RunStatus::Idle);
-                    return false;
-                }
-            }
+    match crate::session::replace_host_session(
+        harness,
+        reload_context,
+        crate::session::HostSessionRequest::Resume(id.to_owned()),
+    )
+    .await
+    {
+        Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
+            add_note_message(chat, &format!("Session switch cancelled: {reason}"));
+            state.set_status(RunStatus::Idle);
+            false
+        }
+        Ok(crate::session::SessionReplacement::Replaced) => {
             chat.clear();
             add_welcome_message(chat);
             render_session_history(
@@ -170,12 +148,12 @@ pub(super) async fn switch_to_session(
 /// then activate it through the same funnel as other session switches.
 pub(super) async fn import_session(
     harness: &AgentHarness,
-    lane: &Arc<dyn AgentLane>,
+    _lane: &Arc<dyn AgentLane>,
     path: &str,
-    cwd: &std::path::Path,
+    _cwd: &std::path::Path,
     chat: &Arc<Container>,
     state: &Arc<TuiState>,
-    tool_context: &rpi_extensions::ToolCallContext,
+    _tool_context: &rpi_extensions::ToolCallContext,
     reload_context: &crate::session::ReloadContext,
 ) {
     use std::path::Path as FsPath;
@@ -193,31 +171,10 @@ pub(super) async fn import_session(
         add_error_message(chat, "Import source must be a .jsonl session file.");
         return;
     }
-    let new_session =
-        match crate::session::import_session_file(src, &cwd.to_string_lossy(), &state.session_dir)
-            .await
-        {
-            Ok(session) => session,
-            Err(error) => {
-                state.set_status(RunStatus::Idle);
-                add_error_message(chat, &format!("Could not import session: {error}"));
-                return;
-            }
-        };
-    match crate::session::replace_active_session(
-        &crate::session::SessionReplacementContext {
-            harness,
-            lane: lane.as_ref(),
-            extension_session: &reload_context.extension_session,
-            action_bridge: &reload_context.action_bridge,
-            tool_context,
-            runtime_factory: Some(&crate::session::SessionRuntimeFactory::from_reload(
-                reload_context,
-            )),
-        },
-        new_session,
-        crate::session::SessionReplacementReason::Resume,
-        None,
+    match crate::session::replace_host_session(
+        harness,
+        reload_context,
+        crate::session::HostSessionRequest::Import(src.to_path_buf()),
     )
     .await
     {
@@ -249,42 +206,19 @@ pub(super) async fn import_session(
 
 pub(super) async fn fork_session(
     harness: &AgentHarness,
-    cwd: &std::path::Path,
+    _cwd: &std::path::Path,
     chat: &Arc<Container>,
     state: &Arc<TuiState>,
-    tool_context: &rpi_extensions::ToolCallContext,
+    _tool_context: &rpi_extensions::ToolCallContext,
     reload_context: &crate::session::ReloadContext,
 ) {
-    let lane = harness.lane("main");
-    let new_session = match crate::session::fork_session_storage(
+    match crate::session::replace_host_session(
         harness,
-        &cwd.to_string_lossy(),
-        &state.session_dir,
-    )
-    .await
-    {
-        Ok(session) => session,
-        Err(error) => {
-            state.set_status(RunStatus::Idle);
-            add_error_message(chat, &format!("Could not fork session: {error}"));
-            return;
-        }
-    };
-    let leaf = lane.get_leaf_id().await.ok().flatten();
-    match crate::session::replace_active_session(
-        &crate::session::SessionReplacementContext {
-            harness,
-            lane: lane.as_ref(),
-            extension_session: &reload_context.extension_session,
-            action_bridge: &reload_context.action_bridge,
-            tool_context,
-            runtime_factory: Some(&crate::session::SessionRuntimeFactory::from_reload(
-                reload_context,
-            )),
+        reload_context,
+        crate::session::HostSessionRequest::Fork {
+            entry_id: None,
+            position: rpi_harness::session::types::ForkPosition::Before,
         },
-        new_session,
-        crate::session::SessionReplacementReason::ForkBefore,
-        leaf.as_deref(),
     )
     .await
     {

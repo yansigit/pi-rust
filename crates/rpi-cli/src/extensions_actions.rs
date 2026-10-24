@@ -47,12 +47,11 @@ use rpi_harness::agent_harness::{
     AgentHarness, AgentLane, HarnessRunOutcome, NavigationOutcome, SendMessageResult,
     WeakAgentHarness,
 };
-use rpi_harness::session::session::Session;
 use rpi_harness::session::types::{BranchBounds, EntryOrder, EntryQuery};
 use rpi_harness::types::SendMessageOptions;
 use tokio::runtime::Handle;
 
-use crate::session::{default_session_dir, open_session_by_id_in_dir};
+use crate::session::default_session_dir;
 
 /// The `RuntimeActionHost` impl over an `AgentHarness`. Built once per session
 /// in [`crate::session::build`] — constructed **empty** before extension load
@@ -148,28 +147,33 @@ impl HarnessActionHost {
     async fn replace_session(
         &self,
         harness: &AgentHarness,
-        session: Session,
-        reason: crate::session::SessionReplacementReason,
-        fork_entry_id: Option<&str>,
+        request: crate::session::HostSessionRequest,
     ) -> Result<crate::session::SessionReplacement, String> {
         let lane = harness.lane("main");
         let lifecycle = self.lifecycle.read().unwrap().clone();
-        let Some(cells) = lifecycle else {
-            crate::session::set_active_session(harness, session, Some(&self.tool_context)).await?;
-            return Ok(crate::session::SessionReplacement::Replaced);
-        };
-        crate::session::replace_active_session_idle(
+        let empty_session = Arc::new(std::sync::Mutex::new(
+            rpi_extensions::ExtensionSession::none(),
+        ));
+        let empty_bridge = std::sync::Mutex::new(None);
+        crate::session::replace_session_request(
             &crate::session::SessionReplacementContext {
-                runtime_factory: Some(&cells.runtime_factory),
+                runtime_factory: lifecycle.as_ref().map(|cells| &cells.runtime_factory),
                 harness,
                 lane: lane.as_ref(),
-                extension_session: &cells.extension_session,
-                action_bridge: &cells.action_bridge,
+                extension_session: lifecycle
+                    .as_ref()
+                    .map(|cells| &cells.extension_session)
+                    .unwrap_or(&empty_session),
+                action_bridge: lifecycle
+                    .as_ref()
+                    .map(|cells| cells.action_bridge.as_ref())
+                    .unwrap_or(&empty_bridge),
                 tool_context: &self.tool_context,
             },
-            session,
-            reason,
-            fork_entry_id,
+            &self.cwd.to_string_lossy(),
+            &self.session_dir,
+            request,
+            false,
         )
         .await
     }
@@ -895,21 +899,8 @@ impl RuntimeActionHost for HarnessActionHost {
 
     async fn new_session(&self, _args: serde_json::Value) -> Result<serde_json::Value, String> {
         let harness = self.harness()?;
-        let cwd_str = self.cwd.to_string_lossy().to_string();
-        let dir = &self.session_dir;
-        std::fs::create_dir_all(dir)
-            .map_err(|e| format!("create session dir {}: {e}", dir.display()))?;
-        let session = crate::session::create_jsonl_session(dir, &cwd_str)
-            .await
-            .map_err(|e| format!("create session: {e}"))?;
-        let id = session.storage().metadata().id.clone();
         match self
-            .replace_session(
-                &harness,
-                session,
-                crate::session::SessionReplacementReason::New,
-                None,
-            )
+            .replace_session(&harness, crate::session::HostSessionRequest::New)
             .await?
         {
             crate::session::SessionReplacement::Replaced => {}
@@ -917,45 +908,24 @@ impl RuntimeActionHost for HarnessActionHost {
                 return Err(format!("New session cancelled: {reason}"))
             }
         }
-        Ok(serde_json::json!({ "sessionId": id }))
+        Ok(serde_json::json!({ "sessionId": harness.session().storage().metadata().id }))
     }
 
     async fn fork(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
         let harness = self.harness()?;
-        let cwd_str = self.cwd.to_string_lossy().to_string();
-        let leaf = match arg_str_opt(&args, "entryId") {
-            Some(id) => Some(id),
-            None => harness
-                .lane("main")
-                .get_leaf_id()
-                .await
-                .map_err(|e| e.to_string())?,
-        };
+        let leaf = arg_str_opt(&args, "entryId");
         let position = match args.get("position").and_then(|value| value.as_str()) {
             None | Some("before") => rpi_harness::session::types::ForkPosition::Before,
             Some("at") => rpi_harness::session::types::ForkPosition::At,
             _ => return Err("fork position must be before or at".into()),
         };
-        let new_session = crate::session::fork_session_storage_at(
-            &harness,
-            &cwd_str,
-            &self.session_dir,
-            leaf.clone(),
-            position,
-        )
-        .await
-        .map_err(|e| format!("fork session: {e}"))?;
-        let id = new_session.storage().metadata().id.clone();
         match self
             .replace_session(
                 &harness,
-                new_session,
-                if position == rpi_harness::session::types::ForkPosition::Before {
-                    crate::session::SessionReplacementReason::ForkBefore
-                } else {
-                    crate::session::SessionReplacementReason::Fork
+                crate::session::HostSessionRequest::Fork {
+                    entry_id: leaf,
+                    position,
                 },
-                leaf.as_deref(),
             )
             .await?
         {
@@ -964,7 +934,7 @@ impl RuntimeActionHost for HarnessActionHost {
                 return Err(format!("Fork cancelled: {reason}"))
             }
         }
-        Ok(serde_json::json!({ "sessionId": id }))
+        Ok(serde_json::json!({ "sessionId": harness.session().storage().metadata().id }))
     }
 
     async fn navigate_tree(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -993,18 +963,8 @@ impl RuntimeActionHost for HarnessActionHost {
     async fn switch_session(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
         let harness = self.harness()?;
         let id = arg_str(&args, "id")?;
-        let cwd_str = self.cwd.to_string_lossy().to_string();
-        let new_session: Session = open_session_by_id_in_dir(&id, &cwd_str, &self.session_dir)
-            .await
-            .map_err(|e| e.to_string())?;
-        let new_id = new_session.storage().metadata().id.clone();
         match self
-            .replace_session(
-                &harness,
-                new_session,
-                crate::session::SessionReplacementReason::Resume,
-                None,
-            )
+            .replace_session(&harness, crate::session::HostSessionRequest::Resume(id))
             .await?
         {
             crate::session::SessionReplacement::Replaced => {}
@@ -1012,7 +972,7 @@ impl RuntimeActionHost for HarnessActionHost {
                 return Err(format!("Session switch cancelled: {reason}"))
             }
         }
-        Ok(serde_json::json!({ "sessionId": new_id }))
+        Ok(serde_json::json!({ "sessionId": harness.session().storage().metadata().id }))
     }
 
     async fn reload(&self, _args: serde_json::Value) -> Result<serde_json::Value, String> {
