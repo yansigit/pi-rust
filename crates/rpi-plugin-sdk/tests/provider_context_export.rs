@@ -100,6 +100,35 @@ fn api() -> sdk::PluginApi {
     }
 }
 
+extern "C" fn old_native(
+    input: sdk::StbStringRef,
+    _: *const sdk::AuthRequestControl,
+    out: *mut sdk::StbString,
+    _: *mut c_void,
+) -> i32 {
+    let value: serde_json::Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+    assert_eq!(
+        value["port"], "capabilities",
+        "old host must not receive acquire"
+    );
+    unsafe {
+        *out = sdk::StbString::from_string("{\"version\":1,\"result\":[]}".into());
+    }
+    0
+}
+#[tokio::test]
+async fn scope_service_lease_old_host_fails_closed() {
+    let mut api = api();
+    api.native_request = Some(old_native);
+    let client = sdk::provider::native::Client::new(&api).unwrap();
+    let result = client
+        .scope_service_lease("pi-fabric", 1, &["compact"], Default::default())
+        .await;
+    assert!(
+        matches!(result, Err(error) if error == "host is missing required native capabilities: services.scopeLease.v1")
+    );
+}
+
 extern "C" fn emit(raw: sdk::StbString, data: *mut c_void) -> i32 {
     let _owned =
         unsafe { sdk::callbacks::OwnedString::from_raw(raw, Some(sdk::callbacks::free_string)) };
