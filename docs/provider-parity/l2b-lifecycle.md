@@ -62,5 +62,30 @@ IDs; loaded fixture checks before excludes and at retains the selected message.
 Command-registry test distinguishes `/clear` and `/new`. Mutation: alias `/new`
 back to ClearChat, killed by registry dispatch (exit 101), reverted.
 
+## B4 — ordered loaded-tree integration and failure boundaries
+
+All host/native new/resume/fork requests now admit and await the before-hook
+before creating/opening a destination. TUI import uses the same staged path;
+selectors and harness tree semantics are unchanged. A failed unpublished runtime
+is revoked by an RAII guard; provider-runtime publication is deferred until all
+bindings are installed. Failed registration leaves the selected durable session
+and old authority closed; a subsequent host replacement can recover (not roll
+back into a closed package registration).
+
+The loaded DLL fixture now records registration generations and awaited native
+lifecycle/tree events. It verifies veto-before-open, shutdown → new registration
+→ start, stale old bridges, fresh before/at forks, tree veto with unchanged leaf,
+extension-provided summary + label persistence, real JSONL append failure with
+terminal tree-failed and no tree-success, then registration rejection and retry.
+Mutation: bypass staged before-hook; killed by attempting the nonexistent resume
+instead of accepting its veto (exit 101); reverted and loaded test passed.
+`tree_ui` and real-process RPC tests also passed.
+
+Boundaries: loaded fixture is not the Cursor package. Cross-cwd replacement is
+refused before teardown. A post-shutdown construction failure is fail-closed,
+not atomic rollback; the host can retry. Lane C must join late inherited journal
+leases to its actual worker routing. Lane D owns refresh/config recomposition
+and availability; this lane only rebuilds provider bindings per fresh runtime.
+
 Remaining qualification and final gates are recorded below as they run. Do not
 interpret this lane's component tests as closure of H05/H06/H10 or C09.
