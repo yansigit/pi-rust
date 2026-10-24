@@ -78,9 +78,10 @@ async fn raw_v2_auth_rejects_caller_credentials_before_target_callbacks_or_accou
             assert!(!error.contains("source-secret"));
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             assert!(first
-                .capabilities
+                .storage
                 .lock()
                 .unwrap()
+                .tables
                 .authentication(
                     "forged",
                     target["target"].as_str().unwrap(),

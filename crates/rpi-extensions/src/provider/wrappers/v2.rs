@@ -29,7 +29,7 @@ pub(super) fn account_auth_options(input: &Value) -> Result<AuthOptions, String>
 impl Continuation {
     pub(super) fn target(&self, input: &Value) -> Result<ResolvedDelegationTarget, String> {
         let caller = self.caller.as_ref().ok_or("delegation v2 unavailable")?;
-        self.capabilities.lock().unwrap().target(
+        self.admission()?.tables.target(
             input["target"]
                 .as_str()
                 .ok_or("missing delegation target")?,
@@ -63,7 +63,7 @@ impl Continuation {
                     let mut model = target.model().clone();
                     model.headers = None;
                     model.base_url.clear();
-                    let id = self.capabilities.lock().unwrap().insert_target(target)?;
+                    let id = self.admission()?.tables.insert_target(target)?;
                     Ok(json!({"version":2,"target":id,"model":model}))
                 }
                 Some("auth.resolveAmbient") => {
@@ -81,7 +81,7 @@ impl Continuation {
                     if signal.is_cancelled() {
                         return Err("authentication cancelled".into());
                     }
-                    let id = self.capabilities.lock().unwrap().insert_auth(
+                    let id = self.admission()?.tables.insert_auth(
                         input["target"].as_str().unwrap(),
                         caller,
                         ReceiptKind::Ambient,
@@ -99,7 +99,7 @@ impl Continuation {
                     }
                 }
                 Some("releaseTarget") => {
-                    self.capabilities.lock().unwrap().release_target(
+                    self.admission()?.tables.release_target(
                         input["target"]
                             .as_str()
                             .ok_or("missing delegation target")?,
@@ -107,9 +107,8 @@ impl Continuation {
                     Ok(json!({"version":2}))
                 }
                 Some("releaseAuth") => {
-                    self.capabilities
-                        .lock()
-                        .unwrap()
+                    self.admission()?
+                        .tables
                         .release_auth(input["receipt"].as_str().ok_or("missing auth receipt")?)?;
                     Ok(json!({"version":2}))
                 }

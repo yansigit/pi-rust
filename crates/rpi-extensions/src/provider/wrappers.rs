@@ -130,10 +130,23 @@ pub(super) struct Continuation {
     context: Context,
     options: SimpleStreamOptions,
     runtime: Handle,
-    receipts: Mutex<HashMap<String, AttemptAuth>>,
+    storage: Mutex<ContinuationStorage>,
+    destroyed: CancellationToken,
     binding: Option<DelegationBinding>,
     caller: Option<DelegationCaller>,
-    capabilities: Mutex<CapabilityTables>,
+}
+#[derive(Default)]
+struct ContinuationStorage {
+    revoked: bool,
+    receipts: HashMap<String, AttemptAuth>,
+    tables: CapabilityTables,
+}
+impl ContinuationStorage {
+    fn revoke(&mut self) {
+        self.revoked = true;
+        self.receipts.clear();
+        self.tables = CapabilityTables::default();
+    }
 }
 impl WrapperNext {
     pub(super) async fn preflight(
@@ -168,20 +181,45 @@ impl WrapperNext {
             context: context.clone(),
             options: options.clone(),
             runtime: Handle::current(),
-            receipts: Mutex::new(HashMap::new()),
+            storage: Mutex::new(ContinuationStorage::default()),
+            destroyed: CancellationToken::new(),
             binding,
             caller,
-            capabilities: Mutex::new(CapabilityTables::default()),
         });
         continuations()
             .lock()
             .unwrap()
             .insert(value.id.clone(), Arc::downgrade(&value));
+        // The monitor owns only signals and a weak reference: foreign callbacks may
+        // retain the continuation, but normal destruction must stop the monitor.
+        let weak = Arc::downgrade(&value);
+        let destroyed = value.destroyed.clone();
+        let invocation = value.options.signal.clone();
+        let epoch = value.epoch_signal().unwrap_or_default();
+        let closing = value
+            .tool_scope
+            .as_ref()
+            .map(|scope| scope.runtime_closing())
+            .unwrap_or_default();
+        let shutdown = value.session.shutdown_signal();
+        value.runtime.spawn(async move {
+            tokio::select! {
+                _ = destroyed.cancelled() => return,
+                _ = invocation.cancelled() => {},
+                _ = epoch.cancelled() => {},
+                _ = closing.cancelled() => {},
+                _ = shutdown.cancelled() => {},
+            }
+            if let Some(value) = weak.upgrade() {
+                value.storage.lock().unwrap().revoke();
+            }
+        });
         Ok(value)
     }
 }
 impl Drop for Continuation {
     fn drop(&mut self) {
+        self.destroyed.cancel();
         continuations().lock().unwrap().remove(&self.id);
     }
 }
@@ -204,7 +242,7 @@ impl Continuation {
     pub(super) fn descriptor(&self) -> Value {
         json!({"version":1,"id":self.id,"generation":self.generation})
     }
-    fn active(&self) -> bool {
+    fn authority_active(&self) -> bool {
         if self.session.shutdown_signal().is_cancelled() {
             return false;
         }
@@ -222,6 +260,24 @@ impl Continuation {
                 .snapshot()
                 .is_some_and(|snapshot| snapshot.is_active())
     }
+    fn active(&self) -> bool {
+        let mut storage = self.storage.lock().unwrap();
+        if !self.authority_active() {
+            storage.revoke();
+        }
+        !storage.revoked
+    }
+    // Admission and insertion share this lock, including the post-await check.
+    fn admission(&self) -> Result<std::sync::MutexGuard<'_, ContinuationStorage>, String> {
+        let mut storage = self.storage.lock().unwrap();
+        if !self.authority_active() {
+            storage.revoke();
+        }
+        if storage.revoked {
+            return Err("inactive provider continuation".into());
+        }
+        Ok(storage)
+    }
     fn resolve(descriptor: &Value) -> Result<Arc<Self>, String> {
         let id = descriptor["id"]
             .as_str()
@@ -233,7 +289,10 @@ impl Continuation {
             .and_then(Weak::upgrade)
             .ok_or("expired provider continuation")?;
         if let Some(caller) = &value.caller {
-            caller.validate()?;
+            if let Err(error) = caller.validate() {
+                value.storage.lock().unwrap().revoke();
+                return Err(error);
+            }
         }
         if descriptor["version"] != 1
             || descriptor["generation"] != value.generation
@@ -339,9 +398,9 @@ impl Continuation {
                 return Err(AuthError::Cancelled);
             }
             let id = self
-                .capabilities
-                .lock()
-                .unwrap()
+                .admission()
+                .map_err(|_| AuthError::Cancelled)?
+                .tables
                 .insert_auth(
                     input["target"].as_str().ok_or(AuthError::Resolve)?,
                     caller,
@@ -351,7 +410,8 @@ impl Continuation {
                 .map_err(|_| AuthError::Resolve)?;
             Ok(json!({"version":2,"receipt":id}))
         } else {
-            let mut receipts = self.receipts.lock().unwrap();
+            let mut storage = self.admission().map_err(|_| AuthError::Cancelled)?;
+            let receipts = &mut storage.receipts;
             if receipts.len() >= CapabilityTables::LIMIT {
                 return Err(AuthError::Resolve);
             }
@@ -407,7 +467,14 @@ pub(crate) extern "C" fn continuation_action(
                 match input["action"].as_str() {
                     Some("releaseAuth") => {
                         let id = input["receipt"].as_str().ok_or("missing auth receipt")?;
-                        if continuation.receipts.lock().unwrap().remove(id).is_none() {
+                        if continuation
+                            .storage
+                            .lock()
+                            .unwrap()
+                            .receipts
+                            .remove(id)
+                            .is_none()
+                        {
                             return Err("unknown auth receipt".into());
                         }
                         return Ok(json!({"version":1}));
@@ -560,7 +627,8 @@ pub(crate) extern "C" fn delegate_stream(
                     .as_ref()
                     .ok_or("delegation v2 unavailable")?;
                 if let Some(id) = input.auth_receipt {
-                    let capabilities = continuation.capabilities.lock().unwrap();
+                    let storage = continuation.storage.lock().unwrap();
+                    let capabilities = &storage.tables;
                     let (_, auth) = capabilities.authentication(&id, target_id, caller)?;
                     receipt_signal = Some(capabilities.auth_signal(&id, target_id, caller)?);
                     auth
@@ -574,9 +642,10 @@ pub(crate) extern "C" fn delegate_stream(
                 }
             } else if let Some(id) = input.auth_receipt {
                 continuation
-                    .receipts
+                    .storage
                     .lock()
                     .unwrap()
+                    .receipts
                     .get(&id)
                     .cloned()
                     .ok_or("unknown auth receipt")?
@@ -745,3 +814,15 @@ mod chain_tests;
 mod tests;
 #[cfg(test)]
 mod v2_tests;
+
+#[cfg(feature = "delegation-test-hooks")]
+pub(super) fn observe_storage(id: &str) -> Option<(bool, usize, usize, usize)> {
+    let value = continuations()
+        .lock()
+        .unwrap()
+        .get(id)
+        .and_then(Weak::upgrade)?;
+    let storage = value.storage.lock().unwrap();
+    let (targets, receipts) = storage.tables.counts();
+    Some((storage.revoked, storage.receipts.len(), targets, receipts))
+}
