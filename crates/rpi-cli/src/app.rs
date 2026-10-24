@@ -37,6 +37,11 @@ pub const EXIT_RUNTIME: i32 = 1;
 /// start" from "the run itself failed".
 pub const EXIT_VETOED: i32 = 3;
 
+/// `rpi import pi`. Declared here rather than in `lib.rs` because the import
+/// tree is owned by its own lane; the module lives at `src/import.rs`.
+#[path = "import.rs"]
+mod import;
+
 /// Read a long-flag value from argv, supporting both `--flag <value>` and
 /// `--flag=value`, without disturbing the normal parser. Used for the early
 /// `--connect` interception.
@@ -160,6 +165,7 @@ async fn run_inner() -> i32 {
             return result;
         }
         Some("events") => return crate::events::run(&argv[1..]).await,
+        Some("import") => return import::run(&argv[1..]).await,
         Some("update") => return crate::updates::run_self_update(&argv[1..]),
         Some("install") => return crate::install::run_async(&argv[1..]).await,
         Some("uninstall") => return crate::install::uninstall(&argv[1..]),
