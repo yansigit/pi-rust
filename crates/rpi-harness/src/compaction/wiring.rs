@@ -184,10 +184,7 @@ pub fn auto_compaction_decision(check: &AutoCompactionCheck<'_>) -> AutoCompacti
             _ => CompactionReason::Threshold,
         };
         let will_retry = parts.next() == Some("true");
-        return AutoCompactionDecision::Run {
-            reason,
-            will_retry,
-        };
+        return AutoCompactionDecision::Run { reason, will_retry };
     }
     if outcome
         .steps

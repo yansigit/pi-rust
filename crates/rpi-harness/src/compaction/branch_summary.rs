@@ -464,12 +464,8 @@ mod tests {
                     "context":{"messages":messages}, "maxTokens":options.max_tokens,
                     "cacheRetention":cache_retention, "reasoning":options.reasoning,
                 }));
-                let mut response = AssistantMessage::empty(
-                    model.api.clone(),
-                    "fixture",
-                    "fixture",
-                    1000,
-                );
+                let mut response =
+                    AssistantMessage::empty(model.api.clone(), "fixture", "fixture", 1000);
                 response.content = if self.mode == "tool" {
                     vec![Content::tool_call("call", "write", serde_json::json!({}))]
                 } else {
@@ -596,7 +592,11 @@ mod tests {
                 }
                 Err(error) => serde_json::json!({"error":error.message}),
             };
-            assert_eq!(js_numbers(actual), js_numbers(row["result"].clone()), "{mode}: result");
+            assert_eq!(
+                js_numbers(actual),
+                js_numbers(row["result"].clone()),
+                "{mode}: result"
+            );
             assert_eq!(
                 js_numbers(serde_json::json!(*provider.requests.lock().unwrap())),
                 js_numbers(row["requests"].clone()),

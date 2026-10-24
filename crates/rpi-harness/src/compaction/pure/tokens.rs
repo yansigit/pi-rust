@@ -85,7 +85,9 @@ pub fn estimate_tokens(message: &Value) -> i64 {
             js_len(str_field(message, "command").unwrap_or(""))
                 + js_len(str_field(message, "output").unwrap_or(""))
         }
-        "branchSummary" | "compactionSummary" => js_len(str_field(message, "summary").unwrap_or("")),
+        "branchSummary" | "compactionSummary" => {
+            js_len(str_field(message, "summary").unwrap_or(""))
+        }
         _ => 0,
     };
     div_ceil(chars as i64, 4)
@@ -209,7 +211,11 @@ pub fn estimate_projected_context_tokens(
         }
         let usage_entry_index = usage_entry_id
             .as_deref()
-            .and_then(|id| branch_entries.iter().position(|entry| entry_id(entry) == Some(id)))
+            .and_then(|id| {
+                branch_entries
+                    .iter()
+                    .position(|entry| entry_id(entry) == Some(id))
+            })
             .map(|index| index as i64)
             .unwrap_or(-1);
         let latest_invalidating_entry_index = branch_entries
@@ -303,10 +309,7 @@ pub fn get_current_system_message(messages: &[Value]) -> Option<Value> {
         if timestamp.is_none() {
             timestamp = message.get("timestamp").and_then(as_i64);
         }
-        let text = content_text(
-            message.get("content").unwrap_or(&Value::Null),
-            "\n",
-        );
+        let text = content_text(message.get("content").unwrap_or(&Value::Null), "\n");
         if !text.is_empty() {
             content.push(text);
         }
@@ -314,7 +317,9 @@ pub fn get_current_system_message(messages: &[Value]) -> Option<Value> {
             for (name, value) in entry_sections {
                 if value.is_null() {
                     sections.retain(|(existing, _)| existing != name);
-                } else if let Some(slot) = sections.iter_mut().find(|(existing, _)| existing == name) {
+                } else if let Some(slot) =
+                    sections.iter_mut().find(|(existing, _)| existing == name)
+                {
                     slot.1 = value.clone();
                 } else {
                     sections.push((name.clone(), value.clone()));

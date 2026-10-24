@@ -4,7 +4,9 @@
 use serde_json::Value;
 
 use super::file_ops::{extract_file_ops_from_message, FileOperations};
-use super::model::{entry_id, entry_type, js_truthy, message_role, str_field, LeafSelector, PureSettings};
+use super::model::{
+    entry_id, entry_type, js_truthy, message_role, str_field, LeafSelector, PureSettings,
+};
 use super::projection::{
     build_session_projection, is_intrinsically_visible, is_omitted, ProjectedEntry,
 };
@@ -140,12 +142,7 @@ pub fn find_projected_cut_point(
         && !has_external_replacement
         && suffix.iter().any(|entry| {
             entry_type(&entry.source) == "message"
-                && entry
-                    .source
-                    .get("message")
-                    .map(message_role)
-                    .unwrap_or("")
-                    == "assistant"
+                && entry.source.get("message").map(message_role).unwrap_or("") == "assistant"
                 && is_omitted(entry)
         })
         && suffix.iter().all(|entry| {
@@ -202,10 +199,7 @@ pub fn extract_file_operations(
     if let Some(index) = prev_compaction_index {
         if let Some(entry) = entries.get(index) {
             if entry_type(entry) == "compaction"
-                && !entry
-                    .get("fromHook")
-                    .map(js_truthy)
-                    .unwrap_or(false)
+                && !entry.get("fromHook").map(js_truthy).unwrap_or(false)
             {
                 if let Some(details) = entry.get("details").filter(|details| js_truthy(details)) {
                     if let Some(read_files) = details.get("readFiles").and_then(Value::as_array) {
@@ -261,9 +255,9 @@ pub fn prepare_compaction(
     let projected = &projection.entries;
     let source_entries: Vec<&Value> = projected.iter().map(|entry| &entry.source).collect();
 
-    let prev_compaction_index = projected.iter().position(|entry| {
-        entry_type(&entry.source) == "compaction" && !entry.messages.is_empty()
-    });
+    let prev_compaction_index = projected
+        .iter()
+        .position(|entry| entry_type(&entry.source) == "compaction" && !entry.messages.is_empty());
     let (previous_summary, boundary_start) = match prev_compaction_index {
         Some(index) => (
             Some(
@@ -304,7 +298,8 @@ pub fn prepare_compaction(
         let turn_start = cut_point.turn_start_index.unwrap_or(0);
         if cut_point.first_kept_entry_index > turn_start {
             for entry in &projected[turn_start..cut_point.first_kept_entry_index] {
-                turn_prefix_messages.extend(get_messages_from_projected_entry_for_compaction(entry));
+                turn_prefix_messages
+                    .extend(get_messages_from_projected_entry_for_compaction(entry));
             }
         }
     }
@@ -312,8 +307,11 @@ pub fn prepare_compaction(
         return None;
     }
 
-    let mut file_ops =
-        extract_file_operations(&messages_to_summarize, &source_entries, prev_compaction_index);
+    let mut file_ops = extract_file_operations(
+        &messages_to_summarize,
+        &source_entries,
+        prev_compaction_index,
+    );
     if cut_point.is_split_turn {
         for message in &turn_prefix_messages {
             extract_file_ops_from_message(message, &mut file_ops);

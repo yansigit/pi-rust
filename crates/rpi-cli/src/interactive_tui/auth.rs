@@ -84,9 +84,7 @@ async fn ask(
             Ok(value) => match value.get("status").and_then(Value::as_str) {
                 Some("answered") => {
                     pending.active = false;
-                    return Ok(Some(
-                        value.get("answer").cloned().unwrap_or(Value::Null),
-                    ));
+                    return Ok(Some(value.get("answer").cloned().unwrap_or(Value::Null)));
                 }
                 Some("cancelled") => {
                     pending.active = false;
@@ -316,9 +314,7 @@ async fn login_with_dialogs(
     };
     match auth.as_ref() {
         ProviderAuthentication::Native(native) => {
-            native
-                .login(&method, store, signal.clone(), interact)
-                .await
+            native.login(&method, store, signal.clone(), interact).await
         }
         _ => drive(auth.as_ref(), &method, store, signal.clone(), interact).await,
     }
@@ -368,9 +364,13 @@ pub(super) fn begin_auth_login(ctx: &CommandContext, provider_id: &str) {
             let runtime = runtime.clone();
             runtime.spawn(async move {
                 loop {
-                    if state.provider_auth_flow_id.load(std::sync::atomic::Ordering::Acquire)
+                    if state
+                        .provider_auth_flow_id
+                        .load(std::sync::atomic::Ordering::Acquire)
                         != flow_id
-                        || !snapshot.as_ref().is_some_and(|snapshot| snapshot.is_active())
+                        || !snapshot
+                            .as_ref()
+                            .is_some_and(|snapshot| snapshot.is_active())
                         || signal.is_cancelled()
                     {
                         signal.cancel();
@@ -537,10 +537,7 @@ mod tests {
 
         let request = next_dialog(&mailbox).await;
         mailbox.cancel(&request.request_id).unwrap();
-        assert!(matches!(
-            task.await.unwrap(),
-            Err(AuthError::Cancelled)
-        ));
+        assert!(matches!(task.await.unwrap(), Err(AuthError::Cancelled)));
         assert!(!crate::config::read_auth().unwrap().contains_key("example"));
         assert!(!mailbox.is_pending(&request.request_id));
         assert_eq!(mailbox.pending_len(), 0);
@@ -556,10 +553,7 @@ mod tests {
 
         let request = next_dialog(&mailbox).await;
         signal.cancel();
-        assert!(matches!(
-            task.await.unwrap(),
-            Err(AuthError::Cancelled)
-        ));
+        assert!(matches!(task.await.unwrap(), Err(AuthError::Cancelled)));
         assert!(!mailbox.is_pending(&request.request_id));
         assert_eq!(mailbox.pending_len(), 0);
     }
@@ -574,10 +568,7 @@ mod tests {
 
         let request = next_dialog(&mailbox).await;
         mailbox.detach();
-        assert!(matches!(
-            task.await.unwrap(),
-            Err(AuthError::Cancelled)
-        ));
+        assert!(matches!(task.await.unwrap(), Err(AuthError::Cancelled)));
         assert!(!mailbox.is_pending(&request.request_id));
         assert_eq!(mailbox.pending_len(), 0);
     }
@@ -662,4 +653,3 @@ mod tests {
         assert!(mailbox.take_pending().is_none());
     }
 }
-

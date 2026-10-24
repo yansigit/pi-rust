@@ -47,15 +47,15 @@ pub use file_ops::{
     compute_file_lists, extract_file_ops_from_message, format_file_operations, FileOperations,
 };
 pub use lifecycle::{auto_compaction_order, AutoCompactionInput, AutoCompactionOutcome};
-pub use model::{json_eq, js_json_stringify, js_len, js_truthy, LeafSelector, PureSettings};
+pub use model::{js_json_stringify, js_len, js_truthy, json_eq, LeafSelector, PureSettings};
 pub use prepare::{
     find_projected_cut_point, get_summarization_failure, prepare_compaction, CompactionPreparation,
     ProjectedCutPoint,
 };
 pub use projection::{
-    build_context_entries, build_session_path, build_session_projection, get_latest_compaction_entry,
-    get_session_context_settings, project_context_entry, session_entry_to_context_messages,
-    ProjectedEntry, Projection,
+    build_context_entries, build_session_path, build_session_projection,
+    get_latest_compaction_entry, get_session_context_settings, project_context_entry,
+    session_entry_to_context_messages, ProjectedEntry, Projection,
 };
 pub use tokens::{
     calculate_context_tokens, estimate_context_tokens, estimate_projected_context_tokens,

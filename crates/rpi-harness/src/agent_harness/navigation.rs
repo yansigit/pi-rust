@@ -62,8 +62,14 @@ impl AgentHarness {
             run_id: run_id.clone(),
         };
         let recovery_tools = self.get_tools().await?;
-        Self::finish_interrupted_operation(&self.session, &self.lane, &recovery_tools, &signal, true)
-            .await?;
+        Self::finish_interrupted_operation(
+            &self.session,
+            &self.lane,
+            &recovery_tools,
+            &signal,
+            true,
+        )
+        .await?;
         let storage = self.session.storage();
         let branch = storage
             .branch_revision(&self.lane)
@@ -114,7 +120,9 @@ impl AgentHarness {
             }));
         };
 
-        let summary_entry_id = options.summarize.then(|| self.session.id_generator().next());
+        let summary_entry_id = options
+            .summarize
+            .then(|| self.session.id_generator().next());
         self.write_operation_started(
             &run_id,
             old_leaf.clone(),

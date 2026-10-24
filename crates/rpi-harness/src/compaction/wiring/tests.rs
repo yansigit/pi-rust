@@ -3,16 +3,20 @@
 //! preparation on sessions without context edits.
 
 use super::*;
+use crate::session::types::{BranchSummaryEntry, CompactionEntry, EntryBase, MessageEntry};
 use rpi_agent::message::AgentMessage;
-use rpi_ai::providers::faux::faux_assistant_message;
 use rpi_ai::model::Model;
-use rpi_ai::types::{StopReason, Usage, UserMessage, UserContent};
-use crate::session::types::{
-    BranchSummaryEntry, CompactionEntry, EntryBase, MessageEntry,
-};
+use rpi_ai::providers::faux::faux_assistant_message;
+use rpi_ai::types::{StopReason, Usage, UserContent, UserMessage};
 
 fn model(context_window: u64) -> Model {
-    let mut model = Model::new("fixture", "fixture", rpi_ai::types::Api::Faux, "fixture", "");
+    let mut model = Model::new(
+        "fixture",
+        "fixture",
+        rpi_ai::types::Api::Faux,
+        "fixture",
+        "",
+    );
     model.context_window = context_window;
     model.max_tokens = 4096;
     model
@@ -35,10 +39,7 @@ fn user(id: &str, seq: u64, parent: Option<&str>, text: &str) -> Entry {
             parent_id: parent.map(ToOwned::to_owned),
             timestamp: seq as i64,
         },
-        message: AgentMessage::User(UserMessage::new(
-            UserContent::Text(text.into()),
-            seq as i64,
-        )),
+        message: AgentMessage::User(UserMessage::new(UserContent::Text(text.into()), seq as i64)),
         terminate: None,
     })
 }
@@ -138,7 +139,12 @@ fn projected_preparation_matches_the_host_cut_without_compaction() {
             answer,
             StopReason::Stop,
         ));
-        path.push(user(&user_id, (index as u64) * 2 + 3, Some(&assistant_id), question));
+        path.push(user(
+            &user_id,
+            (index as u64) * 2 + 3,
+            Some(&assistant_id),
+            question,
+        ));
         parent = user_id;
     }
     let settings = CompactionSettings {

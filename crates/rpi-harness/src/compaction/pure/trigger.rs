@@ -11,7 +11,9 @@
 
 use serde_json::Value;
 
-use super::model::{entry_id, entry_type, int_field, message_role, str_field, LeafSelector, PureSettings};
+use super::model::{
+    entry_id, entry_type, int_field, message_role, str_field, LeafSelector, PureSettings,
+};
 use super::projection::{build_session_projection, get_latest_compaction_entry};
 use super::tokens::{
     calculate_context_tokens, estimate_context_tokens, estimate_projected_context_tokens,
@@ -141,9 +143,10 @@ fn matches_prompt_has_configured_size(text: &str) -> bool {
 
 /// `/prompt too long; exceeded (?:max )?context length/i`
 fn matches_ollama_overflow(text: &str) -> bool {
-    let Some(rest) = text.find("prompt too long; exceeded ").map(|pos| {
-        &text[pos + "prompt too long; exceeded ".len()..]
-    }) else {
+    let Some(rest) = text
+        .find("prompt too long; exceeded ")
+        .map(|pos| &text[pos + "prompt too long; exceeded ".len()..])
+    else {
         return false;
     };
     let rest = rest.strip_prefix("max ").unwrap_or(rest);
@@ -152,9 +155,14 @@ fn matches_ollama_overflow(text: &str) -> bool {
 
 /// `/context[_ ]length[_ ]exceeded/i`
 fn matches_context_length_exceeded(text: &str) -> bool {
-    ["context_length_exceeded", "context length_exceeded", "context_length exceeded", "context length exceeded"]
-        .iter()
-        .any(|pattern| text.contains(pattern))
+    [
+        "context_length_exceeded",
+        "context length_exceeded",
+        "context_length exceeded",
+        "context length exceeded",
+    ]
+    .iter()
+    .any(|pattern| text.contains(pattern))
 }
 
 /// `OVERFLOW_PATTERNS.some(...)` over a lowercased message.
@@ -223,12 +231,10 @@ fn usage_tokens(message: &Value, key: &str) -> i64 {
 /// `isContextOverflow(message, contextWindow?)`.
 pub fn is_context_overflow(message: &Value, context_window: Option<i64>) -> bool {
     if str_field(message, "stopReason") == Some("error") {
-        if let Some(error_message) = message.get("errorMessage").filter(|value| {
-            value
-                .as_str()
-                .map(|text| !text.is_empty())
-                .unwrap_or(false)
-        }) {
+        if let Some(error_message) = message
+            .get("errorMessage")
+            .filter(|value| value.as_str().map(|text| !text.is_empty()).unwrap_or(false))
+        {
             let text = lower(error_message.as_str().unwrap_or(""));
             if !matches_non_overflow_pattern(&text) {
                 if matches_overflow_pattern(&text) {
@@ -325,9 +331,11 @@ pub fn check_compaction(input: &CheckCompactionInput) -> CheckCompactionOutcome 
 
     let run = |steps: &mut Vec<String>, reason: &str, will_retry: bool| -> bool {
         steps.push(format!("runAutoCompaction:{reason}:{will_retry}"));
-        input
-            .run_returns
-            .unwrap_or(if reason == "overflow" { will_retry } else { false })
+        input.run_returns.unwrap_or(if reason == "overflow" {
+            will_retry
+        } else {
+            false
+        })
     };
     let skip = |result: bool,
                 overflow_recovery_attempted: bool,
@@ -375,10 +383,12 @@ pub fn check_compaction(input: &CheckCompactionInput) -> CheckCompactionOutcome 
                     .any(|message| message_role(message) == "assistant")
         }),
     };
-    let assistant_index = input
-        .assistant_entry_id
-        .as_deref()
-        .and_then(|id| input.branch.iter().position(|entry| entry_id(entry) == Some(id)));
+    let assistant_index = input.assistant_entry_id.as_deref().and_then(|id| {
+        input
+            .branch
+            .iter()
+            .position(|entry| entry_id(entry) == Some(id))
+    });
     let entries_after: &[Value] = match assistant_index {
         Some(index) if index + 1 <= input.branch.len() => &input.branch[index + 1..],
         _ => &[],
@@ -390,14 +400,15 @@ pub fn check_compaction(input: &CheckCompactionInput) -> CheckCompactionOutcome 
         .iter()
         .filter(|entry| {
             entry_type(entry) == "context_edit"
-                && str_field(entry, "targetId")
-                    == input.assistant_entry_id.as_deref()
+                && str_field(entry, "targetId") == input.assistant_entry_id.as_deref()
         })
         .next_back();
     let assistant_retained_for_explicit_recovery = match &input.assistant_entry_id {
         None => true,
         Some(_) => {
-            !entries_after.iter().any(|entry| entry_type(entry) == "compaction")
+            !entries_after
+                .iter()
+                .any(|entry| entry_type(entry) == "compaction")
                 && latest_assistant_edit
                     .map(|entry| !replacement_is_null(entry))
                     .unwrap_or(true)
@@ -406,8 +417,7 @@ pub fn check_compaction(input: &CheckCompactionInput) -> CheckCompactionOutcome 
     let assistant_usage_matches_projection =
         assistant_is_projected && !has_post_assistant_context_edit;
 
-    let explicit_overflow =
-        stop_reason == "error" && is_context_overflow(message, None);
+    let explicit_overflow = stop_reason == "error" && is_context_overflow(message, None);
     let context_overflow = same_model
         && ((explicit_overflow && assistant_retained_for_explicit_recovery)
             || (assistant_usage_matches_projection
@@ -428,7 +438,11 @@ pub fn check_compaction(input: &CheckCompactionInput) -> CheckCompactionOutcome 
             };
         }
         if overflow_recovery_attempted {
-            let reason = if context_overflow { "overflow" } else { "length" };
+            let reason = if context_overflow {
+                "overflow"
+            } else {
+                "length"
+            };
             steps.push("emit:compaction_end".to_string());
             steps.push(format!(
                 "session_compact_failed:{reason}:aborted=false:willRetry=false"
@@ -476,9 +490,7 @@ pub fn check_compaction(input: &CheckCompactionInput) -> CheckCompactionOutcome 
                     .as_ref()
                     .and_then(|compaction| compaction.get("timestamp"))
                     .and_then(|v| v.as_i64());
-                if latest_compaction.is_some()
-                    && message_role(usage_message) == "assistant"
-                {
+                if latest_compaction.is_some() && message_role(usage_message) == "assistant" {
                     if let (Some(usage_timestamp), Some(compaction_timestamp)) =
                         (usage_timestamp, compaction_timestamp)
                     {

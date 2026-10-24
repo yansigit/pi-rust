@@ -49,10 +49,10 @@ mod autocomplete;
 use autocomplete::*;
 mod rendering;
 use rendering::*;
+mod auth;
 mod panels;
 mod pet;
 mod side_questions;
-mod auth;
 
 #[cfg(test)]
 mod tests;

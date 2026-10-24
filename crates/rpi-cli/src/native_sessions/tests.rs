@@ -591,12 +591,9 @@ async fn cancellation_and_shutdown_wait_for_started_commit_and_failed_sync_never
             let signal = signal.clone();
             async move {
                 ports
-                    .request(
-                        owner(),
-                        append(&origin, "journalAppend"),
-                        signal,
-                        || Err("no active session in this fixture".into()),
-                    )
+                    .request(owner(), append(&origin, "journalAppend"), signal, || {
+                        Err("no active session in this fixture".into())
+                    })
                     .await
             }
         });

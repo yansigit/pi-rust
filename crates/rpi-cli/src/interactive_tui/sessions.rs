@@ -206,14 +206,17 @@ pub(super) async fn import_session(
         add_error_message(chat, &format!("Could not import session: {error}"));
         return;
     }
-    let new_session = match crate::session::import_session_file(src, &cwd.to_string_lossy(), &state.session_dir).await {
-        Ok(session) => session,
-        Err(error) => {
-            state.set_status(RunStatus::Idle);
-            add_error_message(chat, &format!("Could not import session: {error}"));
-            return;
-        }
-    };
+    let new_session =
+        match crate::session::import_session_file(src, &cwd.to_string_lossy(), &state.session_dir)
+            .await
+        {
+            Ok(session) => session,
+            Err(error) => {
+                state.set_status(RunStatus::Idle);
+                add_error_message(chat, &format!("Could not import session: {error}"));
+                return;
+            }
+        };
     match crate::session::replace_active_session(
         &crate::session::SessionReplacementContext {
             harness,
@@ -225,7 +228,9 @@ pub(super) async fn import_session(
         new_session,
         crate::session::SessionReplacementReason::Resume,
         None,
-    ).await {
+    )
+    .await
+    {
         Ok(crate::session::SessionReplacement::Replaced) => {}
         Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
             state.set_status(RunStatus::Idle);

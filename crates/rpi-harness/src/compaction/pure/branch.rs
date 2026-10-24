@@ -61,7 +61,10 @@ pub fn collect_entries_for_branch_summary(
         .filter_map(|entry| entry_id(entry).map(|id| (id, entry)))
         .collect();
     let old_path = build_session_path(entries, &LeafSelector::Id(old_leaf_id.to_string()));
-    let old_ids: Vec<&str> = old_path.iter().filter_map(|entry| entry_id(entry)).collect();
+    let old_ids: Vec<&str> = old_path
+        .iter()
+        .filter_map(|entry| entry_id(entry))
+        .collect();
     let target_path = match target_id {
         Some(target) => build_session_path(entries, &LeafSelector::Id(target.to_string())),
         None => build_session_path(entries, &LeafSelector::ExplicitNone),
@@ -124,7 +127,8 @@ pub fn prepare_branch_entries(entries: &[Value], token_budget: i64) -> BranchPre
                         file_ops.add_read(file);
                     }
                 }
-                if let Some(modified_files) = details.get("modifiedFiles").and_then(Value::as_array) {
+                if let Some(modified_files) = details.get("modifiedFiles").and_then(Value::as_array)
+                {
                     for file in modified_files.iter().filter_map(Value::as_str) {
                         file_ops.add_edited(file);
                     }
