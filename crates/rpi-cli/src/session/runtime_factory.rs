@@ -6,6 +6,8 @@ use super::*;
 /// would make a library -> bridge -> host -> factory -> library cycle.
 #[derive(Clone)]
 pub struct SessionRuntimeFactory {
+    gate: Arc<tokio::sync::Mutex<()>>,
+    cwd: PathBuf,
     args: Args,
     env: Arc<OsExecutionEnv>,
     broadcast: Arc<dyn rpi_agent::AgentEmitter>,
@@ -22,6 +24,8 @@ pub struct SessionRuntimeFactory {
 impl SessionRuntimeFactory {
     pub fn from_reload(ctx: &ReloadContext) -> Self {
         Self {
+            gate: ctx.replacement_gate.clone(),
+            cwd: ctx.cwd.clone(),
             args: ctx.args.clone(),
             env: ctx.execution_env.clone(),
             broadcast: ctx.broadcast.clone(),
@@ -33,6 +37,48 @@ impl SessionRuntimeFactory {
             ext_status: ctx.ext_status.clone(),
             editor_text: ctx.editor_text.clone(),
         }
+    }
+
+    pub(super) fn try_admit(&self) -> Result<tokio::sync::OwnedMutexGuard<()>, String> {
+        self.gate
+            .clone()
+            .try_lock_owned()
+            .map_err(|_| "session replacement is already in progress".into())
+    }
+
+    pub(super) fn validate_destination(&self, file: Option<&str>) -> Result<(), String> {
+        // Native CLI sessions are JSONL. The shared SessionMetadata intentionally
+        // has no cwd; validate the durable header rather than assuming the host cwd.
+        use std::io::BufRead;
+        let header = match file {
+            Some(file) => {
+                let line =
+                    std::io::BufReader::new(std::fs::File::open(file).map_err(|e| e.to_string())?)
+                        .lines()
+                        .next()
+                        .transpose()
+                        .map_err(|e| e.to_string())?
+                        .ok_or("session file is empty")?;
+                serde_json::from_str::<serde_json::Value>(&line).map_err(|e| e.to_string())?
+            }
+            None => serde_json::Value::Null,
+        };
+        let cwd = header
+            .get("cwd")
+            .and_then(|cwd| cwd.as_str())
+            .unwrap_or_else(|| self.cwd.to_str().unwrap_or(""));
+        let destination = Path::new(cwd);
+        if !destination.is_dir() {
+            return Err(format!("Session working directory does not exist: {cwd}"));
+        }
+        if destination.canonicalize().map_err(|e| e.to_string())?
+            != self.cwd.canonicalize().map_err(|e| e.to_string())?
+        {
+            return Err(
+                "cross-cwd session replacement requires rebuilding cwd-bound services".into(),
+            );
+        }
+        Ok(())
     }
 
     /// Register against a NEW bridge only after outgoing shutdown/invalidation.

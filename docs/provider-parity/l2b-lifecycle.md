@@ -26,5 +26,21 @@ This is not actual Cursor worker integration (lane C owns that).
 Mutation: skipping outgoing `bridge.invalidate()` is killed (exit 101, assertion
 `old command/native contexts must be stale`); mutation reverted.
 
+## B2 — ordered replacement admission
+
+External callers now run before-hook → validate → abort/settle → shutdown →
+invalidate/drain → install/rebuild → start. Runtime callbacks use an idle-only
+entry point, refusing busy calls rather than deadlocking on their invoking run.
+A shared factory admission guard refuses overlapping/reentrant replacements.
+TUI switch/import/fork no longer abort before the veto hook. Destination metadata,
+entries and JSONL cwd header are checked before shutdown. Missing/cross-cwd
+services fail closed; cwd service migration is not claimed.
+
+Tests cover active veto, active external settlement, immediate busy refusal,
+missing-cwd preparation with a live DLL, and replacement admission refusal.
+Mutation: abort-and-settle before the veto is killed (exit 101, `veto must not
+abort the response`); reverted; five integration tests and loaded fixture pass.
+The harness tests require a multi-thread Tokio runtime for its blocking hooks.
+
 Remaining qualification and final gates are recorded below as they run. Do not
 interpret this lane's component tests as closure of H05/H06/H10 or C09.

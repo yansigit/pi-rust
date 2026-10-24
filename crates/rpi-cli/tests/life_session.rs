@@ -78,7 +78,11 @@ fn extension_session(veto: Option<EventTag>) -> (ExtensionSession, Arc<Mutex<Vec
 }
 
 async fn harness(id: &str) -> Arc<AgentHarness> {
-    let provider = FauxProvider::new(FauxScript::new().with_text("unused"));
+    let provider = FauxProvider::new(
+        FauxScript::new()
+            .with_text("unused")
+            .with_tokens_per_second(0.01),
+    );
     let storage = Arc::new(InMemorySessionStorage::new(
         SessionMetadata {
             id: id.into(),
@@ -231,4 +235,116 @@ async fn fork_uses_the_before_fork_hook() {
         vec!["SessionBeforeFork", "SessionShutdown"]
     );
     assert_eq!(session_id(&harness).await, "forked");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn veto_precedes_settlement_and_idle_actions_never_wait_on_their_run() {
+    let harness = harness("first").await;
+    let (ext, events) = extension_session(Some(EventTag::SessionBeforeSwitch));
+    let cell = Arc::new(Mutex::new(ext));
+    let bridge = Arc::new(Mutex::new(None));
+    let tool_context = rpi_extensions::ToolCallContext::new("/tmp");
+    tool_context.set_session_id("first");
+    let lane = harness.lane("main");
+    let running = lane.clone();
+    let run = tokio::spawn(async move { running.prompt_text("slow response", vec![]).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while harness.snapshot().await.unwrap().active.is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let ctx = rpi_cli::session::SessionReplacementContext {
+        harness: &harness,
+        lane: lane.as_ref(),
+        extension_session: &cell,
+        action_bridge: &bridge,
+        tool_context: &tool_context,
+        runtime_factory: None,
+    };
+    let idle = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        rpi_cli::session::replace_active_session_idle(
+            &ctx,
+            session("idle"),
+            rpi_cli::session::SessionReplacementReason::New,
+            None,
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(idle.unwrap_err().contains("wait for the active operation"));
+    assert!(events.lock().unwrap().is_empty());
+    let outcome = rpi_cli::session::replace_active_session(
+        &ctx,
+        session("vetoed"),
+        rpi_cli::session::SessionReplacementReason::New,
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        outcome,
+        rpi_cli::session::SessionReplacement::Cancelled { .. }
+    ));
+    assert!(
+        harness.snapshot().await.unwrap().active.is_some(),
+        "veto must not abort the response"
+    );
+    assert_eq!(session_id(&harness).await, "first");
+    assert_eq!(*events.lock().unwrap(), vec!["SessionBeforeSwitch"]);
+    lane.abort().await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), run)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn accepted_external_replacement_settles_before_swapping_storage() {
+    let harness = harness("first").await;
+    let (ext, events) = extension_session(None);
+    let cell = Arc::new(Mutex::new(ext));
+    let bridge = Arc::new(Mutex::new(None));
+    let tool_context = rpi_extensions::ToolCallContext::new("/tmp");
+    let lane = harness.lane("main");
+    let running = lane.clone();
+    let run = tokio::spawn(async move { running.prompt_text("slow response", vec![]).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while harness.snapshot().await.unwrap().active.is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let ctx = rpi_cli::session::SessionReplacementContext {
+        harness: &harness,
+        lane: lane.as_ref(),
+        extension_session: &cell,
+        action_bridge: &bridge,
+        tool_context: &tool_context,
+        runtime_factory: None,
+    };
+    let outcome = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        rpi_cli::session::replace_active_session(
+            &ctx,
+            session("settled"),
+            rpi_cli::session::SessionReplacementReason::Resume,
+            None,
+        ),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(outcome, rpi_cli::session::SessionReplacement::Replaced);
+    assert!(harness.snapshot().await.unwrap().active.is_none());
+    assert_eq!(session_id(&harness).await, "settled");
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec!["SessionBeforeSwitch", "SessionShutdown"]
+    );
+    run.await.unwrap().unwrap();
 }
