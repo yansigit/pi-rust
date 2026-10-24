@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use rpi_agent::{AgentMessage, AgentMessageRole};
 use rpi_ai::providers::faux::{FauxProvider, FauxScript, FauxStep};
-use rpi_ai::types::{Content, UserMessage, UserContent};
+use rpi_ai::types::{Content, UserContent, UserMessage};
 use rpi_harness::agent_harness::{AgentHarness, AgentLane, HarnessRunOutcome};
 use rpi_harness::session::memory::{InMemorySessionStorage, SystemClock};
 use rpi_harness::session::session::Session;
@@ -85,7 +85,10 @@ async fn a_completed_turn_over_the_threshold_compacts_after_it_is_persisted() {
     );
     // One provider call for the turn, one for the summary.
     assert_eq!(
-        provider.state().call_count.load(std::sync::atomic::Ordering::SeqCst),
+        provider
+            .state()
+            .call_count
+            .load(std::sync::atomic::Ordering::SeqCst),
         2
     );
     let entries = harness
@@ -142,7 +145,10 @@ async fn an_accepted_user_message_is_never_dropped_by_the_post_run_check() {
     ));
     // No compaction was needed and nothing else was requested from the provider.
     assert_eq!(
-        provider.state().call_count.load(std::sync::atomic::Ordering::SeqCst),
+        provider
+            .state()
+            .call_count
+            .load(std::sync::atomic::Ordering::SeqCst),
         1
     );
     let entries = harness

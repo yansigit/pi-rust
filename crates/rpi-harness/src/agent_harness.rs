@@ -53,8 +53,7 @@ use rpi_ai::{Model, Provider as AiProvider};
 
 use crate::compaction::{
     auto_compaction_decision, compact, estimate_context_tokens, projected_preparation,
-    should_compact,
-    AutoCompactionCheck, AutoCompactionDecision, CompactionLlmOptions,
+    should_compact, AutoCompactionCheck, AutoCompactionDecision, CompactionLlmOptions,
 };
 use crate::error::{SessionError, SessionErrorCode};
 use crate::events::{HarnessEvent, HarnessEventBus, RunEndEvent, RunEndOutcome, RunStartEvent};
@@ -732,8 +731,8 @@ pub struct AgentHarness {
 
 mod child;
 mod extension_events;
-mod navigation;
 mod native_tools;
+mod navigation;
 pub use child::ChildHarness;
 mod weak;
 pub use weak::WeakAgentHarness;
@@ -3930,13 +3929,7 @@ impl AgentHarness {
                             stream_options: snap.stream_options.clone(),
                         };
                         match self
-                            .compact_with_extensions(
-                                &run_id,
-                                &prep,
-                                &path,
-                                &llm_opts,
-                                reason,
-                            )
+                            .compact_with_extensions(&run_id, &prep, &path, &llm_opts, reason)
                             .await
                         {
                             Ok(_) => {}

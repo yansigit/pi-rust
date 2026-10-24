@@ -7,15 +7,17 @@
 //! by value — the contract's single allowed normalization).
 
 use rpi_harness::compaction::pure::{
-    auto_compaction_order, build_session_projection, check_compaction, collect_entries_for_branch_summary,
-    compute_file_lists, estimate_context_tokens, estimate_projected_context_tokens, estimate_tokens,
-    extract_file_ops_from_message, format_file_operations, get_summarization_failure, is_context_overflow,
-    is_recoverable_length, json_eq, prepare_branch_entries, prepare_compaction, should_compact,
-    AutoCompactionInput, CheckCompactionInput, FailedResponse, FileOperations, LeafSelector, PureSettings,
+    auto_compaction_order, build_session_projection, check_compaction,
+    collect_entries_for_branch_summary, compute_file_lists, estimate_context_tokens,
+    estimate_projected_context_tokens, estimate_tokens, extract_file_ops_from_message,
+    format_file_operations, get_summarization_failure, is_context_overflow, is_recoverable_length,
+    json_eq, prepare_branch_entries, prepare_compaction, should_compact, AutoCompactionInput,
+    CheckCompactionInput, FailedResponse, FileOperations, LeafSelector, PureSettings,
 };
 use serde_json::{json, Map, Value};
 
-const PURE_FIXTURE: &str = include_str!("../../../docs/provider-parity/compaction-pure-reference.json");
+const PURE_FIXTURE: &str =
+    include_str!("../../../docs/provider-parity/compaction-pure-reference.json");
 const TRIGGER_FIXTURE: &str =
     include_str!("../../../docs/provider-parity/compaction-trigger-reference.json");
 
@@ -60,7 +62,10 @@ fn projection_value(projection: &rpi_harness::compaction::pure::Projection) -> V
 fn assert_rows(section: &str, rows: &[Value], mut compute: impl FnMut(&Value) -> Value) {
     assert!(!rows.is_empty(), "{section} fixture section is empty");
     for row in rows {
-        let name = row.get("name").and_then(Value::as_str).unwrap_or("<unnamed>");
+        let name = row
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("<unnamed>");
         let expected = row.get("result").expect("row has a result");
         let actual = compute(row);
         assert!(
@@ -84,7 +89,9 @@ fn projection_matches_pi_reference() {
 #[test]
 fn estimate_tokens_matches_pi_reference() {
     let fixture = parse(PURE_FIXTURE);
-    let rows = fixture["tokens"]["estimateTokens"].as_array().expect("rows");
+    let rows = fixture["tokens"]["estimateTokens"]
+        .as_array()
+        .expect("rows");
     assert_rows("tokens.estimateTokens", rows, |row| {
         json!(estimate_tokens(&row["message"]))
     });
@@ -134,20 +141,26 @@ fn prepare_compaction_matches_pi_reference() {
 #[test]
 fn branch_collection_matches_pi_reference() {
     let fixture = parse(PURE_FIXTURE);
-    let rows = fixture["branch"]["collect"].as_array().expect("collect rows");
+    let rows = fixture["branch"]["collect"]
+        .as_array()
+        .expect("collect rows");
     assert_rows("branch.collect", rows, |row| {
         let entries = row["entries"].as_array().expect("entries");
         let old_leaf = row["oldLeafId"].as_str();
         let target = row["targetId"].as_str();
-        serde_json::to_value(collect_entries_for_branch_summary(entries, old_leaf, target))
-            .expect("serializable")
+        serde_json::to_value(collect_entries_for_branch_summary(
+            entries, old_leaf, target,
+        ))
+        .expect("serializable")
     });
 }
 
 #[test]
 fn branch_preparation_matches_pi_reference() {
     let fixture = parse(PURE_FIXTURE);
-    let rows = fixture["branch"]["prepare"].as_array().expect("prepare rows");
+    let rows = fixture["branch"]["prepare"]
+        .as_array()
+        .expect("prepare rows");
     assert_rows("branch.prepare", rows, |row| {
         let entries = row["entries"].as_array().expect("entries");
         let budget = row["tokenBudget"].as_i64().expect("tokenBudget");
@@ -169,7 +182,9 @@ fn file_op_extraction_matches_pi_reference() {
 #[test]
 fn compute_file_lists_matches_pi_reference() {
     let fixture = parse(PURE_FIXTURE);
-    let rows = fixture["utils"]["computeFileLists"].as_array().expect("rows");
+    let rows = fixture["utils"]["computeFileLists"]
+        .as_array()
+        .expect("rows");
     assert_rows("utils.computeFileLists", rows, |row| {
         let mut ops = FileOperations::default();
         for path in row["read"].as_array().expect("read") {
@@ -228,7 +243,9 @@ fn summarization_failure_matches_pi_reference() {
 fn overflow_classification_matches_pi_reference() {
     let fixture = parse(TRIGGER_FIXTURE);
     let window = fixture["overflow"]["contextWindow"].as_i64();
-    let rows = fixture["overflow"]["rows"].as_array().expect("overflow rows");
+    let rows = fixture["overflow"]["rows"]
+        .as_array()
+        .expect("overflow rows");
     assert_rows("overflow", rows, |row| {
         let message = &row["message"];
         json!({
@@ -302,12 +319,18 @@ fn auto_compaction_order_matches_pi_reference() {
     let rows = fixture["autoCompaction"].as_array().expect("rows");
     assert!(!rows.is_empty(), "autoCompaction fixture section is empty");
     for row in rows {
-        let name = row.get("name").and_then(Value::as_str).unwrap_or("<unnamed>");
+        let name = row
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("<unnamed>");
         let input = AutoCompactionInput::from_value(row);
         let outcome = auto_compaction_order(&input);
         let mut expected = Map::new();
         for key in ["ops", "events", "result", "threw"] {
-            expected.insert(key.to_string(), row.get(key).cloned().unwrap_or(Value::Null));
+            expected.insert(
+                key.to_string(),
+                row.get(key).cloned().unwrap_or(Value::Null),
+            );
         }
         if let Some(error_message) = row.get("errorMessage") {
             expected.insert("errorMessage".to_string(), error_message.clone());

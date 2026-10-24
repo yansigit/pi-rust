@@ -2995,7 +2995,9 @@ pub enum SessionReplacement {
     Replaced,
     /// A `session_before_switch`/`session_before_fork` handler cancelled. The
     /// harness still serves the old session.
-    Cancelled { reason: String },
+    Cancelled {
+        reason: String,
+    },
 }
 
 /// The live cells a session replacement dispatches through. Session
@@ -3039,9 +3041,7 @@ pub async fn replace_active_session(
         .active
         .is_some()
     {
-        return Err(
-            "wait for the active operation to finish before replacing the session".into(),
-        );
+        return Err("wait for the active operation to finish before replacing the session".into());
     }
 
     let previous_file = ctx

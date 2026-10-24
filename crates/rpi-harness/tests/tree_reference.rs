@@ -269,7 +269,11 @@ async fn navigation_matches_pi_reference_traces() {
                 mutations.push(json!({"type": "label", "id": rename(json!(id)), "label": label}));
             }
         }
-        assert_eq!(Value::Array(mutations), row["mutations"], "{mode}: mutations");
+        assert_eq!(
+            Value::Array(mutations),
+            row["mutations"],
+            "{mode}: mutations"
+        );
         assert_eq!(rename(json!(leaf)), row["leaf"], "{mode}: leaf");
 
         let mut result = json!({});
@@ -307,10 +311,22 @@ async fn navigation_matches_pi_reference_traces() {
         }
         // The native terminal fires exactly when Pi emits a before event without
         // `session_tree`, so an operation started by the before hook always ends.
-        let began = row["events"].as_array().unwrap().iter().any(|e| e["type"] == "session_before_tree");
-        let finished = row["events"].as_array().unwrap().iter().any(|e| e["type"] == "session_tree");
+        let began = row["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["type"] == "session_before_tree");
+        let finished = row["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["type"] == "session_tree");
         let failures = hooks.failures.lock().unwrap().clone();
-        assert_eq!(failures.len(), usize::from(began && !finished), "{mode}: terminal");
+        assert_eq!(
+            failures.len(),
+            usize::from(began && !finished),
+            "{mode}: terminal"
+        );
         for (payload, identity) in failures {
             assert_eq!(identity.operation_id, navigated.run_id);
             assert_eq!(payload["cancelled"], mode == "cancel", "{mode}");
@@ -336,7 +352,11 @@ async fn default_summary_is_attached_at_the_target_and_cancellation_aborts() {
         });
         let script = FauxScript::new().with_text("unused");
         // Slow enough that the abort below always lands mid-summary.
-        let script = if mode == "abort" { script.with_tokens_per_second(1.0) } else { script };
+        let script = if mode == "abort" {
+            script.with_tokens_per_second(1.0)
+        } else {
+            script
+        };
         let harness = fixture_harness_with(hooks.clone(), script).await;
         let navigation = harness.navigate_tree_with(
             Some("target"),
@@ -361,24 +381,47 @@ async fn default_summary_is_attached_at_the_target_and_cancellation_aborts() {
         };
         let session = harness.session();
         match (mode, &navigated.outcome) {
-            ("summarize", NavigationOutcome::Completed { summary_entry: Some(entry), new_leaf_id, editor_text: None }) => {
+            (
+                "summarize",
+                NavigationOutcome::Completed {
+                    summary_entry: Some(entry),
+                    new_leaf_id,
+                    editor_text: None,
+                },
+            ) => {
                 let entry = serde_json::to_value(entry).unwrap();
                 assert_eq!(entry["type"], "branch_summary");
                 assert_eq!(entry["parentId"], "target");
                 assert_eq!(entry["fromId"], "left");
                 assert_eq!(entry["fromHook"], false);
-                assert_eq!(entry["details"], json!({"readFiles": [], "modifiedFiles": []}));
+                assert_eq!(
+                    entry["details"],
+                    json!({"readFiles": [], "modifiedFiles": []})
+                );
                 assert!(entry["summary"].as_str().unwrap().ends_with("unused"));
                 assert_eq!(new_leaf_id.as_deref(), entry["id"].as_str());
-                assert_eq!(session.get_leaf_id().await.unwrap().as_deref(), entry["id"].as_str());
-                assert_eq!(session.get_label(entry["id"].as_str().unwrap()).await.unwrap().as_deref(), Some("kept"));
+                assert_eq!(
+                    session.get_leaf_id().await.unwrap().as_deref(),
+                    entry["id"].as_str()
+                );
+                assert_eq!(
+                    session
+                        .get_label(entry["id"].as_str().unwrap())
+                        .await
+                        .unwrap()
+                        .as_deref(),
+                    Some("kept")
+                );
                 assert_eq!(session.get_label("target").await.unwrap(), None);
                 let events = hooks.events.lock().unwrap().clone();
                 assert_eq!(events.last().unwrap()["fromExtension"], false);
             }
             ("abort", NavigationOutcome::Aborted { leaf_id }) => {
                 assert_eq!(leaf_id.as_deref(), Some("left"));
-                assert_eq!(session.get_leaf_id().await.unwrap().as_deref(), Some("left"));
+                assert_eq!(
+                    session.get_leaf_id().await.unwrap().as_deref(),
+                    Some("left")
+                );
                 let failures = hooks.failures.lock().unwrap().clone();
                 assert_eq!(failures.len(), 1);
                 assert_eq!(failures[0].0["aborted"], true);

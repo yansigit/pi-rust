@@ -31,7 +31,11 @@ impl Drop for ContextOwner {
 }
 
 extern "C" fn record(event: StablePluginEvent, data: *mut std::ffi::c_void) -> i32 {
-    let recorder = CONTEXTS.get(data).expect("live test context").lock().clone();
+    let recorder = CONTEXTS
+        .get(data)
+        .expect("live test context")
+        .lock()
+        .clone();
     recorder
         .events
         .lock()
@@ -127,12 +131,7 @@ fn session(id: &str) -> Session {
 }
 
 async fn session_id(harness: &AgentHarness) -> String {
-    harness
-        .session()
-        .storage()
-        .metadata()
-        .id
-        .clone()
+    harness.session().storage().metadata().id.clone()
 }
 
 #[tokio::test]

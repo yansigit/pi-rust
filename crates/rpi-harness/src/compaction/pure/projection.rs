@@ -172,7 +172,10 @@ pub fn build_session_path(entries: &[Value], leaf: &LeafSelector) -> Vec<Value> 
 
 /// `getLatestCompactionEntry(entries)`.
 pub fn get_latest_compaction_entry(entries: &[Value]) -> Option<&Value> {
-    entries.iter().rev().find(|entry| entry_type(entry) == "compaction")
+    entries
+        .iter()
+        .rev()
+        .find(|entry| entry_type(entry) == "compaction")
 }
 
 /// `getSessionContextSettings(path)`.
@@ -229,8 +232,8 @@ pub fn build_context_entries(entries: &[Value], leaf: &LeafSelector) -> Vec<Valu
         if first_kept.is_some() && entry_id(entry) == first_kept {
             found_first_kept = true;
         }
-        let is_system_message =
-            entry_type(entry) == "message" && entry.get("message").map(message_role) == Some("system");
+        let is_system_message = entry_type(entry) == "message"
+            && entry.get("message").map(message_role) == Some("system");
         if found_first_kept && !is_system_message {
             context_entries.push(entry.clone());
         }

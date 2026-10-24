@@ -507,10 +507,7 @@ impl SlashCommand for LoginCommand {
                     return;
                 }
                 Some(item)
-                    if super::auth::has_native_auth(
-                        &ctx.state.extension_session,
-                        &item.value,
-                    ) =>
+                    if super::auth::has_native_auth(&ctx.state.extension_session, &item.value) =>
                 {
                     add_error_message(
                         &ctx.chat,

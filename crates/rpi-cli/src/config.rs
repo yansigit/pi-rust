@@ -1410,7 +1410,11 @@ mod tests {
 
     #[test]
     fn custom_models_default_missing_context_and_token_limits_for_each_api() {
-        for api in ["openai-completions", "openai-responses", "anthropic-messages"] {
+        for api in [
+            "openai-completions",
+            "openai-responses",
+            "anthropic-messages",
+        ] {
             let config: ModelsConfig = serde_json::from_str(&format!(
                 r#"{{"providers":{{"custom":{{"api":"{api}","models":[
                     {{"id":"defaults"}},
@@ -1421,12 +1425,28 @@ mod tests {
             ))
             .unwrap();
             let models = provider_to_models("custom", &config.providers["custom"]).unwrap();
-            assert_eq!((models[0].context_window, models[0].max_tokens), (128_000, 16_384), "{api}");
-            assert_eq!((models[1].context_window, models[1].max_tokens), (64_000, 16_384), "{api}");
-            assert_eq!((models[2].context_window, models[2].max_tokens), (128_000, 4_096), "{api}");
+            assert_eq!(
+                (models[0].context_window, models[0].max_tokens),
+                (128_000, 16_384),
+                "{api}"
+            );
+            assert_eq!(
+                (models[1].context_window, models[1].max_tokens),
+                (64_000, 16_384),
+                "{api}"
+            );
+            assert_eq!(
+                (models[2].context_window, models[2].max_tokens),
+                (128_000, 4_096),
+                "{api}"
+            );
             // Pi's runtime rejects zero limits, but provider conversion must
             // not silently reinterpret an explicitly configured zero.
-            assert_eq!((models[3].context_window, models[3].max_tokens), (0, 0), "{api}");
+            assert_eq!(
+                (models[3].context_window, models[3].max_tokens),
+                (0, 0),
+                "{api}"
+            );
         }
         let unknown: ModelsConfig = serde_json::from_str(
             r#"{"providers":{"custom":{"api":"unknown","models":[{"id":"x"}]}}}"#,
