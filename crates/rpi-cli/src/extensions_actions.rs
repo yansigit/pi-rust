@@ -44,7 +44,8 @@ use std::sync::{Arc, OnceLock, RwLock};
 use rpi_ai::types::ThinkingLevel;
 use rpi_extensions::RuntimeActionHost;
 use rpi_harness::agent_harness::{
-    AgentHarness, HarnessRunOutcome, NavigationOutcome, SendMessageResult, WeakAgentHarness,
+    AgentHarness, AgentLane, HarnessRunOutcome, NavigationOutcome, SendMessageResult,
+    WeakAgentHarness,
 };
 use rpi_harness::session::session::Session;
 use rpi_harness::session::types::{BranchBounds, EntryOrder, EntryQuery};
@@ -859,7 +860,10 @@ impl RuntimeActionHost for HarnessActionHost {
 
     async fn compact(&self, args: serde_json::Value) -> Result<serde_json::Value, String> {
         let custom = arg_str_opt(&args, "customInstructions");
-        let lane = self.harness()?.lane("main");
+        let lane = self
+            .harness()?
+            .for_current_execution()
+            .map_err(|error| error.to_string())?;
         let result = lane
             .compact(custom.as_deref())
             .await
@@ -916,9 +920,10 @@ impl RuntimeActionHost for HarnessActionHost {
             .get_leaf_id()
             .await
             .map_err(|e| e.to_string())?;
-        let new_session = crate::session::fork_session_storage(&harness, &cwd_str, &self.session_dir)
-            .await
-            .map_err(|e| format!("fork session: {e}"))?;
+        let new_session =
+            crate::session::fork_session_storage(&harness, &cwd_str, &self.session_dir)
+                .await
+                .map_err(|e| format!("fork session: {e}"))?;
         let id = new_session.storage().metadata().id.clone();
         match self
             .replace_session(
