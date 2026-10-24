@@ -18,7 +18,15 @@ async fn wait_file(path: &Path) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_and_revocable() {
     for scenario in [
-        "child", "main", "closing", "epoch", "unload", "busy", "cancel",
+        "child",
+        "main",
+        "main-via-child",
+        "child-via-main",
+        "closing",
+        "epoch",
+        "unload",
+        "busy",
+        "cancel",
     ] {
         let directory = tempfile::tempdir().unwrap();
         let marker = directory.path().join("worker");
@@ -72,7 +80,7 @@ async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_an
             )
             .await
             .unwrap();
-        let selected = if scenario == "main" {
+        let selected = if matches!(scenario, "main" | "main-via-child") {
             parent.clone()
         } else {
             child.harness.clone()
@@ -110,6 +118,24 @@ async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_an
         let binding =
             DelegationBinding::root(Arc::downgrade(&resolver), epoch.clone(), "scope-lease")
                 .unwrap();
+        if matches!(scenario, "main-via-child" | "child-via-main") {
+            let mut capture = SimpleStreamOptions::default();
+            capture.metadata =
+                Some(serde_json::from_value(json!({"captureTransport":true})).unwrap());
+            let work = binding.scope(async {
+                provider
+                    .stream_simple(&provider.models()[0], &Context::default(), &capture)
+                    .await
+                    .result()
+                    .await
+                    .unwrap()
+            });
+            if scenario == "main-via-child" {
+                child.execution_scope.run(work).await;
+            } else {
+                work.await;
+            }
+        }
         let mut options = SimpleStreamOptions::default();
         options.metadata = Some(
             serde_json::from_value(json!({"marker":marker,"cancel":scenario == "cancel"})).unwrap(),
@@ -122,7 +148,7 @@ async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_an
                 .await
                 .unwrap()
         });
-        let message = if scenario == "main" {
+        let message = if matches!(scenario, "main" | "main-via-child") {
             work.await
         } else {
             child.execution_scope.run(work).await
@@ -174,8 +200,17 @@ async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_an
             serde_json::from_slice(&std::fs::read(marker.with_extension("result")).unwrap())
                 .unwrap();
         match scenario {
-            "child" | "main" => {
+            "child" | "main" | "main-via-child" | "child-via-main" => {
                 assert_eq!(result["idle"]["Ok"]["isIdle"], true, "{result}");
+                let expected_scope = if matches!(scenario, "main" | "main-via-child") {
+                    Value::Null
+                } else {
+                    json!(child.execution_scope.runtime_id())
+                };
+                assert_eq!(
+                    result["idle"]["Ok"]["serviceScopeId"], expected_scope,
+                    "{scenario}: wrong service scope"
+                );
                 assert!(
                     result["compact"]["Ok"]["outcome"]
                         .as_str()
@@ -192,7 +227,7 @@ async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_an
                     1,
                     "{scenario}: no selected transcript compaction"
                 );
-                let other = if scenario == "main" {
+                let other = if matches!(scenario, "main" | "main-via-child") {
                     &child.harness
                 } else {
                     &parent
@@ -251,7 +286,7 @@ async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_an
                 );
             }
         }
-        if scenario != "main" {
+        if !matches!(scenario, "main" | "main-via-child") {
             assert_eq!(
                 parent.get_tip_id().await.unwrap(),
                 main_tip,

@@ -354,9 +354,15 @@ pub(crate) extern "C" fn request(
             let services = bridge.services.clone();
             let dialogs = bridge.ui_dialog_mailbox();
             let status = bridge.extension_status_mailbox();
-            let operation = bridge.operation.clone();
+            // Grant dispatch runs in a fresh task with only captured grant authority.
+            // In particular, a main grant must not inherit a child transport.
+            let operation = (!grant_transport)
+                .then(|| bridge.operation.clone())
+                .flatten();
             let bridge_identity = operation.clone();
-            let tool_scope = bridge.tool_scope.clone();
+            let tool_scope = (!grant_transport)
+                .then(|| bridge.tool_scope.clone())
+                .flatten();
             bridge.runtime.spawn(async move {
                 let work = async move {
                     if grant_transport {
