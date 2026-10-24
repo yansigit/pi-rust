@@ -17,12 +17,14 @@ rpi import pi --from DIR --only credentials,sessions
   Relative paths are resolved against the working directory.
 - Credentials, settings, pool and ledger destination: rpi's agent directory
   (`RPI_CODING_AGENT_DIR`, else `~/.rpi/agent`).
-- Session destination: `<resolved-session-root>/pi-import/`, using the same
-  `configured_session_dir` resolver as normal startup. For this subcommand
-  (which has no `--session-dir` flag), existing rpi `sessionDir` wins, then
-  `RPI_CODING_AGENT_SESSION_DIR`, then `<cwd>/.rpi/sessions`. Relative roots
-  resolve against the launch working directory. Pi's `sessionDir` is never
-  imported or used to choose this root.
+- Session destination:
+  - If an explicit session root is configured — existing rpi `sessionDir` in
+    `settings.json`, or env `RPI_CODING_AGENT_SESSION_DIR` — archives land under
+    `<that-root>/pi-import/`. Relative roots resolve against the launch working
+    directory. Pi's `sessionDir` is never imported or used to choose this root.
+  - Otherwise, archives land under the global agent directory:
+    `<agent-dir>/sessions/pi-import/` (for example `~/.rpi/agent/sessions/pi-import/`),
+    never a cwd-local `<cwd>/.rpi` path.
 - The source and destination must differ.
 
 ## What is read
@@ -34,7 +36,7 @@ Only these four items are opened, listed or copied:
 | `auth.json` | `credentials` | `auth.json` (through `CompatibilityCredentialStore`) |
 | `settings.json` | `settings` | `settings.json` (merged) |
 | `multiprovider-auth.json` | `multiprovider` | `multiprovider-auth.json` (byte copy) |
-| `sessions/<dir>/*.jsonl` | `sessions` | `<resolved-session-root>/pi-import/<dir>/<stem>.<sha12>.jsonl` |
+| `sessions/<dir>/*.jsonl` | `sessions` | `<archive-root>/<dir>/<stem>.<sha12>.jsonl` (`<configured-root>/pi-import/` or `<agent>/sessions/pi-import/`) |
 
 Everything else in the source tree is never read: vault directories,
 credential backups or stashes, SDK stores, lock files and any other file.
@@ -153,11 +155,16 @@ hex digits of the source file's SHA-256.
   field, or has a line that is not a JSON object (a torn file). A symbolic link
   is skipped as `symbolic link; not followed`.
 
-**Session-root decision (reconciled 0.8.4 host).** Archives belong under the
-resolved session root, not under a hardcoded `<agent>/sessions`: environment
-and saved settings overrides must select the same storage tree as resume and
-session listing. A dedicated `pi-import` subtree keeps provenance and snapshot
-names intact without colliding with native session paths.
+**Session-root decision (reconciled 0.8.4 host).** When an explicit session root
+is configured (via saved rpi `sessionDir` or `RPI_CODING_AGENT_SESSION_DIR`),
+archives belong under `<that root>/pi-import`: explicit overrides select the
+same storage tree as resume and session listing. When no explicit session root
+is configured, archives default to the global agent directory
+(`<agent>/sessions/pi-import/`) rather than `<cwd>/.rpi/sessions`. Pi stores
+sessions globally across projects; bulk-importing global archives must never
+dump foreign session logs into whatever project directory happens to be current.
+A dedicated `pi-import` subtree keeps provenance and snapshot names intact
+without colliding with native session paths.
 
 **Discovery is not format conversion.** The current rpi reader accepts only
 its v4 format, whereas these are byte-preserving Pi v1–v3 archives. They live
@@ -221,9 +228,10 @@ The integration tests cover: dry run, full import with the mode and
 expiry-unit checks, each skip reason, conflict refusal for each category, the
 idempotent re-run, changed-source detection, the source tree hash before and
 after each run, `--only`, the non-terminal refusal and usage errors. Session
-coverage includes the default project root, absolute and relative environment
-overrides (including dry run and idempotent re-run), saved `sessionDir`
-precedence, private HOME (`0700`), and snapshot permissions (`0600`).
+coverage includes the default agent root (confirming nothing is created under
+the cwd), absolute and relative environment overrides (including dry run and
+idempotent re-run), saved `sessionDir` precedence, private HOME (`0700`), and
+snapshot permissions (`0600`).
 
 ## Not covered
 
