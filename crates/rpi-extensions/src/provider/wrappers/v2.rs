@@ -63,10 +63,12 @@ impl Continuation {
                     Ok(json!({"version":2,"receipt":id}))
                 }
                 Some("resolveAuth") => {
-                    self.target(&input)?;
-                    self.authenticate(input, signal.clone())
-                        .await
-                        .map_err(|error| error.to_string())
+                    let target = self.target(&input)?;
+                    let released = target.signal();
+                    tokio::select! { biased;
+                        _ = released.cancelled() => Err("delegation target released".into()),
+                        result = self.authenticate(input, signal.clone()) => result.map_err(|error| error.to_string()),
+                    }
                 }
                 Some("releaseTarget") => {
                     self.capabilities.lock().unwrap().release_target(

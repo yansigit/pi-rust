@@ -153,6 +153,30 @@ fn finite_tables_and_release_cascade() {
     );
 }
 #[test]
+fn releasing_or_dropping_capabilities_cancels_admitted_waiters() {
+    let epoch = epoch(DelegationScopeId::fresh());
+    let a = caller(&epoch);
+    let mut table = CapabilityTables::default();
+    let target = table
+        .insert_target(epoch.target(&a, "b", "m").unwrap())
+        .unwrap();
+    let target_signal = table.target(&target, &a).unwrap().signal();
+    let receipt = table
+        .insert_auth(&target, &a, ReceiptKind::Ambient, AttemptAuth::Ambient)
+        .unwrap();
+    let receipt_signal = table.auth_signal(&receipt, &target, &a).unwrap();
+    table.release_auth(&receipt).unwrap();
+    assert!(receipt_signal.is_cancelled());
+    assert!(!target_signal.is_cancelled());
+    let receipt = table
+        .insert_auth(&target, &a, ReceiptKind::Ambient, AttemptAuth::Ambient)
+        .unwrap();
+    let receipt_signal = table.auth_signal(&receipt, &target, &a).unwrap();
+    drop(table);
+    assert!(target_signal.is_cancelled());
+    assert!(receipt_signal.is_cancelled());
+}
+#[test]
 fn lookup_errors_preserve_typescript_strings() {
     let epoch = epoch(DelegationScopeId::fresh());
     let a = caller(&epoch);

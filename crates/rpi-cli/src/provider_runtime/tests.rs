@@ -239,7 +239,7 @@ async fn publication_rejects_foreign_child_stale_and_failed_installs_without_com
     );
 }
 #[tokio::test]
-async fn captured_calls_survive_publication_but_old_proxies_use_current_registrations() {
+async fn publication_revokes_pending_calls_and_old_proxies_use_current_registrations() {
     let (runtime, owner, _) = fixture();
     let proxy = runtime.providers().await.remove(0);
     let old_stream = proxy
@@ -257,8 +257,8 @@ async fn captured_calls_survive_publication_but_old_proxies_use_current_registra
     .await
     .unwrap();
     assert_eq!(
-        old_stream.result().await.unwrap().error_message.as_deref(),
-        Some("captured provider")
+        old_stream.result().await.unwrap().stop_reason,
+        rpi_ai::StopReason::Aborted
     );
     assert_eq!(
         proxy

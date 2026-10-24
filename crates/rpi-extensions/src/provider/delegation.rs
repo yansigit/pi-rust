@@ -323,6 +323,7 @@ pub enum ReceiptKind {
     Replacement,
 }
 struct AuthReceiptRecord {
+    admission: CancellationToken,
     target: String,
     kind: ReceiptKind,
     authentication: AttemptAuth,
@@ -362,7 +363,7 @@ impl CapabilityTables {
         kind: ReceiptKind,
         authentication: AttemptAuth,
     ) -> Result<String, String> {
-        self.target(target, caller)?;
+        let admission = self.target(target, caller)?.signal().child_token();
         if self.receipts.len() >= Self::LIMIT {
             return Err("auth receipt capacity exhausted".into());
         }
@@ -370,6 +371,7 @@ impl CapabilityTables {
         self.receipts.insert(
             id.clone(),
             AuthReceiptRecord {
+                admission,
                 target: target.into(),
                 kind,
                 authentication,
@@ -396,13 +398,46 @@ impl CapabilityTables {
             .ok_or("delegation target belongs to a different continuation")?
             .admission
             .cancel();
-        self.receipts.retain(|_, receipt| receipt.target != target);
+        self.receipts.retain(|_, receipt| {
+            if receipt.target == target {
+                receipt.admission.cancel();
+                false
+            } else {
+                true
+            }
+        });
         Ok(())
     }
     pub fn release_auth(&mut self, receipt: &str) -> Result<(), String> {
         self.receipts
             .remove(receipt)
-            .ok_or("unknown auth receipt")?;
+            .ok_or("unknown auth receipt")?
+            .admission
+            .cancel();
         Ok(())
+    }
+    pub fn auth_signal(
+        &self,
+        receipt: &str,
+        target: &str,
+        caller: &DelegationCaller,
+    ) -> Result<CancellationToken, String> {
+        self.authentication(receipt, target, caller)?;
+        Ok(self
+            .receipts
+            .get(receipt)
+            .ok_or("unknown auth receipt")?
+            .admission
+            .clone())
+    }
+}
+impl Drop for CapabilityTables {
+    fn drop(&mut self) {
+        for target in self.targets.values() {
+            target.admission.cancel();
+        }
+        for receipt in self.receipts.values() {
+            receipt.admission.cancel();
+        }
     }
 }

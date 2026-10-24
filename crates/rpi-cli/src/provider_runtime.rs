@@ -19,6 +19,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::model_registry::ModelRegistry;
 mod auth;
+mod delegation;
 
 struct State {
     epoch: Arc<DelegationEpoch>,
@@ -636,24 +637,15 @@ impl Provider for RuntimeProvider {
             (state.chains.get(&self.id).cloned(), state.epoch.clone())
         };
         let resolver: Arc<dyn DelegationResolver> = runtime.clone();
-        let binding = match DelegationBinding::root(Arc::downgrade(&resolver), epoch, &self.id) {
-            Ok(binding) => binding,
-            Err(error) => return error_stream(model, error).await,
-        };
+        let binding =
+            match DelegationBinding::root(Arc::downgrade(&resolver), epoch.clone(), &self.id) {
+                Ok(binding) => binding,
+                Err(error) => return error_stream(model, error).await,
+            };
         match provider {
-            Some(provider) => match provider.preflight(model, options.signal.clone()).await {
-                Ok(()) => {
-                    binding
-                        .scope(rpi_ai::provider::forward_stream(
-                            provider.as_ref(),
-                            model,
-                            context,
-                            options,
-                        ))
-                        .await
-                }
-                Err(error) => error_stream(model, error).await,
-            },
+            Some(provider) => delegation::forward_scoped(
+                runtime, provider, binding, epoch, model, context, options,
+            ),
             None => error_stream(model, "provider is no longer registered".into()).await,
         }
     }
