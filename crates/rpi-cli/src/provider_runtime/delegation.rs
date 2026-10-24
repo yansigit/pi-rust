@@ -20,6 +20,10 @@ pub(super) fn forward_scoped(
     options.signal = producer.cancellation_token();
     let model = model.clone();
     let context = context.clone();
+    // Preserve the shared operation (including turn/request state), not merely
+    // its serialized identity. Explicit options are a fallback for direct calls.
+    let operation = rpi_ai::identity::operation();
+    let identity = options.identity.clone();
     let scope = rpi_agent::tool_execution_scope::current_scope();
     let closing = scope
         .as_ref()
@@ -67,7 +71,14 @@ pub(super) fn forward_scoped(
                 ))
                 .await;
         };
-        rpi_agent::tool_execution_scope::inherit(scope, binding.scope(work)).await;
+        let work = rpi_agent::tool_execution_scope::inherit(scope, binding.scope(work));
+        rpi_ai::identity::inherit(operation, async move {
+            match identity {
+                Some(identity) => rpi_ai::identity::scope_if_absent(identity, work).await,
+                None => work.await,
+            }
+        })
+        .await;
     });
     stream
 }
