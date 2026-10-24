@@ -14,8 +14,10 @@ Initial lane: `lane/h-scope-lease`, base `f5002d7`; review fixes:
   admission and cancellation of every callback, acquire/closing races, independent
   scope/epoch isolation and session invalidation. A cancellation-ignoring foreign
   callback barrier proves that cancellation returns promptly while retaining all
-  8 per-grant and 256 process-wide permits, then that admission recovers after
-  foreign execution/output cleanup.
+  8 per-grant and 256 process-wide permits. A separate registered output
+  deallocator barrier then holds all 256 outputs after the callbacks return;
+  both local and global admission remain exhausted until that barrier is released,
+  after which both recover.
 - `crates/rpi-plugin-sdk/tests/provider_context_export.rs` uses a mock host handle
   registry to test old-host capability refusal, final-clone-only RAII release,
   shared/idempotent explicit release, Drop outside a Tokio runtime, and best-effort
@@ -70,11 +72,16 @@ results; compiler errors are not counted as mutation kills. No mutations remain.
 | Restore transport scope/identity for grant dispatch | loaded `main-via-child`: service scope was `scope-2`, expected main (`null`); persisted compaction assertions also select only the grant's transcript |
 | Keep permits in the async caller instead of the blocking callback | cancellation-ignoring barrier test: `cancelled foreign work released per-grant admission: Elapsed(())` |
 | Omit final-clone Drop's release request | SDK final-clone test observed 0 releases instead of 1 |
+| Release blocking callback permits before the registered output deallocator | deallocator barrier test: `blocked output deallocator released admission: Elapsed(())` |
 
 The first permit mutation attempt timed out because the test's extra call was
 itself admitted and blocked; the regression now bounds that probe and fails an
 assertion promptly. Only the subsequent exit-101 assertion failure is counted.
-All three fixes were restored before the final gates.
+All mutations were reverted before the final gates. The deallocator mutation
+compiled and failed with exit 101; after restoration all seven scope-lease tests
+passed. The loaded nine-scenario test also passed, and grepping its captured
+`--nocapture` output for `panicked` or `called .*unwrap` found no fixture panic.
+The fixture now handles a nonzero runtime-action result before inspecting scope.
 
 ## Gates
 
@@ -90,7 +97,13 @@ or network). Final gates:
 - All seven `docs/provider-parity/check-*.mjs` scripts.
 
 The review fixes add five tests (one foreign-execution admission test and four
-SDK RAII tests), and strengthen the existing loaded and monitor tests. The SDK
+SDK RAII tests), and strengthen the existing loaded and monitor tests. The
+`aa3dc5e` follow-up strengthens that same admission test with the separate
+output-deallocator barrier; it adds no test cases. All gates above were rerun
+successfully, with the workspace still at 2432 passed, 0 failed, 26 ignored.
+The temporary HOME must be outside the worktree: an initial in-worktree HOME
+triggered the self-update test's intentional project-directory refusal; rerunning
+the full suite with an external mode-0700 temporary HOME passed. The SDK
 public surface, implementation, and C ABI remain unchanged from `229ce5a`; the
 package lane pinned to that revision needs no API migration for these fixes.
 
