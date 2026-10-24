@@ -58,6 +58,7 @@ use crate::PluginKeepalive;
 
 #[cfg(all(test, feature = "provider-performance"))]
 mod compact_tests;
+pub mod delegation;
 #[cfg(test)]
 mod lifetime_tests;
 #[cfg(all(test, feature = "provider-performance"))]
@@ -268,7 +269,17 @@ impl Provider for PluggableProvider {
         // `'static`. `SimpleStreamOptions` IS `Clone` (verified, provider.rs:27),
         // so a single clone carries every field into the task.
         let mut opts = opts.clone();
-        opts.signal = prod.cancellation_token();
+        // Internal admission cancellation must not cancel the public producer:
+        // otherwise epoch revocation is normalized into a user-abort terminal.
+        opts.signal = prod.cancellation_token().child_token();
+        let shutdown = self._keepalive.shutdown_signal();
+        let admission = opts.signal.clone();
+        self.runtime.spawn(async move {
+            tokio::select! { biased;
+                _ = admission.cancelled() => {},
+                _ = shutdown.cancelled() => admission.cancel(),
+            }
+        });
         lifetime.invocation = self.record.action_bridge.as_ref().map(|bridge| {
             let mut invocation = bridge.for_invocation(
                 rpi_agent::tool_execution_scope::is_child_execution(),
@@ -280,7 +291,13 @@ impl Provider for PluggableProvider {
             invocation
         });
         if let Some(wrapper) = &self.wrapper {
-            lifetime.continuation = Some(wrapper.continuation(&model, &ctx, &opts));
+            match wrapper.continuation(&model, &ctx, &opts) {
+                Ok(continuation) => lifetime.continuation = Some(continuation),
+                Err(error) => {
+                    push_terminal(&mut prod, error_message(&record, &error)).await;
+                    return stream;
+                }
+            }
         }
 
         // `spawn` (not `spawn_blocking`) for the producer task — the producer
@@ -584,6 +601,10 @@ async fn drive_streaming_plugin_provider(
     // `options.signal` is the same cancellation contract the built-in providers
     // honor: the agent loop cancels this token when the user aborts the run.
     let cancel = opts.signal.clone();
+    let epoch_signal = lifetime
+        .continuation
+        .as_ref()
+        .and_then(|continuation| continuation.epoch_signal());
     let request_json = if let Some(continuation) = &lifetime.continuation {
         let mut request =
             serde_json::json!({"model":model,"context":ctx,"options":options_json(opts)});
@@ -599,6 +620,15 @@ async fn drive_streaming_plugin_provider(
     // reason this is a plain field and not a second `Arc` handle.
     let control = Arc::new(ProviderControlState::default());
     let (tx, mut rx) = queue::channel(64, 4 * 1024 * 1024, Arc::clone(&control));
+    #[cfg(feature = "delegation-test-hooks")]
+    if let Some(marker) = opts
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("marker"))
+        .and_then(serde_json::Value::as_str)
+    {
+        test_hooks::observe(marker, &tx);
+    }
     let bridge = StreamEmitBridge {
         tx,
         plugin_free_string: record.plugin_free_string,
@@ -740,6 +770,12 @@ async fn drive_streaming_plugin_provider(
             },
         }
     };
+    // Revocation is an authority failure, not a user abort. Keep that cause even
+    // when its admission monitor also cancelled the owning FFI invocation.
+    if epoch_signal.is_some_and(|signal| signal.is_cancelled()) {
+        message.stop_reason = rpi_ai::types::StopReason::Error;
+        message.error_message = Some("delegation epoch revoked".into());
+    }
     if message.provider.is_empty() {
         message.provider = record.provider_id.clone();
     }
@@ -865,6 +901,10 @@ extern "C" fn control_wait_cancelled_ms(user_data: *mut c_void, timeout_ms: u32)
     }));
     outcome.unwrap_or(0)
 }
+
+#[cfg(feature = "delegation-test-hooks")]
+#[doc(hidden)]
+pub mod test_hooks;
 
 /// The callback state an emitted chunk is funneled through. Owned by the host,
 /// pointed at by the plugin's `emit_user_data`, and — because it holds the only

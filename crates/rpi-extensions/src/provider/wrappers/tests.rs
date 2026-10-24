@@ -104,7 +104,7 @@ fn register(registry: &mut ExtensionRegistry, wrapper_state: &Wrapper) {
     assert!(!registry.register_provider_wrapper(record.clone()));
     assert!(registry.register_provider_wrapper(record));
 }
-fn session(registry: &ExtensionRegistry) -> ExtensionSession {
+pub(super) fn session(registry: &ExtensionRegistry) -> ExtensionSession {
     ExtensionSession::from_parts(
         Arc::new(registry.snapshot()),
         PluginKeepalive::empty(),
@@ -113,7 +113,7 @@ fn session(registry: &ExtensionRegistry) -> ExtensionSession {
     )
 }
 
-struct Base {
+pub(super) struct Base {
     models: Vec<Model>,
     calls: AtomicUsize,
     full_calls: AtomicUsize,
@@ -225,7 +225,7 @@ impl Provider for Base {
         stream
     }
 }
-fn base(replace: bool) -> Arc<Base> {
+pub(super) fn base(replace: bool) -> Arc<Base> {
     Arc::new(Base {
         models: vec![Model::new(
             "m",
@@ -399,12 +399,15 @@ async fn forged_receipts_generations_models_and_auth_payloads_are_rejected_befor
         session,
         plugin: "pool".into(),
         generation: "generation".into(),
+        instance: WrapperInstanceId::fresh(),
     };
-    let continuation = next.continuation(
-        &base.models[0],
-        &Context::new(vec![]),
-        &SimpleStreamOptions::default(),
-    );
+    let continuation = next
+        .continuation(
+            &base.models[0],
+            &Context::new(vec![]),
+            &SimpleStreamOptions::default(),
+        )
+        .unwrap();
     let valid = json!({"version":1,"continuation":continuation.descriptor()});
     let mut requests = Vec::new();
     for (field, value) in [
@@ -473,14 +476,18 @@ async fn closing_child_scope_revokes_retained_continuation_without_closing_paren
         session,
         plugin: "pool".into(),
         generation: "generation".into(),
+        instance: WrapperInstanceId::fresh(),
     };
     let context = Context::default();
     let options = SimpleStreamOptions::default();
-    let parent = next.continuation(&base.models[0], &context, &options);
+    let parent = next
+        .continuation(&base.models[0], &context, &options)
+        .unwrap();
     let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
     let child = scope
         .run(async { next.continuation(&base.models[0], &context, &options) })
-        .await;
+        .await
+        .unwrap();
     assert!(Continuation::resolve(&parent.descriptor()).is_ok());
     assert!(Continuation::resolve(&child.descriptor()).is_ok());
     scope.close_runtime();

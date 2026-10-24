@@ -5,6 +5,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use rpi_ai::{AssistantMessageEventStream, Context, Model, Provider, SimpleStreamOptions};
+use rpi_extensions::delegation::{
+    DelegationBinding, DelegationCaller, DelegationEpoch, DelegationResolver, DelegationScopeId,
+    ResolvedAmbientAuth, ResolvedDelegationTarget,
+};
 use rpi_extensions::{
     native::{NativeOwner, NativeProviderRuntime},
     ExtensionSession, RuntimeActionHost,
@@ -15,8 +19,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::model_registry::ModelRegistry;
 mod auth;
+mod delegation;
 
 struct State {
+    epoch: Arc<DelegationEpoch>,
     catalog: ModelRegistry,
     chains: BTreeMap<String, Arc<dyn Provider>>,
     generations: BTreeMap<String, u64>,
@@ -55,6 +61,7 @@ impl State {
     }
 }
 pub(crate) struct ProviderRuntime {
+    delegation_scope: DelegationScopeId,
     session: ExtensionSession,
     generation: String,
     host: Arc<dyn RuntimeActionHost>,
@@ -116,7 +123,10 @@ impl ProviderRuntime {
         }
         let chains = Self::chains(session, &catalog);
         let auth = crate::provider::native_auth_bindings(session)?;
+        let delegation_scope = DelegationScopeId::fresh();
+        let epoch = DelegationEpoch::new(delegation_scope, chains.values().cloned());
         let runtime = Arc::new_cyclic(|myself| Self {
+            delegation_scope,
             session: session.clone(),
             generation: bridge.generation().into(),
             host: bridge.clone_host(),
@@ -124,6 +134,7 @@ impl ProviderRuntime {
             scope: None,
             children: Mutex::new(BTreeMap::new()),
             state: Mutex::new(State {
+                epoch,
                 catalog,
                 chains,
                 generations: BTreeMap::new(),
@@ -257,7 +268,10 @@ impl ProviderRuntime {
         // Wrapper generations and future delegation admission belong to this
         // publication's execution scope, never to the parent's captured chain.
         let chains = Self::chains(&self.session, &catalog);
+        let delegation_scope = DelegationScopeId::fresh();
+        let epoch = DelegationEpoch::new(delegation_scope, chains.values().cloned());
         let child = Arc::new_cyclic(|myself| Self {
+            delegation_scope,
             session: self.session.clone(),
             generation: self.generation.clone(),
             host: self.host.clone(),
@@ -265,6 +279,7 @@ impl ProviderRuntime {
             scope: Some(Arc::downgrade(&scope)),
             children: Mutex::new(BTreeMap::new()),
             state: Mutex::new(State {
+                epoch,
                 catalog,
                 chains,
                 generations: state.generations.clone(),
@@ -422,6 +437,9 @@ impl ProviderRuntime {
                 .collect(),
         );
         let revision = candidate.revision();
+        let epoch = DelegationEpoch::new(self.delegation_scope, chains.values().cloned());
+        state.epoch.revoke();
+        state.epoch = epoch;
         state.catalog = candidate;
         state.chains = chains;
         if let Some(generation) = next_generation {
@@ -521,6 +539,76 @@ impl NativeProviderRuntime for ProviderRuntime {
         }
     }
 }
+impl Drop for ProviderRuntime {
+    fn drop(&mut self) {
+        self.state.get_mut().epoch.revoke();
+    }
+}
+#[async_trait::async_trait]
+impl DelegationResolver for ProviderRuntime {
+    async fn resolve_target(
+        &self,
+        caller: &DelegationCaller,
+        provider_id: &str,
+        model_id: &str,
+        signal: CancellationToken,
+    ) -> Result<ResolvedDelegationTarget, String> {
+        caller.validate()?;
+        if signal.is_cancelled()
+            || self.scope.as_ref().is_some_and(|scope| {
+                scope
+                    .upgrade()
+                    .map_or(true, |scope| scope.runtime_closing().is_cancelled())
+            })
+            || !self
+                .session
+                .snapshot()
+                .is_some_and(|snapshot| snapshot.is_active())
+        {
+            return Err("delegation epoch revoked".into());
+        }
+        self.state
+            .lock()
+            .await
+            .epoch
+            .target(caller, provider_id, model_id)
+    }
+    async fn resolve_ambient(
+        &self,
+        caller: &DelegationCaller,
+        target: &ResolvedDelegationTarget,
+        signal: CancellationToken,
+    ) -> Result<ResolvedAmbientAuth, String> {
+        target.validate(caller)?;
+        let provider = {
+            let state = self.state.lock().await;
+            // Revalidate against the currently published scope, not only a retained Arc.
+            state
+                .epoch
+                .target(caller, &target.model().provider, &target.model().id)?;
+            state
+                .catalog
+                .get_provider_instance(&target.model().provider)
+                .ok_or("provider is no longer registered")?
+        };
+        let revoked = target.signal();
+        let authentication = tokio::select! { biased;
+            _ = revoked.cancelled() => return Err("delegation epoch revoked".into()),
+            _ = signal.cancelled() => return Err("authentication cancelled".into()),
+            result = provider.delegation_auth(target.model(), signal.clone()) => result?,
+        };
+        target.validate(caller)?;
+        if signal.is_cancelled()
+            || !self
+                .session
+                .snapshot()
+                .is_some_and(|snapshot| snapshot.is_active())
+        {
+            return Err("authentication cancelled".into());
+        }
+        Ok(ResolvedAmbientAuth::new(authentication))
+    }
+}
 struct RuntimeProvider {
     id: String,
     models: Vec<Model>,
@@ -544,15 +632,20 @@ impl Provider for RuntimeProvider {
             Ok(runtime) => runtime,
             Err(error) => return error_stream(model, error).await,
         };
-        let provider = runtime.state.lock().await.chains.get(&self.id).cloned();
+        let (provider, epoch) = {
+            let state = runtime.state.lock().await;
+            (state.chains.get(&self.id).cloned(), state.epoch.clone())
+        };
+        let resolver: Arc<dyn DelegationResolver> = runtime.clone();
+        let binding =
+            match DelegationBinding::root(Arc::downgrade(&resolver), epoch.clone(), &self.id) {
+                Ok(binding) => binding,
+                Err(error) => return error_stream(model, error).await,
+            };
         match provider {
-            Some(provider) => match provider.preflight(model, options.signal.clone()).await {
-                Ok(()) => {
-                    rpi_ai::provider::forward_stream(provider.as_ref(), model, context, options)
-                        .await
-                }
-                Err(error) => error_stream(model, error).await,
-            },
+            Some(provider) => delegation::forward_scoped(
+                runtime, provider, binding, epoch, model, context, options,
+            ),
             None => error_stream(model, "provider is no longer registered".into()).await,
         }
     }

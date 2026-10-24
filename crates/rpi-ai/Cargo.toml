@@ -40,6 +40,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
+# Integration-test source polling observation, absent from default builds.
+delegation-test-hooks = []
 default = []
 # Real HTTP providers (anthropic). Off by default so core builds remain network-free.
 providers = ["dep:reqwest", "dep:bytes", "dep:eventsource-stream"]
