@@ -3,7 +3,7 @@ use crate::delegation::{
     DelegationEpoch, DelegationResolver, DelegationScopeId, ResolvedAmbientAuth,
 };
 
-struct Resolver(Arc<DelegationEpoch>);
+pub(super) struct Resolver(pub(super) Arc<DelegationEpoch>);
 #[async_trait::async_trait]
 impl DelegationResolver for Resolver {
     async fn resolve_target(

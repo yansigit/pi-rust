@@ -445,6 +445,7 @@ struct DelegateRequest {
     version: u32,
     continuation: Value,
     auth_receipt: Option<String>,
+    target: Option<String>,
     model: Option<Model>,
     context: Option<Context>,
     options: Option<serde_json::Map<String, Value>>,
@@ -469,27 +470,67 @@ pub(crate) extern "C" fn delegate_stream(
             }
             let input: DelegateRequest = serde_json::from_str(unsafe { request.as_str() })
                 .map_err(|_| "invalid delegated request")?;
-            if input.version != 1 {
+            if input.version != 1 && input.version != 2 {
                 return Err("unsupported delegation version".into());
             }
             let continuation = Continuation::resolve(&input.continuation)?;
-            let model = input.model.unwrap_or_else(|| continuation.model.clone());
-            if model.provider != continuation.model.provider
-                || model.api != continuation.model.api
-                || model.id != continuation.model.id
+            let target = if input.version == 2 {
+                if input.model.is_some() {
+                    return Err("v2 delegation does not accept model descriptors".into());
+                }
+                Some(continuation.target(&json!({"target":input.target}))?)
+            } else {
+                if input.target.is_some() {
+                    return Err("v1 delegation does not accept targets".into());
+                }
+                None
+            };
+            let model = match &target {
+                Some(target) => target.model().clone(),
+                None => input.model.unwrap_or_else(|| continuation.model.clone()),
+            };
+            if input.version == 1
+                && (model.provider != continuation.model.provider
+                    || model.api != continuation.model.api
+                    || model.id != continuation.model.id)
             {
                 return Err("continuation model identity mismatch".into());
             }
+            let provider = target
+                .as_ref()
+                .map_or_else(|| continuation.next.clone(), |target| target.chain());
+            let binding = match &target {
+                Some(target) => Some(
+                    continuation
+                        .binding
+                        .as_ref()
+                        .ok_or("delegation v2 unavailable")?
+                        .with_ancestry(target.ancestry())?,
+                ),
+                None => continuation.binding.clone(),
+            };
             let context = input
                 .context
                 .unwrap_or_else(|| continuation.context.clone());
-            let mut options_json = options_json(&continuation.options);
+            let mut inherited = continuation.options.clone();
+            if target.is_some() {
+                inherited.api_key = None;
+                inherited.headers = None;
+                inherited.env.clear();
+                inherited.provider_options.clear();
+            }
+            let mut options_json = options_json(&inherited);
             if let Some(patch) = input.options {
                 for (key, value) in patch {
                     if matches!(
                         key.as_str(),
                         "authMode" | "responseMetadata" | "streamKind" | "identity"
-                    ) {
+                    ) || (target.is_some()
+                        && matches!(
+                            key.as_str(),
+                            "apiKey" | "headers" | "env" | "baseUrl" | "endpoint"
+                        ))
+                    {
                         return Err("unsupported delegated option".into());
                     }
                     options_json[&key] = value;
@@ -498,7 +539,26 @@ pub(crate) extern "C" fn delegate_stream(
             options_json["authMode"] = json!("ambient");
             let mut options = rpi_ai::provider_wire::decode_options(&options_json, &model)
                 .map_err(|_| "invalid delegated options")?;
-            options.authentication = if let Some(id) = input.auth_receipt {
+            let mut receipt_signal = None;
+            options.authentication = if let Some(target_id) = &input.target {
+                let caller = continuation
+                    .caller
+                    .as_ref()
+                    .ok_or("delegation v2 unavailable")?;
+                if let Some(id) = input.auth_receipt {
+                    let capabilities = continuation.capabilities.lock().unwrap();
+                    let (_, auth) = capabilities.authentication(&id, target_id, caller)?;
+                    receipt_signal = Some(capabilities.auth_signal(&id, target_id, caller)?);
+                    auth
+                } else {
+                    // Explicitly no ambient credential. Never restore the source or
+                    // target defaults; a target pool may still resolve its account.
+                    rpi_ai::auth::ReplacementAuth::from_private_request(
+                        model.provider.clone(),
+                        rpi_ai::auth::RequestAuth::default(),
+                    )
+                }
+            } else if let Some(id) = input.auth_receipt {
                 continuation
                     .receipts
                     .lock()
@@ -511,6 +571,21 @@ pub(crate) extern "C" fn delegate_stream(
             };
             let signal = continuation.options.signal.child_token();
             let _cancel = signal.clone().drop_guard();
+            if let Some(target) = &target {
+                let revoked = target.signal();
+                let receipt_revoked = receipt_signal.unwrap_or_else(CancellationToken::new);
+                let attempt_signal = signal.clone();
+                let owner_signal = continuation.options.signal.clone();
+                // Cancelling the owning FFI invocation also wakes a foreign emit
+                // callback blocked inside its own awaited producer push.
+                continuation.runtime.spawn(async move {
+                    tokio::select! { biased;
+                        _ = attempt_signal.cancelled() => {},
+                        _ = revoked.cancelled() => { attempt_signal.cancel(); owner_signal.cancel(); },
+                        _ = receipt_revoked.cancelled() => { attempt_signal.cancel(); owner_signal.cancel(); },
+                    }
+                });
+            }
             options.signal = signal.clone();
             let state = Arc::new(ProviderControlState::default());
             let (sender, mut receiver) = queue::channel(64, 4 * 1024 * 1024, state);
@@ -534,14 +609,14 @@ pub(crate) extern "C" fn delegate_stream(
             let pending = continuation.clone();
             let task_model = model.clone();
             continuation.runtime.spawn(async move {
+                let work = drive_delegate(&provider, &task_model, &context, &options, &sender);
                 let message = pending
-                    .in_scope(drive_delegate(
-                        &pending.next,
-                        &task_model,
-                        &context,
-                        &options,
-                        &sender,
-                    ))
+                    .in_scope(async {
+                        match &binding {
+                            Some(binding) => binding.scope(work).await,
+                            None => work.await,
+                        }
+                    })
                     .await;
                 let _ = completed.send(message);
             });
@@ -551,7 +626,13 @@ pub(crate) extern "C" fn delegate_stream(
             loop {
                 let cancelled = unsafe { control.as_ref() }
                     .is_some_and(|control| (control.is_cancelled)(control.user_data, 0) != 0);
-                if cancelled || !continuation.active() {
+                if cancelled
+                    || signal.is_cancelled()
+                    || !continuation.active()
+                    || target
+                        .as_ref()
+                        .is_some_and(|target| target.signal().is_cancelled())
+                {
                     return serde_json::to_value(mapper.aborted_message())
                         .map_err(|_| "invalid cancelled response".into());
                 }
@@ -621,8 +702,7 @@ async fn drive_delegate(
         let event = tokio::select! { biased; _ = options.signal.cancelled() => return aborted(partial), event = stream.next() => event };
         let Some(event) = event else {
             partial.stop_reason = rpi_ai::StopReason::Error;
-            partial.error_message =
-                Some("delegated provider ended without a terminal event".into());
+            partial.error_message = Some("Provider stream ended without a terminal event".into());
             return partial;
         };
         match event {
@@ -645,6 +725,8 @@ fn aborted(mut partial: AssistantMessage) -> AssistantMessage {
     partial
 }
 
+#[cfg(test)]
+mod chain_tests;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
