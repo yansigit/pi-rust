@@ -163,7 +163,43 @@ validation predicate has been independently mutated.
 - No new loaded-library fixture here: the raw host callback is exercised directly;
   the concurrent test lane owns loaded-library fixture changes.
 
-## Gates
+- `runtime_provider_forwarding_preserves_caller_operation_and_options_fallback`
+  runs through the published RuntimeProvider and records task-local identity at
+  target preflight and the auth/stream entry phase. It checks caller identity
+  precedence, turn index, shared operation/request state, and options-only
+  fallback without leaking identity back into an unscoped caller.
+- Negative control: drop operation inheritance at the forwarding hop; the test
+  fails at preflight (options identity observed instead of caller identity,
+  exit 101). Reverted; restored test passes.
+- Spawn-local audit: `rpi_ai::identity::CURRENT` now inherits the operation Arc;
+  `rpi_agent::tool_execution_scope` and delegation's `BINDING` were
+  already restored. Extensions `SESSION_PERSISTENCE` is native-lease authority,
+  scoped only by native dispatch and deliberately not granted to provider work.
+  Thread locals `CURRENT_HOST_API` (registration), `CURRENT_INVOCATION` (FFI
+  callback action bridge), SDK provider context/callback slots and test-only
+  locals are thread-bound guards, not ambient async execution scope to copy.
+  ActionBridge reconstructs invocation identity from the restored operation.
+
+### Review-fix offline gates
+
+All commands completed with exit 0, using Rust 1.78/1.95, locked offline
+resolution, the requested separate target directories and isolated mode-0700
+temporary HOME directories:
+
+| Gate | Result |
+| --- | --- |
+| Rust 1.78 workspace/all-targets, `RUSTFLAGS="-D warnings"` | Passed |
+| Rust 1.95 `rpi-extensions` | 233 passed, 0 failed, 3 existing ignored |
+| Rust 1.95 `rpi-cli` | 750 passed, 0 failed, 18 existing ignored; also 1 passing subprocess test summary |
+| Rust 1.95 SDK with `provider` | 78 passed, 0 failed, 3 existing ignored |
+| `rustfmt --check --edition 2021` on all changed Rust files | Passed |
+| `git diff --check` | Passed |
+
+Logs: `/tmp/h-deleg-v2-fixes-{check-178,extensions,cli,sdk}.log`.
+No new ignore attributes, weakened assertions, network access or pushes.
+The CLI gate does not independently build/enable optional loaded DLL fixtures.
+
+## Gates (original implementation)
 
 Offline Rust 1.78 workspace/all-target `-D warnings` checks passed at H2, H4 and
 H7. Final SDK no-default-features and no-default-features+provider checks passed.
