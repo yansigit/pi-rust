@@ -22,6 +22,7 @@ async fn loaded_frozen_legacy_prefix_still_registers_on_the_new_host() {
         std::env::consts::DLL_PREFIX,
         std::env::consts::DLL_SUFFIX
     ));
+    // This frozen ABI fixture is dependency-free: no host rlibs are selected.
     let output = std::process::Command::new(
         std::env::var_os("RPI_TEST_RUSTC").unwrap_or_else(|| "rustc".into()),
     )
