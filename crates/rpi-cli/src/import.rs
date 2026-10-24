@@ -106,7 +106,7 @@ impl Prepared {
     }
 
     /// `source -> destination` for the category heading.
-    fn heading(&self, dest: &Path) -> String {
+    fn heading(&self, dest: &Path, session_dir: &Path) -> String {
         let to = |name: &str| dest.join(name).display().to_string();
         match self {
             Prepared::Credentials(_) => {
@@ -121,7 +121,11 @@ impl Prepared {
                 to(multiprovider::DEST_FILE)
             ),
             Prepared::Sessions(_) => {
-                format!("{}/ -> {}/", source::SESSIONS_DIR, to(sessions::DEST_DIR))
+                format!(
+                    "{}/ -> {}/",
+                    source::SESSIONS_DIR,
+                    session_dir.join(sessions::DEST_DIR).display()
+                )
             }
         }
     }
@@ -149,6 +153,9 @@ async fn execute(options: Options) -> Result<i32, String> {
         ));
     }
 
+    // Match normal startup, including a saved sessionDir and the environment
+    // fallback. Resolve before applying settings (Pi's sessionDir is ignored).
+    let session_dir = crate::session::configured_session_dir(&crate::args::Args::default(), &cwd);
     let mut import_ledger = Ledger::load(&dest.join(ledger::LEDGER_FILE))?;
     let mut prepared = Vec::new();
     for category in &options.categories {
@@ -169,14 +176,14 @@ async fn execute(options: Options) -> Result<i32, String> {
                 &import_ledger,
             )?),
             Category::Sessions => {
-                Prepared::Sessions(sessions::plan(&source, &dest, &import_ledger)?)
+                Prepared::Sessions(sessions::plan(&source, &session_dir, &import_ledger)?)
             }
         });
     }
 
     report::print_header(&source, &dest);
     for item_group in &prepared {
-        let heading = item_group.heading(&dest);
+        let heading = item_group.heading(&dest, &session_dir);
         report::print_category(item_group.category(), &heading, item_group.items());
     }
     let all_items: Vec<&Item> = prepared.iter().flat_map(|p| p.items().iter()).collect();
