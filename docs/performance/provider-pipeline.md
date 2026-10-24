@@ -7,10 +7,11 @@ streams, delayed readers, and result-only consumption. No network or credentials
 are used. Fixed model, timestamp, text, usage and identifiers make results
 repeatable through the real SDK driver and host provider adapter.
 
-The benchmark-only baseline commit is `0a035bd` (`bench/provider-baseline`), directly on `534d316`. Use the same
-harness on subsequent revisions; after the async stream API migration, pass
-`--features provider-performance,bounded-provider-stream`. The conditional push
-adapter accommodates the intentional Rust API break without changing workloads.
+The `bench/provider-baseline` branch retains the synchronous fixture for baseline
+`534d316`. The snapshot-conversion revisions use that same fixture. This revision
+adapts its calls to asynchronous `push` and records host-queue occupancy alongside
+backpressure; the workloads and counters otherwise remain unchanged. Run it with
+the `provider-performance` feature, which is also the runner's default.
 
 JSONL includes environment/revision, elapsed time, global allocation count and
 bytes, peak live allocator bytes, and transmitted JSON bytes. Linux additionally
@@ -19,4 +20,5 @@ instrumentation includes runtime and host overhead and may perturb execution;
 peak live bytes are whole-process allocations, not queue payload accounting.
 Use repeated samples and compare distributions; CI must not assert speedups.
 
-Run correctness tests separately. [The measured report](provider-pipeline-results.md) includes pipeline allocation/byte/queue measurements, pending-tool worker and poll counts, resource creation counts, raw distributions and their limitations.
+Run correctness tests separately. [The measured report](provider-pipeline-results.md)
+records the original measured revisions, raw distributions and their limitations.

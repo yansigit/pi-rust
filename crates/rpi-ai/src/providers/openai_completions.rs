@@ -146,10 +146,13 @@ async fn run_stream(
     let mut state = StreamState::new(model);
     let api_key = resolve_api_key(&provider_key, opts, allow_env_api_key);
 
-    let mut headers = model.headers.clone().unwrap_or_default();
-    if let Some(extra) = &opts.headers {
+    let mut headers = BTreeMap::new();
+    for extra in [model.headers.as_ref(), opts.headers.as_ref()]
+        .into_iter()
+        .flatten()
+    {
         for (name, value) in extra {
-            headers.insert(name.clone(), value.clone());
+            crate::provider::set_http_header(&mut headers, name, Some(value));
         }
     }
     apply_api_key(&mut headers, api_key);
@@ -231,13 +234,17 @@ async fn run_stream(
     };
 
     state.start(producer).await;
-    let mut events = SseEventStream::new(response, opts.signal.clone());
+    let mut events = SseEventStream::new(response, opts.signal.clone())
+        .with_idle_timeout(opts.stream_idle_timeout());
     loop {
         match events.next_event().await {
             Ok(Some(event)) if event.data.trim() == "[DONE]" => {
                 state.finish(producer, model).await;
                 return;
             }
+            // Named keepalives and empty data frames carry no JSON payload.
+            // Their bytes still refresh the shared SSE idle watchdog.
+            Ok(Some(event)) if event.data.trim().is_empty() => continue,
             Ok(Some(event)) => match serde_json::from_str::<Value>(&event.data) {
                 Ok(chunk) => {
                     if let Some(message) = chunk
@@ -426,12 +433,32 @@ fn build_request(model: &Model, ctx: &Context, opts: &SimpleStreamOptions) -> Va
     if supports_streaming_usage(model) {
         body.insert("stream_options".into(), json!({ "include_usage": true }));
     }
-    let max_tokens = opts.max_tokens.unwrap_or(model.max_tokens);
+    let max_tokens = resolve_max_tokens(model, opts);
     if max_tokens > 0 {
         body.insert(max_tokens_field(model).into(), Value::from(max_tokens));
     }
     if let Some(temperature) = opts.temperature {
         body.insert("temperature".into(), Value::from(temperature));
+    }
+    if compat(model).and_then(|c| c.thinking_format)
+        == Some(crate::model::OpenaiThinkingFormat::Deepseek)
+    {
+        // An explicitly configured DeepSeek format must also disable the
+        // endpoint's default thinking when the catalog marks a model non-reasoning.
+        let enabled = model.reasoning && opts.reasoning_level() != ThinkingLevel::Off;
+        let can_disable = !matches!(
+            model
+                .thinking_level_map
+                .as_ref()
+                .and_then(|map| map.get(&ThinkingLevel::Off)),
+            Some(None)
+        );
+        if enabled || can_disable {
+            body.insert(
+                "thinking".into(),
+                json!({ "type": if enabled { "enabled" } else { "disabled" } }),
+            );
+        }
     }
     if model.reasoning && supports_reasoning_effort(model) {
         if let Some(effort) = reasoning_effort(model, opts.reasoning_level()) {
@@ -627,6 +654,58 @@ fn requires_thinking_as_text(model: &Model) -> bool {
     compat(model)
         .and_then(|compat| compat.requires_thinking_as_text)
         .unwrap_or(false)
+}
+
+/// The reasoning budget a request with the active thinking level should leave
+/// room for, in tokens. `0` when thinking is off.
+fn thinking_budget(opts: &SimpleStreamOptions) -> u64 {
+    let level = crate::providers::anthropic::build_params::clamp_reasoning(opts.reasoning_level());
+    if level == ThinkingLevel::Off {
+        return 0;
+    }
+    let defaults = crate::providers::anthropic::build_params::default_thinking_budgets();
+    let budgets = opts.thinking_budgets.unwrap_or(defaults);
+    match level {
+        ThinkingLevel::Minimal => budgets.minimal.or(defaults.minimal),
+        ThinkingLevel::Low => budgets.low.or(defaults.low),
+        ThinkingLevel::Medium => budgets.medium.or(defaults.medium),
+        _ => budgets.high.or(defaults.high),
+    }
+    .unwrap_or(0)
+}
+
+/// Whether this model's `max_tokens` covers hidden reasoning tokens too.
+fn reasoning_counts_toward_max_tokens(model: &Model) -> bool {
+    model.reasoning
+        && compat(model)
+            .and_then(|compat| compat.reasoning_counts_toward_max_tokens)
+            .unwrap_or(false)
+}
+
+/// Resolve the `max_tokens` / `max_completion_tokens` value for one request.
+///
+/// `Model::max_tokens` describes the visible *answer* allowance. Gateways that
+/// bill hidden reasoning tokens inside that same budget (DeepSeek's reasoning
+/// models, and relays that copy them) would otherwise spend it on the chain of
+/// thought: the stream ends with `finish_reason: "length"` and an empty or
+/// clipped answer, indistinguishable from an interrupted message. For models
+/// that declare [`reasoning_counts_toward_max_tokens`](crate::model::OpenaiCompletionsCompat::reasoning_counts_toward_max_tokens)
+/// the request reserves the level's reasoning budget on top of the answer
+/// allowance, which is the same shape Anthropic gets from
+/// `adjust_max_tokens_for_thinking`.
+///
+/// A caller-pinned `opts.max_tokens` is sent verbatim: whoever computed it owns
+/// the reasoning headroom, so this rule never stacks a second time.
+fn resolve_max_tokens(model: &Model, opts: &SimpleStreamOptions) -> u64 {
+    let Some(pinned) = opts.max_tokens else {
+        let base = model.max_tokens;
+        return if reasoning_counts_toward_max_tokens(model) {
+            base.saturating_add(thinking_budget(opts))
+        } else {
+            base
+        };
+    };
+    pinned
 }
 
 fn max_tokens_field(model: &Model) -> &'static str {
@@ -1643,6 +1722,73 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_that_shares_the_completion_budget_reserves_answer_room() {
+        // DeepSeek's reasoning models bill the chain of thought inside
+        // `max_tokens`. Sending only the answer allowance made long thinking
+        // sessions end with `finish_reason: "length"` and no visible text, so
+        // the level's reasoning budget is added on top when the model opts in.
+        let mut model = model();
+        model.compat = Some(StreamingProtocolCompat::OpenaiCompletions(
+            OpenaiCompletionsCompat {
+                reasoning_counts_toward_max_tokens: Some(true),
+                ..Default::default()
+            },
+        ));
+        let context = Context::new(vec![Message::User(UserMessage::new("hello", 0))]);
+
+        let mut opts = SimpleStreamOptions::default();
+        opts.reasoning = Some(ThinkingLevel::High);
+        let body = build_request(&model, &context, &opts);
+        assert_eq!(body["max_completion_tokens"], 1024 + 16_384);
+
+        // Thinking off keeps the plain answer allowance.
+        let mut off = SimpleStreamOptions::default();
+        off.reasoning = Some(ThinkingLevel::Off);
+        let body = build_request(&model, &context, &off);
+        assert_eq!(body["max_completion_tokens"], 1024);
+
+        // A caller-pinned ceiling is sent verbatim: it already carries whatever
+        // reasoning headroom its owner wanted.
+        let mut pinned = SimpleStreamOptions::default();
+        pinned.reasoning = Some(ThinkingLevel::Low);
+        pinned.max_tokens = Some(4096);
+        let body = build_request(&model, &context, &pinned);
+        assert_eq!(body["max_completion_tokens"], 4096);
+
+        // Custom per-level budgets are honoured.
+        let mut custom = SimpleStreamOptions::default();
+        custom.reasoning = Some(ThinkingLevel::High);
+        custom.thinking_budgets = Some(crate::types::ThinkingBudgets {
+            high: Some(24_000),
+            ..Default::default()
+        });
+        let body = build_request(&model, &context, &custom);
+        assert_eq!(body["max_completion_tokens"], 1024 + 24_000);
+    }
+
+    #[test]
+    fn models_without_the_shared_budget_flag_keep_their_ceiling() {
+        // The compat flag is opt-in: every other gateway keeps sending exactly
+        // the configured cap, even with thinking enabled.
+        let mut model = model();
+        assert!(model.compat.is_none());
+        let context = Context::new(vec![Message::User(UserMessage::new("hello", 0))]);
+        let mut opts = SimpleStreamOptions::default();
+        opts.reasoning = Some(ThinkingLevel::High);
+        let body = build_request(&model, &context, &opts);
+        assert_eq!(body["max_completion_tokens"], 1024);
+
+        model.compat = Some(StreamingProtocolCompat::OpenaiCompletions(
+            OpenaiCompletionsCompat {
+                reasoning_counts_toward_max_tokens: Some(false),
+                ..Default::default()
+            },
+        ));
+        let body = build_request(&model, &context, &opts);
+        assert_eq!(body["max_completion_tokens"], 1024);
+    }
+
+    #[test]
     fn drops_empty_aborted_assistant_messages() {
         // A stopped/aborted turn leaves a terminal assistant message with no
         // content and no tool calls in context. DeepSeek (and other strict
@@ -1706,6 +1852,71 @@ mod tests {
         );
         assert_eq!(replayed["messages"][1]["reasoning_content"], "");
         assert!(crate::model::prior_reasoning_is_replayed(&model));
+    }
+
+    #[test]
+    fn pi_deepseek_compat_preserves_reasoning_and_controls_thinking() {
+        let mut model = model();
+        model.compat = Some(StreamingProtocolCompat::OpenaiCompletions(
+            serde_json::from_value(json!({
+                "thinkingFormat": "deepseek",
+                "requiresReasoningContentOnAssistantMessages": true,
+                "supportsReasoningEffort": false
+            }))
+            .unwrap(),
+        ));
+        let mut assistant =
+            AssistantMessage::empty(Api::OpenaiCompletions, "gateway", "gpt-test", 1);
+        assistant.content = vec![
+            Content::thinking("retained reasoning"),
+            Content::text("answer"),
+        ];
+        let mut plain = assistant.clone();
+        plain.content = vec![Content::text("plain answer")];
+        let context = Context::new(vec![
+            Message::Assistant(Box::new(assistant)),
+            Message::Assistant(Box::new(plain)),
+        ]);
+        let options = SimpleStreamOptions {
+            reasoning: Some(ThinkingLevel::High),
+            ..Default::default()
+        };
+        let request = build_request(&model, &context, &options);
+        assert_eq!(request["thinking"]["type"], "enabled");
+        assert!(request.get("reasoning_effort").is_none());
+        assert_eq!(
+            request["messages"][0]["reasoning_content"],
+            "retained reasoning"
+        );
+        assert_eq!(request["messages"][1]["reasoning_content"], "");
+        let off = build_request(&model, &context, &SimpleStreamOptions::default());
+        assert_eq!(off["thinking"]["type"], "disabled");
+        model.thinking_level_map = Some(BTreeMap::from([(ThinkingLevel::Off, None)]));
+        assert!(
+            build_request(&model, &context, &SimpleStreamOptions::default())
+                .get("thinking")
+                .is_none()
+        );
+        model.compat = None;
+        assert!(build_request(&model, &context, &options)
+            .get("thinking")
+            .is_none());
+    }
+
+    #[test]
+    fn deepseek_format_explicitly_disables_thinking_for_non_reasoning_models() {
+        let mut model = model();
+        model.reasoning = false;
+        model.compat = Some(StreamingProtocolCompat::OpenaiCompletions(
+            serde_json::from_value(json!({"thinkingFormat":"deepseek"})).unwrap(),
+        ));
+        let request = build_request(
+            &model,
+            &Context::new(vec![]),
+            &SimpleStreamOptions::default(),
+        );
+        assert_eq!(request["thinking"]["type"], "disabled");
+        assert!(request.get("reasoning_effort").is_none());
     }
 
     #[test]

@@ -293,3 +293,80 @@ fn bytes_and_partial_results_match_the_legacy_conversion_for_every_event_family(
         }
     }
 }
+
+// Exercise compaction through the shared wire encoder, not a second SDK codec.
+fn reconstructs_text(
+    previous: &AssistantMessage,
+    next: &AssistantMessage,
+    index: usize,
+    delta: &str,
+) -> bool {
+    let mut state = Some((index, Arc::new(previous.clone())));
+    let event = AssistantMessageEvent::TextDelta {
+        content_index: index,
+        delta: delta.into(),
+        partial: Arc::new(next.clone()),
+    };
+    event_json(&event, &mut state).get("partial").is_none()
+}
+
+#[test]
+fn compaction_requires_exact_text_and_metadata_and_consecutive_deltas() {
+    let mut before = AssistantMessage::empty(rpi_ai::Api::Faux, "faux", "m", 42);
+    before.content = vec![rpi_ai::Content::text("α"), rpi_ai::Content::thinking("hmm")];
+    let mut after = before.clone();
+    let rpi_ai::Content::Text(text) = &mut after.content[0] else {
+        unreachable!()
+    };
+    text.text.push_str("🐈");
+    assert!(reconstructs_text(&before, &after, 0, "🐈"));
+    assert!(reconstructs_text(&before, &before, 0, ""));
+    assert!(!reconstructs_text(&before, &after, 0, "α🐈"));
+    assert!(!reconstructs_text(&before, &after, 1, "🐈"));
+    let mutations: &[fn(&mut AssistantMessage)] = &[
+        |m| m.api = rpi_ai::Api::AnthropicMessages,
+        |m| m.provider.push('x'),
+        |m| m.model.push('x'),
+        |m| m.response_model = Some("r".into()),
+        |m| m.response_id = Some("id".into()),
+        |m| m.timestamp += 1,
+        |m| m.duration_ms = Some(1.0),
+        |m| m.usage.output += 1,
+        |m| m.stop_reason = StopReason::Stop,
+        |m| m.error_message = Some("e".into()),
+        |m| m.raw_stop_reason = Some("raw".into()),
+        |m| m.end_turn = Some(true),
+        |m| m.content[1] = rpi_ai::Content::thinking("changed"),
+        |m| m.content.push(rpi_ai::Content::text("extra")),
+        |m| {
+            if let rpi_ai::Content::Text(t) = &mut m.content[0] {
+                t.text_signature = Some("signature".into());
+            }
+        },
+    ];
+    for mutate in mutations {
+        let mut changed = after.clone();
+        mutate(&mut changed);
+        assert!(!reconstructs_text(&before, &changed, 0, "🐈"));
+    }
+    let first = AssistantMessageEvent::TextDelta {
+        content_index: 0,
+        delta: "α".into(),
+        partial: Arc::new(before),
+    };
+    let next = AssistantMessageEvent::TextDelta {
+        content_index: 0,
+        delta: "🐈".into(),
+        partial: Arc::new(after),
+    };
+    let mut previous = None;
+    assert!(event_json(&first, &mut previous).get("partial").is_some());
+    assert!(event_json(&next, &mut previous).get("partial").is_none());
+    event_json(
+        &AssistantMessageEvent::Start {
+            partial: Arc::new(first.partial().clone()),
+        },
+        &mut previous,
+    );
+    assert!(event_json(&next, &mut previous).get("partial").is_some());
+}

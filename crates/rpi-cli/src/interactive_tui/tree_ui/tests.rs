@@ -5,6 +5,7 @@ use super::*;
 /// private to each other).
 fn test_state() -> Arc<TuiState> {
     Arc::new(TuiState {
+        session_dir: std::path::PathBuf::new(),
         current_assistant: Arc::new(std::sync::Mutex::new(None)),
         tool_components: Arc::new(std::sync::Mutex::new(HashMap::new())),
         bash_components: Arc::new(std::sync::Mutex::new(HashMap::new())),

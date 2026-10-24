@@ -21,10 +21,7 @@ impl Provider for Script {
         let (mut prod, stream) = create_assistant_message_event_stream();
         tokio::spawn(async move {
             for event in events {
-                #[cfg(feature = "bounded-provider-stream")]
                 let accepted = prod.push(event).await;
-                #[cfg(not(feature = "bounded-provider-stream"))]
-                let accepted = prod.push(event);
                 if !accepted {
                     break;
                 }

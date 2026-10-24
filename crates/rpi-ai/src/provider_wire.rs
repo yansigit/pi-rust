@@ -12,6 +12,7 @@ pub fn encode_options(opts: &SimpleStreamOptions) -> serde_json::Value {
         "identity": opts.identity,
         "apiKey": opts.api_key,
         "timeoutMs": opts.timeout.map(|d| d.as_millis() as u64),
+        "streamIdleTimeoutMs": opts.stream_idle_timeout.map(|d| d.as_millis().min(u64::MAX as u128) as u64),
         "maxRetries": opts.max_retries,
         "maxRetryDelayMs": opts.max_retry_delay.map(|d| d.as_millis() as u64),
         "headers": opts.headers,
@@ -53,6 +54,9 @@ pub fn decode_options(value: &serde_json::Value, model: &Model) -> Result<Simple
         .collect();
     options.api_key = value["apiKey"].as_str().map(str::to_string);
     options.timeout = value["timeoutMs"].as_u64().map(Duration::from_millis);
+    options.stream_idle_timeout = value["streamIdleTimeoutMs"]
+        .as_u64()
+        .map(Duration::from_millis);
     options.max_retry_delay = value["maxRetryDelayMs"].as_u64().map(Duration::from_millis);
     options.max_retries = value["maxRetries"].as_u64().and_then(|n| n.try_into().ok());
     options.max_tokens = value["maxTokens"].as_u64();

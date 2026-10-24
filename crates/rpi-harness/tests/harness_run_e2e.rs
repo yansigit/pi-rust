@@ -48,6 +48,11 @@ use rpi_tools::{
     InMemoryExecutionEnv, MutationQueueRegistry,
 };
 
+// `RPI_MAX_TURNS_PER_RUN` is process-global, so tests that change it must not
+// overlap. The guard stays held across the async harness run, not just the
+// set/remove call, because the harness reads the variable while starting a run.
+static RUN_BUDGET_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn declined_compaction_records_a_terminal_outcome() {
     let (harness, _, _) = harness_with(FauxScript::new().with_text("unused")).await;
@@ -1001,6 +1006,8 @@ async fn run_budget_in_child(test: &str, limit: Option<u32>) -> bool {
 /// ceiling and say so, so a truncated task is never mistaken for a finished one.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn run_budget_stops_a_looping_run_and_records_why() {
+    let _env_lock = RUN_BUDGET_ENV_LOCK.lock().await;
+
     // A model that never stops asking for tools: far more scripted turns than
     // the ceiling, so only the guard can end this run.
     //

@@ -548,6 +548,7 @@ mod tests {
                     "focus" | "replace" => Some("Keep the commands".into()),
                     _ => None,
                 },
+                stream_options: Default::default(),
             });
             options.replace_instructions = matches!(mode, "replace" | "emptyReplace");
             if mode == "grace" {

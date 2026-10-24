@@ -475,7 +475,7 @@ mod tests {
     #[test]
     fn options_preserve_provider_controls() {
         let options = options(
-            &serde_json::json!({"apiKey":"key","timeoutMs":42,
+            &serde_json::json!({"apiKey":"key","timeoutMs":42,"streamIdleTimeoutMs":11,
             "maxRetries":3,"maxRetryDelayMs":17,"reasoning":"Xhigh","maxTokens":80,
             "headers":{"x-custom":"value"},"cacheRetention":"Long","sessionId":"s"}),
             &Model::new("m", "M", rpi_ai::Api::Faux, "probe", "http://localhost"),
@@ -483,6 +483,7 @@ mod tests {
         .unwrap();
         assert_eq!(options.api_key.as_deref(), Some("key"));
         assert_eq!(options.timeout, Some(Duration::from_millis(42)));
+        assert_eq!(options.stream_idle_timeout, Some(Duration::from_millis(11)));
         assert_eq!(options.max_retries, Some(3));
         assert_eq!(options.max_retry_delay, Some(Duration::from_millis(17)));
         assert_eq!(options.reasoning, Some(rpi_ai::ThinkingLevel::Xhigh));
