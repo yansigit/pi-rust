@@ -267,11 +267,11 @@ pub fn projected_preparation(
     }
 
     let mut retained_tail = Vec::new();
-    if let Some(index) = path.iter().position(|entry| entry.id() == first_kept) {
-        for entry in &path[index..] {
-            if let Some(message) = get_message_from_entry_for_compaction(entry) {
-                retained_tail.push(message);
-            }
+    if let Some(index) = projection.entries.iter().position(|entry| {
+        entry.source.get("id").and_then(Value::as_str) == Some(first_kept.as_str())
+    }) {
+        for projected in &projection.entries[index..] {
+            retained_tail.extend(host_messages(projected, &by_id));
         }
     }
 
@@ -304,6 +304,15 @@ fn host_messages(
 ) -> Vec<AgentMessage> {
     if projected.source.get("type").and_then(Value::as_str) == Some("compaction") {
         return Vec::new();
+    }
+    // Message content comes from the finalized projection, never from the raw
+    // source: otherwise omissions/replacements resurrect in the summary/tail.
+    if projected.source.get("type").and_then(Value::as_str) == Some("message") {
+        return projected
+            .messages
+            .iter()
+            .filter_map(|message| serde_json::from_value(message.clone()).ok())
+            .collect();
     }
     let Some(id) = projected.source.get("id").and_then(Value::as_str) else {
         return Vec::new();
