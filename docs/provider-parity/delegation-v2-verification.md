@@ -562,3 +562,93 @@ Logs: `/tmp/h-deleg-before.log`, `/tmp/h-deleg-fixture-check-178.log`,
 No assertions or ignore attributes changed, no network or push, and no real
 credentials, `~/.pi` or `~/.rpi` accessed. Unrelated baseline formatting remains
 untouched.
+
+
+## Host cancellation reclamation (gap A)
+
+Worktree `pi-rust--h-cancel-reclaim`, branch `lane/h-cancel-reclaim`, based on
+`8014e36`. Implementation: `6fc53b9`; independent-DLL proof: `abcc545`.
+No ABI/SDK layout changes, package-owned counter changes, or durable credential
+transaction changes are included.
+
+### Strengthened lifecycle contract
+
+Cancellation/revocation schedules host-owned target and receipt reclamation
+independently of callback completion. After reclamation completes, explicit
+releases are unnecessary; release RPCs may return `inactive provider continuation`
+/ `delegation epoch revoked` / `expired provider continuation`. Admitted work is
+cancelled, but foreign execution, package lease draining and durable credential
+completion are separate lifecycle obligations.
+
+The continuation's terminal flag, v1 receipts and v2 capability tables share one
+synchronous lock. A weak monitor observes invocation cancellation, epoch
+revocation, scope closing and session shutdown; normal destruction cancels that
+monitor. Inactive lookup reclaims synchronously as a fallback, preserving epoch
+error precedence. Every target/auth insertion rechecks continuation admission
+under that lock after asynchronous resolution. Reclamation drops the tables
+(cancelling target and receipt admission tokens), not the continuation or the
+executing library. A release rejection alone does not prove all work drained.
+
+### Tests and reverted negative controls
+
+- `terminal_triggers_reclaim_all_capabilities_while_continuation_is_retained`:
+  all four terminal triggers, a retained continuation, targets, ambient and
+  replacement receipts, v1 receipts, zero entries, cancelled target and both
+  receipt admission tokens, and idempotent terminal transition. Observation does
+  not invoke lookup or active checks, proving independent monitor reclamation.
+- `suspended_target_and_auth_resolution_cannot_repopulate_terminal_storage`:
+  pause target/ambient resolution, cancel and synchronously revoke storage,
+  resume; both operations reject insertion and leave empty tables.
+- `inactive_lookup_reclaims_synchronously_and_preserves_lifecycle_errors`:
+  cancellation/epoch invalidation before the monitor runs; synchronous drain,
+  exact inactive/epoch/expired errors, and normal destruction without an idle
+  monitor retaining the continuation.
+- `loaded_cancel_reclaims_tables_before_blocked_callback_and_library_drain`:
+  real delegated DLL invocation with no explicit releases. Before cancellation,
+  the outer continuation has one target and one receipt. After cancellation,
+  its callback remains blocked behind a file handshake while a read-only,
+  feature-gated weak observer sees terminal empty storage. Background work is
+  still non-idle and the library stays owned across session shutdown. Only then
+  does the test release the callback; the foreign producer reports cancelled
+  emit, background work becomes idle, and continuation/library ownership drains.
+
+Temporary mutations were reverted before final verification:
+
+| Mutation | Observed failure |
+| --- | --- |
+| Omit v1 receipt clearing and v2 table draining from terminal transition | `terminal_triggers_reclaim_all_capabilities_while_continuation_is_retained` fails at the retained-v1 assertion (`cancel`), exit 101 |
+| Bypass locked post-resolution admission for target insertion | `suspended_target_and_auth_resolution_cannot_repopulate_terminal_storage` fails at `pending.await.unwrap().is_err()`, exit 101 |
+
+Restored wrapper unit subset: **14 passed, 0 failed, 0 ignored**. Restored new
+loaded-library subset: **1 passed, 0 failed, 0 ignored**. Both are also included
+in the passing full workspace run below. No new ignores or weakened assertions.
+
+### Offline gates
+
+All Cargo commands ran in the foreground with `timeout 270`, offline resolution,
+`CARGO_BUILD_JOBS=8`, `RUSTUP_AUTO_INSTALL=0`, and isolated mode-0700 HOME
+`/tmp/h-cancel-reclaim-home`. Target directories were
+`/home/user/Projects/.targets/h-cancel-reclaim-178` and
+`/home/user/Projects/.targets/h-cancel-reclaim-195`.
+
+| Gate | Result |
+| --- | --- |
+| Rust 1.78 workspace/all-targets with `RUSTFLAGS=-Dwarnings` | Passed, exit 0 |
+| Rust 1.78 SDK `--no-default-features` | Passed, exit 0 |
+| Rust 1.78 SDK `--no-default-features --features provider` | Passed, exit 0 |
+| Rust 1.95 `cargo test --workspace` | **2420 passed, 0 failed, 26 ignored**, 91 test summaries including subprocess/doc-test summaries; exit 0 |
+| `cargo fmt --check` | Passed, exit 0 |
+| `git diff --check` | Passed |
+| Existing `docs/provider-parity/check-*.mjs` scripts | All seven passed, exit 0 |
+| Requested `.github/scripts/check-*.mjs` loop | **Unavailable on this baseline**: `.github/scripts/` does not exist; the literal glob produces Node `MODULE_NOT_FOUND`. No unrelated scripts were invented to mask this missing gate. |
+
+Installed toolchains are named `1.78.0` and `1.95.0`; Cargo used those exact
+selectors. The initial `cargo +1.78` attempt refused the uninstalled alias
+without downloading anything, then `cargo +1.78.0` passed.
+
+Logs: `/tmp/h-cancel-{check-178,sdk-178,sdk-provider-178,workspace-195,fmt,unit,loaded,mutation-drain,mutation-late,scripts,reference-checks}.log`.
+The missing requested script location is the only open verification issue.
+There was no network access, push, access to real user configuration directories,
+or change to any `.playwright-mcp/` directory. Foreign callback completion,
+package/account lease draining and durable credential persistence remain distinct
+obligations, not newly claimed package acceptance coverage.
