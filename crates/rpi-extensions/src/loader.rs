@@ -370,15 +370,20 @@ pub struct PluginKeepalive {
     #[allow(dead_code)]
     action_bridge: Option<Arc<ActionBridge>>,
     plugins: Vec<LoadedPlugin>,
+    shutdown: tokio_util::sync::CancellationToken,
 }
 
 impl PluginKeepalive {
+    pub(crate) fn shutdown_signal(&self) -> tokio_util::sync::CancellationToken {
+        self.shutdown.clone()
+    }
     /// Build a keepalive. `pub` so tests + host code can construct an empty
     /// one (no loaded cdylibs) where the plugin lifecycle is exercised without
     /// real plugins.
     pub fn new(libraries: Vec<Library>, action_bridge: Option<Arc<ActionBridge>>) -> Self {
         Self {
             plugins: Vec::new(),
+            shutdown: tokio_util::sync::CancellationToken::new(),
             libraries,
             action_bridge,
         }
@@ -386,6 +391,7 @@ impl PluginKeepalive {
 
     /// Begin shutdown while outstanding adapters still retain the libraries.
     pub fn begin_shutdown(&self) {
+        self.shutdown.cancel();
         for plugin in &self.plugins {
             plugin.begin_shutdown();
         }
@@ -430,6 +436,10 @@ pub struct ExtensionSession {
 }
 
 impl ExtensionSession {
+    /// Host authority ends at shutdown even if foreign callbacks retain the DLL.
+    pub fn shutdown_signal(&self) -> tokio_util::sync::CancellationToken {
+        self.keepalive.shutdown.clone()
+    }
     /// Assemble a session from already-loaded parts (explicit `--extension`
     /// files via `load_one` + `merge_registries`). Mirrors `load_session` but
     /// internal assembly so callers can build a session without a dir scan.

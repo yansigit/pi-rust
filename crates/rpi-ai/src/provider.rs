@@ -313,6 +313,17 @@ pub trait Provider: Send + Sync {
         Ok(())
     }
 
+    /// Host-internal ambient resolution against the private execution binding.
+    /// Inputs select identity only; public model fields never confer authority.
+    /// The default fails closed so unbound providers cannot restore caller auth.
+    async fn delegation_auth(
+        &self,
+        _model: &Model,
+        _signal: CancellationToken,
+    ) -> Result<crate::auth::AttemptAuth, String> {
+        Err("ambient delegation authentication unavailable".into())
+    }
+
     /// Full provider-specific options entry point. Existing implementations
     /// share their simple implementation; adapters may override this method.
     async fn stream(

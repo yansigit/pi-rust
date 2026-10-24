@@ -209,6 +209,177 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
 }
 
 #[tokio::test]
+async fn compaction_refuses_missing_child_target_instead_of_falling_back_to_main() {
+    let provider = FauxProvider::new(FauxScript::new().with_text("unused"));
+    let parent = AgentHarness::create(AgentHarnessOptions {
+        model: provider.default_model().clone(),
+        models: vec![provider],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let (host, cell) = HarnessActionHost::new_empty(
+        vec![],
+        std::env::temp_dir(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    HarnessActionHost::set_harness(&cell, Arc::new(parent.clone()));
+    let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    let error = scope.run(host.compact(json!({}))).await.unwrap_err();
+    assert!(
+        error.contains("child execution target is unavailable"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn compaction_succeeds_on_selected_child_and_rejects_foreign_or_closed_scope() {
+    use rpi_agent::AgentMessage;
+    use rpi_ai::providers::faux::{faux_assistant_message, FauxStep};
+    use rpi_ai::{StopReason, UserContent, UserMessage};
+    use rpi_harness::session::types::SessionMetadata;
+    use rpi_harness::session::{DefaultIdGenerator, InMemorySessionStorage, Session, SystemClock};
+    let provider = FauxProvider::new(FauxScript::new().with_text("WRONG parent provider"));
+    let mut child_model = provider.default_model().clone();
+    child_model.id = "child-model".into();
+    let script = FauxScript::new();
+    script.set_responses(vec![FauxStep::factory(|context| {
+        let wire = serde_json::to_string(context).unwrap();
+        assert!(wire.contains("CHILD_ONLY_HISTORY"), "{wire}");
+        assert!(!wire.contains("PARENT_ONLY_HISTORY"), "{wire}");
+        faux_assistant_message("selected child summary", StopReason::Stop)
+    })]);
+    let child_provider = FauxProvider::with_models(script, vec![child_model.clone()]);
+    let parent = AgentHarness::create(AgentHarnessOptions {
+        model: provider.default_model().clone(),
+        models: vec![provider.clone()],
+        compaction: rpi_harness::types::CompactionSettings {
+            enabled: true,
+            reserve_tokens: 100,
+            keep_recent_tokens: 1,
+        },
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    parent
+        .append_message(AgentMessage::User(UserMessage::new(
+            UserContent::Text("PARENT_ONLY_HISTORY".into()),
+            1,
+        )))
+        .await
+        .unwrap();
+    let parent_before =
+        serde_json::to_value(parent.session().storage().snapshot().await.unwrap().entries).unwrap();
+    let (host, cell) = HarnessActionHost::new_empty(
+        vec![],
+        std::env::temp_dir(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    HarnessActionHost::set_harness(&cell, Arc::new(parent.clone()));
+    let session = Session::new(
+        Arc::new(InMemorySessionStorage::new(
+            SessionMetadata {
+                id: "compaction-child".into(),
+                created_at: 0,
+                parent_session_id: None,
+            },
+            Arc::new(SystemClock),
+            Arc::new(DefaultIdGenerator::new()),
+        )),
+        None,
+    );
+    let child = parent
+        .create_child(
+            session,
+            Arc::new(rpi_agent::CollectorEmitter::new().0),
+            1,
+            None,
+        )
+        .await
+        .unwrap();
+    child
+        .harness
+        .set_models(vec![child_provider.clone()])
+        .await
+        .unwrap();
+    child.harness.set_model(child_model).await.unwrap();
+    for text in [
+        "CHILD_ONLY_HISTORY ".repeat(100),
+        "retained child tail".into(),
+    ] {
+        child
+            .harness
+            .append_message(AgentMessage::User(UserMessage::new(
+                UserContent::Text(text),
+                2,
+            )))
+            .await
+            .unwrap();
+    }
+    let scope = child.execution_scope.clone();
+    let response = scope.run(host.compact(json!({}))).await.unwrap();
+    let entries = child
+        .harness
+        .session()
+        .storage()
+        .snapshot()
+        .await
+        .unwrap()
+        .entries;
+    let summary = entries
+        .iter()
+        .find_map(|entry| match entry {
+            rpi_harness::session::types::Entry::Compaction(c) => Some(c),
+            _ => None,
+        })
+        .expect("nonempty child history must actually compact");
+    assert!(
+        summary.summary.contains("selected child summary"),
+        "{summary:?}"
+    );
+    assert!(summary.tokens_before > 0);
+    assert_eq!(
+        child_provider
+            .state()
+            .call_count
+            .load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+    assert_eq!(
+        provider
+            .state()
+            .call_count
+            .load(std::sync::atomic::Ordering::SeqCst),
+        0
+    );
+    assert_eq!(
+        serde_json::to_value(parent.session().storage().snapshot().await.unwrap().entries).unwrap(),
+        parent_before
+    );
+    assert!(response["runId"].is_string(), "{response}");
+    assert_eq!(
+        scope
+            .run(host.get_execution_context(json!({})))
+            .await
+            .unwrap()["sessionId"],
+        "compaction-child"
+    );
+    let foreign = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    assert!(foreign
+        .run(host.compact(json!({})))
+        .await
+        .unwrap_err()
+        .contains("child execution target is unavailable"));
+    drop(child);
+    assert!(scope.run(host.compact(json!({}))).await.is_err());
+}
+
+#[tokio::test]
 async fn native_flags_only_return_requested_names_before_harness_construction() {
     let (host, _) = HarnessActionHost::new_empty(
         vec![],
