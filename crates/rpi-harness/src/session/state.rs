@@ -212,10 +212,7 @@ impl SessionState {
                 edit.target_id
             )));
         };
-        if !matches!(
-            message,
-            AgentMessage::User(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_)
-        ) {
+        if matches!(message, AgentMessage::Custom(custom) if custom.role != "custom") {
             return Err(SessionError::invalid_entry(format!(
                 "Entry {} does not contribute editable model content",
                 edit.target_id
@@ -228,6 +225,14 @@ impl SessionState {
             if let Some(text) = edit.replacement.get("content").and_then(|v| v.as_str()) {
                 edit.replacement = serde_json::json!({"content": [{"type": "text", "text": text}]});
             }
+        }
+        if !edit.replacement.is_null()
+            && crate::session::context::replace_message_content(message, &edit.replacement)
+                .is_none()
+        {
+            return Err(SessionError::invalid_entry(
+                "Context edit content is not supported by the target message",
+            ));
         }
         Ok(())
     }

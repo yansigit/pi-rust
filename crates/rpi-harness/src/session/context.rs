@@ -171,6 +171,23 @@ fn custom_to_context_messages(
     }
 }
 
+/// Normalize only the host's typed custom-message shell, not the durable edit.
+/// Returns None for content the typed message model cannot represent. Storage
+/// refuses that content before acknowledging a replacement.
+pub(crate) fn replace_message_content(
+    message: &AgentMessage,
+    replacement: &serde_json::Value,
+) -> Option<AgentMessage> {
+    let mut value = serde_json::to_value(message).ok()?;
+    let content = replacement.get("content")?;
+    value["content"] = if matches!(message, AgentMessage::Custom(_)) && content.is_string() {
+        serde_json::json!([{"type":"text", "text":content.as_str()?}])
+    } else {
+        content.clone()
+    };
+    serde_json::from_value(value).ok()
+}
+
 /// Project once, retaining source identity for durable recovery omissions.
 /// Edits are branch-local because callers supply only the selected path.
 /// The host-owned retained tail stays owned by its compaction entry.
@@ -192,9 +209,7 @@ pub fn project_context_messages(
         }
         for mut message in session_entry_to_context_messages(entry, index, entries, options) {
             if let Some(replacement) = replacement {
-                let mut value = serde_json::to_value(&message).expect("message serialization");
-                value["content"] = replacement["content"].clone();
-                if let Ok(replaced) = serde_json::from_value(value) {
+                if let Some(replaced) = replace_message_content(&message, replacement) {
                     message = replaced;
                 }
             }
