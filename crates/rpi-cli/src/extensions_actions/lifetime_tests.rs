@@ -209,6 +209,32 @@ async fn native_execution_context_and_session_capture_agree_on_child_identity() 
 }
 
 #[tokio::test]
+async fn compaction_refuses_missing_child_target_instead_of_falling_back_to_main() {
+    let provider = FauxProvider::new(FauxScript::new().with_text("unused"));
+    let parent = AgentHarness::create(AgentHarnessOptions {
+        model: provider.default_model().clone(),
+        models: vec![provider],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let (host, cell) = HarnessActionHost::new_empty(
+        vec![],
+        std::env::temp_dir(),
+        Handle::current(),
+        BTreeMap::new(),
+        Default::default(),
+    );
+    HarnessActionHost::set_harness(&cell, Arc::new(parent.clone()));
+    let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    let error = scope.run(host.compact(json!({}))).await.unwrap_err();
+    assert!(
+        error.contains("child execution target is unavailable"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
 async fn native_flags_only_return_requested_names_before_harness_construction() {
     let (host, _) = HarnessActionHost::new_empty(
         vec![],
