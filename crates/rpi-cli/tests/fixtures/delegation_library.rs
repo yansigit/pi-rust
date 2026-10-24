@@ -12,6 +12,11 @@ pub(crate) fn sdk_library() -> &'static Path {
     static FIXTURE: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
     fixture(&FIXTURE, "delegation_sdk")
 }
+#[allow(dead_code)]
+pub(crate) fn scope_library() -> &'static Path {
+    static FIXTURE: OnceLock<(tempfile::TempDir, PathBuf)> = OnceLock::new();
+    fixture(&FIXTURE, "scope_service_lease")
+}
 fn fixture(lock: &'static OnceLock<(tempfile::TempDir, PathBuf)>, name: &str) -> &'static Path {
     &lock
         .get_or_init(|| {

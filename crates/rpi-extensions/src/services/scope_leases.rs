@@ -215,6 +215,7 @@ impl Services {
             Some(scope) => Some(scope.upgrade().ok_or("scope service lease revoked")?),
             None => None,
         };
+        let closing = grant.closing.clone().unwrap_or_default();
         let call_signal = signal.child_token();
         let _cancel = call_signal.clone().drop_guard();
         let work = self.call_instance(grant.owner.clone(), json!({"service":grant.service.0,"serviceVersion":grant.service.1,"method":args["method"],"input":args["input"]}), call_signal.clone(), Some(&grant.instance));
@@ -228,6 +229,7 @@ impl Services {
             biased;
             _ = grant.revoked.cancelled() => Err("scope service lease revoked".into()),
             _ = grant.epoch.cancelled() => Err("scope service lease revoked".into()),
+            _ = closing.cancelled() => Err("scope service lease revoked".into()),
             _ = grant.service_stopped.cancelled() => Err("scope service lease revoked".into()),
             _ = signal.cancelled() => Err("service request cancelled".into()),
             result = work => result,
