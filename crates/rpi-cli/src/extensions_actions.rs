@@ -160,6 +160,7 @@ impl HarnessActionHost {
         };
         crate::session::replace_active_session(
             &crate::session::SessionReplacementContext {
+                runtime_factory: Some(&cells.runtime_factory),
                 harness,
                 lane: lane.as_ref(),
                 extension_session: &cells.extension_session,

@@ -130,6 +130,9 @@ pub(super) async fn switch_to_session(
                     extension_session: &reload_context.extension_session,
                     action_bridge: &reload_context.action_bridge,
                     tool_context,
+                    runtime_factory: Some(&crate::session::SessionRuntimeFactory::from_reload(
+                        reload_context,
+                    )),
                 },
                 new_session,
                 crate::session::SessionReplacementReason::Resume,
@@ -224,6 +227,9 @@ pub(super) async fn import_session(
             extension_session: &reload_context.extension_session,
             action_bridge: &reload_context.action_bridge,
             tool_context,
+            runtime_factory: Some(&crate::session::SessionRuntimeFactory::from_reload(
+                reload_context,
+            )),
         },
         new_session,
         crate::session::SessionReplacementReason::Resume,
@@ -296,6 +302,9 @@ pub(super) async fn fork_session(
             extension_session: &reload_context.extension_session,
             action_bridge: &reload_context.action_bridge,
             tool_context,
+            runtime_factory: Some(&crate::session::SessionRuntimeFactory::from_reload(
+                reload_context,
+            )),
         },
         new_session,
         crate::session::SessionReplacementReason::Fork,
