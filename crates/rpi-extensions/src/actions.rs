@@ -1341,6 +1341,8 @@ fn run_action(
     let editor_text = bridge.editor_text.clone();
     let reload_cb = bridge.reload.clone();
     let execution_context = bridge.execution_context.clone();
+    let tool_scope = bridge.tool_scope.clone();
+    let selected_signal = bridge.native_signal();
     if action == RuntimeActionId::StdioLifecycle {
         let result = bridge.stdio.handle(
             bridge.plugin_identity.as_ref().map_or(0, |(id, _)| *id),
@@ -1458,7 +1460,18 @@ fn run_action(
                     host.reload(args).await
                 }
             } else {
-                dispatch(&host, &ui_dialog, &ext_status, &editor_text, action, args).await
+                let work = dispatch(&host, &ui_dialog, &ext_status, &editor_text, action, args);
+                // Forwarded Fabric calls cross this second task boundary too.
+                // Restore the captured lane, never the caller's ambient lane.
+                if matches!(action, RuntimeActionId::IsIdle | RuntimeActionId::Compact) {
+                    tokio::select! {
+                        biased;
+                        _ = selected_signal.cancelled() => Err("native runtime request cancelled".into()),
+                        result = rpi_agent::tool_execution_scope::inherit(tool_scope, work) => result,
+                    }
+                } else {
+                    work.await
+                }
             };
             if action == RuntimeActionId::GetExecutionContext {
                 if let (Ok(context), Some(serde_json::Value::Object(fields))) =

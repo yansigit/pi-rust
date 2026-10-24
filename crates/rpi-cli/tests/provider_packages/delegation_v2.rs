@@ -14,6 +14,8 @@ use tokio_util::sync::CancellationToken;
 #[path = "../fixtures/delegation_library.rs"]
 pub(super) mod delegation_library;
 use delegation_library::library;
+#[path = "scope_service_lease.rs"]
+mod scope_service_lease;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn loaded_frozen_legacy_prefix_still_registers_on_the_new_host() {
     let directory = tempfile::tempdir().unwrap();

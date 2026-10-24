@@ -104,3 +104,6 @@ Old hosts fail closed at capability negotiation. Retain ordinary scoped clients
 only for invocation-time discovery/receipts; a lease cannot send UI notifications.
 The consumer should retain its existing 50ms idle polling, 15s deadline and 30s
 compaction debounce; quota/auth rotation remains inline, not deferred compaction.
+
+See [verification and mutation results](scope-service-lease-verification.md) for
+loaded-library transcript proofs, gate totals and the two restored dispatch boundaries.
