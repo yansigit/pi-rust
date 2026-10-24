@@ -4,6 +4,9 @@ use super::*;
 use crate::callbacks::OwnedString;
 use rpi_ai::provider_wire::{encode_options, StreamMapper};
 use serde_json::{json, Value};
+use tokio_util::sync::CancellationToken;
+mod v2;
+pub use v2::AmbientTarget;
 
 #[derive(Clone)]
 pub struct Continuation {
@@ -14,7 +17,12 @@ pub struct Continuation {
 
 /// Only valid with the continuation that issued it. Deliberately not Debug/Serialize.
 #[derive(Clone)]
-pub struct AuthReceipt(String);
+pub struct AuthReceipt {
+    id: String,
+    owner: Value,
+    target: Option<String>,
+    version: u32,
+}
 
 impl Continuation {
     /// Resolves through the registered provider and the wrapper's account store.
@@ -52,29 +60,30 @@ impl Continuation {
             if result["version"] != 1 {
                 return Err("unsupported auth receipt".into());
             }
-            Ok(AuthReceipt(
-                result["receipt"]
+            Ok(AuthReceipt {
+                id: result["receipt"]
                     .as_str()
                     .ok_or("missing auth receipt")?
                     .to_owned(),
-            ))
+                owner: this.descriptor.clone(),
+                target: None,
+                version: 1,
+            })
         })
         .await
         .map_err(|_| "account authentication task stopped".to_owned())?
     }
 
     pub async fn release_auth(&self, receipt: AuthReceipt) -> Result<(), String> {
-        let callback = self
-            .api
-            .provider_continuation
-            .ok_or("host lacks private provider continuation operations")?;
-        let this = self.clone();
-        tokio::task::spawn_blocking(move || {
-            let request = json!({"version":1,"continuation":this.descriptor,"action":"releaseAuth","receipt":receipt.0}).to_string();
-            let mut out = StbString::empty();
-            let status = callback(StbStringRef::from_str(&request), std::ptr::null(), &mut out, this.api.user_data);
-            host_result(&this.api, out, status).map(|_| ())
-        }).await.map_err(|_| "account release task stopped".to_owned())?
+        if receipt.owner != self.descriptor {
+            return Err("auth receipt belongs to a different continuation".into());
+        }
+        self.operation(
+            json!({"version":receipt.version,"action":"releaseAuth","receipt":receipt.id}),
+            CancellationToken::new(),
+        )
+        .await
+        .map(|_| ())
     }
 
     pub fn provider(&self, receipt: Option<AuthReceipt>) -> Arc<dyn Provider> {
@@ -82,6 +91,7 @@ impl Continuation {
             continuation: self.clone(),
             receipt,
             models: vec![self.model.clone()],
+            target: None,
         })
     }
 }
@@ -104,11 +114,12 @@ struct DelegatedProvider {
     continuation: Continuation,
     receipt: Option<AuthReceipt>,
     models: Vec<Model>,
+    target: Option<AmbientTarget>,
 }
 #[async_trait::async_trait]
 impl Provider for DelegatedProvider {
     fn id(&self) -> &str {
-        &self.continuation.model.provider
+        &self.models[0].provider
     }
     fn models(&self) -> &[Model] {
         &self.models
@@ -129,15 +140,31 @@ impl Provider for DelegatedProvider {
         for private in ["authMode", "responseMetadata", "streamKind", "identity"] {
             wire_options.as_object_mut().unwrap().remove(private);
         }
-        let request = json!({"version":1,"continuation":self.continuation.descriptor,
-            "authReceipt":self.receipt.as_ref().map(|receipt| &receipt.0),"model":model,"context":context,"options":wire_options}).to_string();
+        let mut request = json!({"version":1,"continuation":self.continuation.descriptor,
+            "authReceipt":self.receipt.as_ref().map(|receipt| &receipt.id),"model":model,"context":context,"options":wire_options});
+        if let Some(target) = &self.target {
+            for private in ["apiKey", "headers", "env", "baseUrl", "endpoint"] {
+                wire_options.as_object_mut().unwrap().remove(private);
+            }
+            request["version"] = json!(2);
+            request["target"] = json!(target.handle);
+            request["options"] = wire_options;
+            request.as_object_mut().unwrap().remove("model");
+        }
+        // v1's infallible adapter still fails closed for foreign/v2 receipts.
+        let invalid_receipt = self.receipt.as_ref().is_some_and(|receipt| {
+            receipt.owner != self.continuation.descriptor
+                || (self.target.is_none() && receipt.version != 1)
+        });
+        let request = request.to_string();
         let mut bridge = StreamBridge {
             api: self.continuation.api,
             runtime: tokio::runtime::Handle::current(),
             options,
             producer,
             mapper: StreamMapper::new(model.api.clone(), model.provider.clone(), model.id.clone()),
-            error: None,
+            error: invalid_receipt
+                .then(|| "auth receipt belongs to a different continuation".into()),
         };
         tokio::task::spawn_blocking(move || {
             let cancel_options = bridge.options.clone();
@@ -149,7 +176,9 @@ impl Provider for DelegatedProvider {
                     .cast(),
             };
             let mut out = StbString::empty();
-            let result = if let Some(callback) = bridge.api.delegate_provider_stream {
+            let result = if invalid_receipt {
+                Err("auth receipt belongs to a different continuation".into())
+            } else if let Some(callback) = bridge.api.delegate_provider_stream {
                 let status = callback(
                     StbStringRef::from_str(&request),
                     Some(stream_emit),
@@ -434,6 +463,8 @@ where
 }
 
 #[cfg(test)]
+mod v2_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -441,7 +472,7 @@ mod tests {
         1
     }
 
-    fn continuation() -> Continuation {
+    pub(super) fn continuation() -> Continuation {
         Continuation {
             api: PluginApi {
                 abi_version: crate::RPI_PLUGIN_ABI_VERSION_UNIFIED,
@@ -495,7 +526,12 @@ mod tests {
         );
         assert_eq!(
             continuation
-                .release_auth(AuthReceipt("opaque".into()))
+                .release_auth(AuthReceipt {
+                    id: "opaque".into(),
+                    owner: continuation.descriptor.clone(),
+                    target: None,
+                    version: 1
+                })
                 .await,
             Err("host lacks private provider continuation operations".into())
         );
