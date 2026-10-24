@@ -12,6 +12,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 mod delegation_gaps;
 #[path = "provider_packages/delegation_preflight.rs"]
 mod delegation_preflight;
+#[path = "provider_packages/delegation_sdk.rs"]
+mod delegation_sdk;
 #[path = "provider_packages/delegation_v2.rs"]
 mod delegation_v2;
 

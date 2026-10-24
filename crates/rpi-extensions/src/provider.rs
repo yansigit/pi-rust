@@ -620,6 +620,15 @@ async fn drive_streaming_plugin_provider(
     // reason this is a plain field and not a second `Arc` handle.
     let control = Arc::new(ProviderControlState::default());
     let (tx, mut rx) = queue::channel(64, 4 * 1024 * 1024, Arc::clone(&control));
+    #[cfg(feature = "delegation-test-hooks")]
+    if let Some(marker) = opts
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("marker"))
+        .and_then(serde_json::Value::as_str)
+    {
+        test_hooks::observe(marker, &tx);
+    }
     let bridge = StreamEmitBridge {
         tx,
         plugin_free_string: record.plugin_free_string,
@@ -892,6 +901,10 @@ extern "C" fn control_wait_cancelled_ms(user_data: *mut c_void, timeout_ms: u32)
     }));
     outcome.unwrap_or(0)
 }
+
+#[cfg(feature = "delegation-test-hooks")]
+#[doc(hidden)]
+pub mod test_hooks;
 
 /// The callback state an emitted chunk is funneled through. Owned by the host,
 /// pointed at by the plugin's `emit_user_data`, and — because it holds the only

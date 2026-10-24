@@ -88,6 +88,9 @@ pub use oauth::{
 };
 pub use prompt_transform::emit_before_agent_start;
 pub use provider::delegation;
+#[cfg(feature = "delegation-test-hooks")]
+#[doc(hidden)]
+pub use provider::test_hooks as delegation_test_hooks;
 pub use provider::wrappers::{wrap_providers, RegisteredWrapper, WrapperManifest};
 pub use provider::PluggableProvider;
 pub use provider_hooks::ExtensionProviderHooks;

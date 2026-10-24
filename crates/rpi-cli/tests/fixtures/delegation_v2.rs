@@ -54,6 +54,18 @@ extern "C" fn base(
             assert_eq!(input["options"]["apiKey"], "target-secret");
         }
         let prompt = input["context"]["systemPrompt"].as_str().unwrap();
+        if prompt.starts_with("sdk|") {
+            assert_eq!(
+                emit.unwrap()(
+                    StbString::from_string(
+                        json!({"type":"text_delta","id":"text","delta":"sdk-forwarded-delta"})
+                            .to_string()
+                    ),
+                    data
+                ),
+                0
+            );
+        }
         if prompt.starts_with("order|") || prompt.starts_with("bytes|") {
             let large = prompt.starts_with("bytes|");
             let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
@@ -175,7 +187,7 @@ extern "C" fn wrapper(
             .to_owned();
         context["systemPrompt"] = json!(format!("{prompt},wrapper:{provider}"));
         let result = (|| {
-            if provider == "c" {
+            if provider == "c" || provider == "sdk-source" {
                 if prompt.starts_with("runtime-pool|") {
                     let auth = action(
                         api,

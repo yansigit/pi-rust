@@ -25,6 +25,8 @@ struct State<T> {
     cancelled: bool,
     peak_count: usize,
     peak_bytes: usize,
+    #[cfg(feature = "delegation-test-hooks")]
+    capacity_waiters: usize,
 }
 pub(crate) struct Queue<T> {
     state: Mutex<State<T>>,
@@ -51,6 +53,8 @@ pub(crate) fn channel<T>(capacity: usize, byte_limit: usize) -> (Sender<T>, Rece
             cancelled: false,
             peak_count: 0,
             peak_bytes: 0,
+            #[cfg(feature = "delegation-test-hooks")]
+            capacity_waiters: 0,
         }),
         capacity,
         byte_limit,
@@ -63,6 +67,13 @@ pub(crate) fn channel<T>(capacity: usize, byte_limit: usize) -> (Sender<T>, Rece
 }
 
 impl<T> Queue<T> {
+    #[cfg(feature = "delegation-test-hooks")]
+    pub(crate) fn capacity_waiters(&self) -> usize {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .capacity_waiters
+    }
     pub(crate) fn cancel(&self) {
         let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
         state.cancelled = true;
@@ -84,11 +95,19 @@ impl<T> Sender<T> {
             && !state.cancelled
             && (state.chunks.len() == self.0.capacity || weight > self.0.byte_limit - state.bytes)
         {
+            #[cfg(feature = "delegation-test-hooks")]
+            {
+                state.capacity_waiters += 1;
+            }
             state = self
                 .0
                 .writable
                 .wait(state)
                 .unwrap_or_else(|e| e.into_inner());
+            #[cfg(feature = "delegation-test-hooks")]
+            {
+                state.capacity_waiters -= 1;
+            }
         }
         if !state.consumer_open || state.cancelled {
             return Err(());

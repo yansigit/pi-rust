@@ -48,11 +48,23 @@ pub struct AssistantMessageEventStream {
     result_rx: Option<oneshot::Receiver<AssistantMessage>>,
     cancellation: CancellationToken,
     done: bool,
+    #[cfg(feature = "delegation-test-hooks")]
+    poll_observer: Option<Box<dyn FnMut() + Send>>,
 }
 
 impl AssistantMessageEventStream {
+    /// Observe the execution context when this source's `next` future is polled.
+    #[cfg(feature = "delegation-test-hooks")]
+    #[doc(hidden)]
+    pub fn observe_polls(&mut self, observer: impl FnMut() + Send + 'static) {
+        self.poll_observer = Some(Box::new(observer));
+    }
     /// Receive ordinary events in order, then the independently published terminal.
     pub async fn next(&mut self) -> Option<AssistantMessageEvent> {
+        #[cfg(feature = "delegation-test-hooks")]
+        if let Some(observer) = &mut self.poll_observer {
+            observer();
+        }
         if self.done {
             return None;
         }
@@ -301,6 +313,8 @@ pub fn create_assistant_message_event_stream_with_limits(
             done: false,
         },
         AssistantMessageEventStream {
+            #[cfg(feature = "delegation-test-hooks")]
+            poll_observer: None,
             rx,
             terminal_rx: Some(terminal_rx),
             result_rx: Some(result_rx),

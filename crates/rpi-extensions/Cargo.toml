@@ -39,4 +39,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []
+# Opt-in observation only; no queue semantics change.
+delegation-test-hooks = []
 provider-performance = ["rpi-plugin-sdk/provider"]
