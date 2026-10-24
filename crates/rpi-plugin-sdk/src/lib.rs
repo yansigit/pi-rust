@@ -1968,7 +1968,7 @@ mod tests {
     }
 
     #[test]
-    fn event_tag_count_is_38() {
+    fn event_tag_count_is_39() {
         // Enumerate every tag; a compile-time + runtime guarantee that the
         // 38-category surface is intact (34 Pi on() categories + the
         // rpi-specific BeforeTuiStart + 2 UI prompt events + EditorChange).
