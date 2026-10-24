@@ -968,6 +968,7 @@ pub async fn build_prepared(
     // The plugin session actions (`newSession`/`fork`/`switchSession`) dispatch
     // Pi's replacement lifecycle through the same live cells `/reload` swaps.
     action_host.set_session_lifecycle(SessionLifecycleCells {
+        runtime_factory: SessionRuntimeFactory::from_reload(&reload_context),
         extension_session: reload_context.extension_session.clone(),
         action_bridge: Arc::clone(&reload_context.action_bridge),
     });
@@ -1125,6 +1126,9 @@ fn extension_tool_result_hook(sessions: ExtensionSessionCell) -> rpi_agent::Afte
 /// the old keepalive until they return; callers never observe an empty
 /// placeholder during the swap.
 pub type ExtensionSessionCell = Arc<Mutex<ExtensionSession>>;
+
+mod runtime_factory;
+pub use runtime_factory::SessionRuntimeFactory;
 
 /// The cell that holds the live `ActionBridge` across a `/reload`. A plugin
 /// stores the bridge's raw `user_data` pointer during `register`; on reload the
@@ -2964,6 +2968,7 @@ pub(crate) async fn set_active_session(
 /// cell handles, so the replacement path always sees the live generation.
 #[derive(Clone)]
 pub(crate) struct SessionLifecycleCells {
+    pub runtime_factory: SessionRuntimeFactory,
     pub extension_session: ExtensionSessionCell,
     pub action_bridge: ActionBridgeCell,
 }
@@ -3004,6 +3009,8 @@ pub enum SessionReplacement {
 /// replacement does not reload extensions, so these are the same cells
 /// `/reload` swaps.
 pub struct SessionReplacementContext<'a> {
+    /// Required for loaded extensions; absent only in extension-free embedders.
+    pub runtime_factory: Option<&'a SessionRuntimeFactory>,
     pub harness: &'a AgentHarness,
     pub lane: &'a dyn rpi_harness::agent_harness::AgentLane,
     pub extension_session: &'a ExtensionSessionCell,
@@ -3042,6 +3049,10 @@ pub async fn replace_active_session(
         .is_some()
     {
         return Err("wait for the active operation to finish before replacing the session".into());
+    }
+
+    if ctx.runtime_factory.is_none() && !ctx.extension_session.lock().unwrap().is_empty() {
+        return Err("session replacement requires a fresh runtime factory".into());
     }
 
     let previous_file = ctx
@@ -3096,7 +3107,24 @@ pub async fn replace_active_session(
     )
     .await;
 
+    let old_session = ctx.extension_session.lock().unwrap().clone();
+    let old_bridge = ctx.action_bridge.lock().unwrap().clone();
+    if let Some(snapshot) = old_session.snapshot_arc() {
+        snapshot.active_flag().store(false, Ordering::SeqCst);
+    }
+    if let Some(bridge) = &old_bridge {
+        bridge.invalidate();
+        bridge.finish_native_writes().await;
+    }
+    old_session.auth_runtime().shutdown().await;
+    old_session.begin_shutdown();
+
     set_active_session(ctx.harness, session, Some(ctx.tool_context)).await?;
+    if let (Some(factory), Some(bridge)) = (ctx.runtime_factory, old_bridge) {
+        factory
+            .rebuild(ctx, old_session.loaded_paths().to_vec(), bridge)
+            .await?;
+    }
 
     let _ = dispatch_session_lifecycle_event(
         ctx.extension_session,
@@ -3461,6 +3489,8 @@ fn read_prompt_source(path: &Path, sources: &mut Vec<String>) -> Option<String> 
     Some(text)
 }
 
+#[cfg(test)]
+mod lifecycle_generation_tests;
 #[cfg(test)]
 mod runtime_session_tests;
 

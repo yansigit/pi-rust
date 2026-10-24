@@ -150,6 +150,7 @@ async fn replacement_dispatches_before_shutdown_swap_start() {
             extension_session: &cell,
             action_bridge: &bridge,
             tool_context: &tool_context,
+            runtime_factory: None,
         },
         session("second"),
         rpi_cli::session::SessionReplacementReason::Resume,
@@ -160,7 +161,7 @@ async fn replacement_dispatches_before_shutdown_swap_start() {
     assert_eq!(outcome, rpi_cli::session::SessionReplacement::Replaced);
     assert_eq!(
         *events.lock().unwrap(),
-        vec!["SessionBeforeSwitch", "SessionShutdown", "SessionStart"]
+        vec!["SessionBeforeSwitch", "SessionShutdown"]
     );
     assert_eq!(session_id(&harness).await, "second");
     // The plugin tool channel names the session now being served.
@@ -183,6 +184,7 @@ async fn a_cancelled_before_switch_keeps_the_old_session() {
             extension_session: &cell,
             action_bridge: &bridge,
             tool_context: &tool_context,
+            runtime_factory: None,
         },
         session("second"),
         rpi_cli::session::SessionReplacementReason::New,
@@ -215,6 +217,7 @@ async fn fork_uses_the_before_fork_hook() {
             extension_session: &cell,
             action_bridge: &bridge,
             tool_context: &tool_context,
+            runtime_factory: None,
         },
         session("forked"),
         rpi_cli::session::SessionReplacementReason::Fork,
@@ -225,7 +228,7 @@ async fn fork_uses_the_before_fork_hook() {
     assert_eq!(outcome, rpi_cli::session::SessionReplacement::Replaced);
     assert_eq!(
         *events.lock().unwrap(),
-        vec!["SessionBeforeFork", "SessionShutdown", "SessionStart"]
+        vec!["SessionBeforeFork", "SessionShutdown"]
     );
     assert_eq!(session_id(&harness).await, "forked");
 }
