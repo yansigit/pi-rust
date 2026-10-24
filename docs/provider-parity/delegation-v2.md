@@ -39,6 +39,6 @@ Stable security errors:
 - `auth receipt capacity exhausted`
 
 These are host errors, not TypeScript parity claims. The two lookup errors retain
-`multiprovider/src/virtual.ts:170,177` wording; verify against pinned sources when
+`multiprovider/src/virtual.ts:165,169` wording; verify against pinned sources when
 changing them. This protocol document is not acceptance evidence: runtime/SDK and
 loaded-library coverage must be verified independently.

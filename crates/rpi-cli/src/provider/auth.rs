@@ -19,6 +19,17 @@ pub(crate) struct AuthBinding {
 }
 
 impl AuthBinding {
+    /// Seal the same effective binding used by physical dispatch. Callers must
+    /// supply only privately reconstructed models and freshly empty options.
+    pub async fn seal(
+        &self,
+        model: &mut Model,
+        options: &mut SimpleStreamOptions,
+    ) -> Result<rpi_ai::auth::AttemptAuth, AuthError> {
+        self.prepare(model, options).await?;
+        Ok(sealed(model, options))
+    }
+
     pub async fn prepare(
         &self,
         model: &mut Model,
@@ -161,4 +172,22 @@ impl AuthBinding {
         }
         Ok(())
     }
+}
+
+pub(super) fn sealed(model: &Model, options: &SimpleStreamOptions) -> rpi_ai::auth::AttemptAuth {
+    let mut headers = model.headers.clone().unwrap_or_default();
+    for (name, value) in options.headers.clone().unwrap_or_default() {
+        headers.retain(|known, _| !known.eq_ignore_ascii_case(&name));
+        headers.insert(name, value);
+    }
+    rpi_ai::auth::ReplacementAuth::from_private_request(
+        model.provider.clone(),
+        rpi_ai::auth::RequestAuth {
+            api_key: options.api_key.clone(),
+            headers,
+            base_url: Some(model.base_url.clone()),
+            env: options.env.clone(),
+            source: None,
+        },
+    )
 }
