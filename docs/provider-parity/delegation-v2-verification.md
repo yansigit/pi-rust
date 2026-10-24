@@ -524,3 +524,41 @@ Gate logs: `/tmp/h-deleg-v2-tests-{check-178,cli,sdk,fmt}.log`. Targeted restore
 runs of all five named tests also passed. The separate public runtime epoch-
 revocation regression/fix remains owned by the other lane; this work deliberately
 neither edits its files nor claims to fix that rereview finding.
+
+## Deterministic delegation fixture builds (base `d689c1c`)
+
+Reproduced the dirty-target workspace failure offline before this fix: the SDK
+fixture received a different `serde_json::Value` build from the one linked into
+its independently selected SDK rlib (exit 101, one failed test).
+
+Both external-dependency fixtures now use generated standalone Cargo packages
+with workspace path dependencies and the SDK `provider` feature. The workspace
+lockfile seeds each package; offline Cargo metadata prunes unused packages, and
+an explicit identity check rejects any package version/source/checksum not in
+that seed. Compilation then uses `build --offline --locked`. This normalization
+is necessary because a copied workspace lockfile alone is not accepted as locked
+for a smaller standalone package. No host rlib is selected by filename or mtime.
+The frozen legacy fixture remains dependency-free plain rustc (no `--extern`).
+
+Caches live in `debug/delegation-fixtures/<test-binary>/target`, separate from
+host dependencies and other test binaries. `OnceLock` caches in-process results;
+an fs2 file lock covers package writes, builds and private DLL copying across
+processes. Unchanged fixture sources are not rewritten, and loaded DLLs are
+private temporary copies. Cargo comes from `CARGO` / `env!("CARGO")`, inheriting
+`RUSTUP_TOOLCHAIN` rather than hardcoding a compiler.
+
+Requested offline gates, foreground `timeout 270 cargo ...; echo exit=$?`:
+
+| Gate | Result |
+| --- | --- |
+| Rust 1.78.0 workspace/all-targets check, locked, `RUSTFLAGS="-D warnings"`, target `h-deleg-v2-178` | Exit 0 |
+| Rust 1.95.0 workspace tests, locked, `--no-fail-fast`, original dirty target `h-deleg-v2-195` | Exit 0; **2,380 passed, 0 failed, 26 existing ignored**, including one passing nested subprocess result (2,379 excluding it) |
+| Rust 1.95.0 `provider_packages`, same target, two consecutive runs after the workspace gate | Both exit 0; **20 passed, 0 failed, 11 existing ignored** each |
+| Cache check between those two runs | All cached delegation DLL mtimes unchanged |
+| Changed Rust files `rustfmt --check`; `git diff --check` | Passed |
+
+Logs: `/tmp/h-deleg-before.log`, `/tmp/h-deleg-fixture-check-178.log`,
+`/tmp/h-deleg-fixture-workspace.log`, `/tmp/h-deleg-fixture-provider-{1,2}.log`.
+No assertions or ignore attributes changed, no network or push, and no real
+credentials, `~/.pi` or `~/.rpi` accessed. Unrelated baseline formatting remains
+untouched.
