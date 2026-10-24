@@ -1,4 +1,5 @@
 use super::*;
+mod scope_leases;
 use rpi_plugin_sdk::{AuthRequestControl, StbString, StbStringRef};
 use std::ffi::c_void;
 struct Host;
