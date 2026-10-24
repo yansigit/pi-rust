@@ -27,7 +27,7 @@ extern "C" fn base(
     input: StbStringRef,
     emit: Option<ProviderStreamEmitFn>,
     data: *mut c_void,
-    control: *const ProviderStreamControl,
+    _control: *const ProviderStreamControl,
     _: Option<sdk::ProviderStreamCompletionFn>,
     _: *mut c_void,
     out: *mut StbString,
@@ -54,15 +54,19 @@ extern "C" fn base(
             assert_eq!(input["options"]["apiKey"], "target-secret");
         }
         let prompt = input["context"]["systemPrompt"].as_str().unwrap();
-        if prompt.starts_with("order|") {
-            assert_eq!(prompt, "order|,wrapper:a,wrapper:b,wrapper:c");
+        if prompt.starts_with("order|") || prompt.starts_with("bytes|") {
+            let large = prompt.starts_with("bytes|");
             let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
             let mut text = String::new();
             for index in 0..1024 {
                 if index == 128 {
                     std::fs::write(marker, "entered").unwrap();
                 }
-                let delta = format!("{index:04},");
+                let delta = if large {
+                    format!("{index:04},{}", "x".repeat(8192))
+                } else {
+                    format!("{index:04},")
+                };
                 text.push_str(&delta);
                 if emit.unwrap()(
                     StbString::from_string(
@@ -80,18 +84,16 @@ extern "C" fn base(
             std::fs::write(format!("{marker}.finished"), "drained").unwrap();
             return output(out, terminal(provider, text, false));
         }
-        if prompt.starts_with("flood|") {
+        if prompt.starts_with("flood|") || prompt.starts_with("publication|") {
             let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
             let emit = emit.unwrap();
             for index in 0..10000 {
                 if index == 128 {
                     std::fs::write(marker, "entered").unwrap();
                 }
-                if unsafe { ((*control).is_cancelled)((*control).user_data, 0) } != 0 {
-                    break;
-                }
                 let frame = json!({"type":"text_delta","id":"text","delta":"x".repeat(65536)});
                 if emit(StbString::from_string(frame.to_string()), data) != 0 {
+                    std::fs::write(format!("{marker}.nonzero"), "emit cancelled").unwrap();
                     break;
                 }
             }
@@ -115,6 +117,38 @@ fn action(api: &PluginApi, request: Value) -> Result<Value, String> {
     } else {
         Err(value["error"].as_str().unwrap().into())
     }
+}
+fn reject_foreign(api: &PluginApi, continuation: &Value, own: &Value, foreign: &Value) {
+    for request in [
+        json!({"action":"auth.resolveAmbient","provider":"c","model":"m","target":foreign["target"]}),
+        json!({"action":"releaseTarget","target":foreign["target"]}),
+        json!({"action":"releaseAuth","receipt":foreign["receipt"]}),
+    ] {
+        let mut request = request;
+        request["version"] = json!(2);
+        request["continuation"] = continuation.clone();
+        assert!(action(api, request).is_err(), "foreign capability accepted");
+    }
+    let request = json!({"version":2,"continuation":continuation,"target":own["target"],"authReceipt":foreign["receipt"]});
+    let mut out = StbString::empty();
+    let status = api.delegate_provider_stream.unwrap()(
+        StbStringRef::from_str(&request.to_string()),
+        None,
+        std::ptr::null_mut(),
+        std::ptr::null(),
+        None,
+        std::ptr::null_mut(),
+        &mut out,
+        api.user_data,
+    );
+    let out = unsafe { sdk::callbacks::OwnedString::from_raw(out, Some(api.free_string)) };
+    assert_ne!(
+        status,
+        0,
+        "foreign receipt accepted: {}",
+        out.to_string_lossy()
+    );
+    assert!(out.to_string_lossy().contains("unknown auth receipt"));
 }
 extern "C" fn wrapper(
     input: StbStringRef,
@@ -176,8 +210,37 @@ extern "C" fn wrapper(
             assert!(!target.to_string().contains("secret"));
             let auth = action(
                 api,
-                json!({"version":2,"action":"auth.resolveAmbient","continuation":continuation,"provider":target_provider,"model":"m","target":target["target"]}),
+                if prompt.starts_with("pending-preflight|") {
+                    json!({"version":2,"action":"resolveAuth","continuation":continuation,"storeId":"pool","accountId":"selected","target":target["target"]})
+                } else {
+                    json!({"version":2,"action":"auth.resolveAmbient","continuation":continuation,"provider":target_provider,"model":"m","target":target["target"]})
+                },
             )?;
+            if prompt.starts_with("scope|") {
+                let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
+                let foreign: Value =
+                    serde_json::from_str(&std::fs::read_to_string(marker).unwrap()).unwrap();
+                let own = json!({"target":target["target"],"receipt":auth["receipt"]});
+                reject_foreign(api, &continuation, &own, &foreign);
+                assert!(action(api, json!({"version":2,"action":"releaseAuth","continuation":foreign["continuation"],"receipt":auth["receipt"]})).is_err());
+            }
+            if prompt.starts_with("pending") {
+                let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
+                std::fs::write(format!("{marker}.resolved"), "auth returned").unwrap();
+            }
+            if prompt.starts_with("transfer|") {
+                let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
+                let own = json!({"continuation":continuation,"target":target["target"],"receipt":auth["receipt"]});
+                if provider == "a" {
+                    std::fs::write(marker, own.to_string()).unwrap();
+                } else {
+                    let foreign: Value =
+                        serde_json::from_str(&std::fs::read_to_string(marker).unwrap()).unwrap();
+                    reject_foreign(api, &continuation, &own, &foreign);
+                    reject_foreign(api, &foreign["continuation"], &foreign, &own);
+                    std::fs::write(format!("{marker}.child"), own.to_string()).unwrap();
+                }
+            }
             if prompt.starts_with("foreign|") {
                 context["systemPrompt"] = json!(format!(
                     "foreign|{},wrapper:a",
@@ -210,7 +273,13 @@ extern "C" fn wrapper(
         })();
         let request = match result {
             Ok(value) => value,
-            Err(error) => return output(out, terminal(provider, error, true)),
+            Err(error) => {
+                if prompt.starts_with("pending") {
+                    let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
+                    std::fs::write(format!("{marker}.finished"), &error).unwrap();
+                }
+                return output(out, terminal(provider, error, true));
+            }
         };
         if prompt.starts_with("retry|") && provider == "a" {
             let mut first = StbString::empty();
@@ -244,6 +313,43 @@ extern "C" fn wrapper(
         let delegated =
             unsafe { sdk::callbacks::OwnedString::from_raw(delegated, Some(api.free_string)) };
         let value: Value = serde_json::from_str(&delegated.to_string_lossy()).unwrap();
+        if prompt.starts_with("transfer|") && provider == "a" {
+            let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
+            let own: Value =
+                serde_json::from_str(&std::fs::read_to_string(marker).unwrap()).unwrap();
+            let foreign: Value =
+                serde_json::from_str(&std::fs::read_to_string(format!("{marker}.child")).unwrap())
+                    .unwrap();
+            reject_foreign(api, &continuation, &own, &foreign);
+        }
+        if prompt.starts_with("publication|") {
+            for stale in [
+                json!({"version":2,"action":"auth.resolveAmbient","continuation":continuation,"target":request["target"],"provider":"c","model":"m"}),
+                json!({"version":2,"action":"releaseAuth","continuation":continuation,"receipt":request["authReceipt"]}),
+            ] {
+                assert_eq!(action(api, stale).unwrap_err(), "delegation epoch revoked");
+            }
+            let mut stale = StbString::empty();
+            let status = api.delegate_provider_stream.unwrap()(
+                StbStringRef::from_str(&request.to_string()),
+                None,
+                std::ptr::null_mut(),
+                control,
+                None,
+                std::ptr::null_mut(),
+                &mut stale,
+                api.user_data,
+            );
+            let stale =
+                unsafe { sdk::callbacks::OwnedString::from_raw(stale, Some(api.free_string)) };
+            assert_ne!(status, 0);
+            assert_eq!(
+                serde_json::from_str::<Value>(&stale.to_string_lossy()).unwrap()["error"],
+                "delegation epoch revoked"
+            );
+            let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
+            std::fs::write(format!("{marker}.stale.{provider}"), "rejected").unwrap();
+        }
         if status != 0 {
             output(
                 out,
