@@ -373,6 +373,7 @@ async fn inactive_lookup_reclaims_synchronously_and_preserves_lifecycle_errors()
     }
     let (first, second, _resolver) = fixture().await;
     let destroyed = first.destroyed.clone();
+    let monitors_exited = [first.monitor_exited.clone(), second.monitor_exited.clone()];
     let weak = Arc::downgrade(&first);
     drop(first);
     drop(second);
@@ -384,4 +385,11 @@ async fn inactive_lookup_reclaims_synchronously_and_preserves_lifecycle_errors()
         destroyed.is_cancelled(),
         "normal destruction must stop idle monitor"
     );
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        for exited in monitors_exited {
+            exited.cancelled().await;
+        }
+    })
+    .await
+    .expect("reclamation monitor tasks did not exit after normal destruction");
 }
