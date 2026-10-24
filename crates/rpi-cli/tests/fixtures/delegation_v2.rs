@@ -96,7 +96,10 @@ extern "C" fn base(
             std::fs::write(format!("{marker}.finished"), "drained").unwrap();
             return output(out, terminal(provider, text, false));
         }
-        if prompt.starts_with("flood|") || prompt.starts_with("publication|") {
+        if prompt.starts_with("flood|")
+            || prompt.starts_with("publication|")
+            || prompt.starts_with("reclaim|")
+        {
             let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
             let emit = emit.unwrap();
             for index in 0..10000 {
@@ -311,6 +314,14 @@ extern "C" fn wrapper(
             let first: Value = serde_json::from_str(&first.to_string_lossy()).unwrap();
             assert_eq!(first["stopReason"], "stop");
         }
+        if prompt.starts_with("reclaim|") && provider == "a" {
+            let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
+            std::fs::write(
+                format!("{marker}.continuation"),
+                continuation["id"].as_str().unwrap(),
+            )
+            .unwrap();
+        }
         let mut delegated = StbString::empty();
         let status = api.delegate_provider_stream.unwrap()(
             StbStringRef::from_str(&request.to_string()),
@@ -325,6 +336,21 @@ extern "C" fn wrapper(
         let delegated =
             unsafe { sdk::callbacks::OwnedString::from_raw(delegated, Some(api.free_string)) };
         let value: Value = serde_json::from_str(&delegated.to_string_lossy()).unwrap();
+        if prompt.starts_with("reclaim|") && provider == "a" {
+            let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
+            std::fs::write(format!("{marker}.waiting"), "foreign callback retained").unwrap();
+            // Deliberately uncooperative foreign execution: cancellation must not
+            // unload this code, nor wait for it to release host capabilities.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+            while !std::path::Path::new(&format!("{marker}.release")).exists() {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "callback release timed out"
+                );
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            std::fs::write(format!("{marker}.returned"), "foreign callback returned").unwrap();
+        }
         if prompt.starts_with("transfer|") && provider == "a" {
             let marker = input["options"]["metadata"]["marker"].as_str().unwrap();
             let own: Value =
