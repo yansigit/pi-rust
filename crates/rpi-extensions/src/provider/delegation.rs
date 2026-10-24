@@ -4,7 +4,7 @@ mod guard_tests;
 #[cfg(test)]
 mod tests;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use rpi_ai::{auth::AttemptAuth, Model, Provider};
 use tokio_util::sync::CancellationToken;
@@ -261,6 +261,54 @@ pub trait DelegationResolver: Send + Sync {
         target: &ResolvedDelegationTarget,
         signal: CancellationToken,
     ) -> Result<ResolvedAmbientAuth, String>;
+}
+
+/// Explicitly captured before spawning a driver; never supplied by a plugin.
+#[derive(Clone)]
+pub struct DelegationBinding {
+    resolver: Weak<dyn DelegationResolver>,
+    epoch: Arc<DelegationEpoch>,
+    ancestry: InvocationAncestry,
+}
+tokio::task_local! {
+    static BINDING: DelegationBinding;
+}
+impl DelegationBinding {
+    pub fn root(
+        resolver: Weak<dyn DelegationResolver>,
+        epoch: Arc<DelegationEpoch>,
+        provider: &str,
+    ) -> Result<Self, String> {
+        let ancestry = epoch.root(provider)?;
+        Ok(Self {
+            resolver,
+            epoch,
+            ancestry,
+        })
+    }
+    pub fn current() -> Option<Self> {
+        BINDING.try_with(Clone::clone).ok()
+    }
+    pub async fn scope<F: std::future::Future>(&self, work: F) -> F::Output {
+        BINDING.scope(self.clone(), work).await
+    }
+    pub fn caller(&self, instance: WrapperInstanceId) -> Result<DelegationCaller, String> {
+        DelegationCaller::new(self.epoch.clone(), instance, self.ancestry.clone())
+    }
+    pub fn resolver(&self) -> Result<Arc<dyn DelegationResolver>, String> {
+        self.ancestry.validate(&self.epoch)?;
+        self.resolver
+            .upgrade()
+            .ok_or_else(|| "delegation epoch revoked".into())
+    }
+    pub fn with_ancestry(&self, ancestry: InvocationAncestry) -> Result<Self, String> {
+        ancestry.validate(&self.epoch)?;
+        Ok(Self {
+            resolver: self.resolver.clone(),
+            epoch: self.epoch.clone(),
+            ancestry,
+        })
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
