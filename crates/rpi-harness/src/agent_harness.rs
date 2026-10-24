@@ -3825,60 +3825,9 @@ impl AgentHarness {
         self.write_operation_started(&run_id, source_leaf.clone(), intent)
             .await?;
 
-        // Persist prompts (the user's input) BEFORE the run so they're durable.
-        for (index, msg) in prompts.iter().enumerate() {
-            if let Some(entry_id) = queued_ids.get(index) {
-                self.append_provisioned(ProvisionedEntry {
-                    id: entry_id.clone(),
-                    kind: ProvisionedKind::Message {
-                        message: msg.clone(),
-                        terminate: None,
-                    },
-                })
-                .await?;
-            } else {
-                self.view()
-                    .append_message(msg.clone())
-                    .await
-                    .map_err(session_to_harness_err)?;
-            }
-        }
-
-        self.emit_appended_messages(prompts.iter().take(queued_ids.len()).cloned().collect())
-            .await;
-
         // Snapshot config.
         let snap = self.snapshot_config()?;
-        if snap.models.is_empty() {
-            let _ = self
-                .write_operation_finished(
-                    &run_id,
-                    OperationOutcome::Failed,
-                    Some(OperationError {
-                        code: "no_provider".into(),
-                        message: "No models/providers configured".into(),
-                    }),
-                )
-                .await;
-            let leaf = self
-                .finish_context_writes(&run_id, Some(RunEndOutcome::Failed))
-                .await?
-                .unwrap_or_default();
-            return Ok(RunResult {
-                run_id,
-                outcome: HarnessRunOutcome::Failed {
-                    leaf_id: leaf,
-                    error: OperationError {
-                        code: "no_provider".into(),
-                        message: "No models/providers configured".into(),
-                    },
-                    final_entry_id: None,
-                    final_message: None,
-                },
-            });
-        }
-
-        // Build the branch path (now includes the just-persisted prompts).
+        // Previous finalized branch only: accepted prompts are not transcript entries yet.
         let path = self.branch_path_oldest_first().await?;
         let build_opts = Self::build_opts(&snap.entry_projectors, &snap.entry_transforms);
 
@@ -3974,6 +3923,60 @@ impl AgentHarness {
                     }
                 }
             }
+        }
+
+        // Transcript placement follows pre-prompt compaction. Admission is
+        // already durable in operation_started.original_prompt (and queued
+        // prompts retain their queue records), so an abort/crash before this
+        // point does not erase accepted input. Do not summarize the new prompt.
+        for (index, msg) in prompts.iter().enumerate() {
+            if let Some(entry_id) = queued_ids.get(index) {
+                self.append_provisioned(ProvisionedEntry {
+                    id: entry_id.clone(),
+                    kind: ProvisionedKind::Message {
+                        message: msg.clone(),
+                        terminate: None,
+                    },
+                })
+                .await?;
+            } else {
+                self.view()
+                    .append_message(msg.clone())
+                    .await
+                    .map_err(session_to_harness_err)?;
+            }
+        }
+
+        self.emit_appended_messages(prompts.iter().take(queued_ids.len()).cloned().collect())
+            .await;
+
+        if snap.models.is_empty() {
+            let _ = self
+                .write_operation_finished(
+                    &run_id,
+                    OperationOutcome::Failed,
+                    Some(OperationError {
+                        code: "no_provider".into(),
+                        message: "No models/providers configured".into(),
+                    }),
+                )
+                .await;
+            let leaf = self
+                .finish_context_writes(&run_id, Some(RunEndOutcome::Failed))
+                .await?
+                .unwrap_or_default();
+            return Ok(RunResult {
+                run_id,
+                outcome: HarnessRunOutcome::Failed {
+                    leaf_id: leaf,
+                    error: OperationError {
+                        code: "no_provider".into(),
+                        message: "No models/providers configured".into(),
+                    },
+                    final_entry_id: None,
+                    final_message: None,
+                },
+            });
         }
 
         // Rebuild path after potential compaction.

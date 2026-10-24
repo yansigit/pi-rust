@@ -84,3 +84,29 @@ must bridge omission entries and compaction start/end into existing native JSON
 transport without changing C ABI. These tests use real host/provider hooks but
 not a loaded native DLL. Crash/restart budgeting and loaded queue/tool-result
 recovery matrix remain unqualified; the in-process one-use budget is covered.
+
+## A5 — pre-prompt boundary and durable admission
+
+The run operation intent is committed before pre-prompt evaluation. New prompt
+transcript entries are placed only after prior-history compaction succeeds (or
+is skipped). Accepted queued prompts keep their existing enqueue records.
+Aborting compaction does not erase `operation_started.originalPrompt`; this
+admission is distinct from transcript placement and does not promise automatic
+resubmission. The host-only post-tool compaction safety valve is unchanged.
+
+References: embedded TS `agent-session.ts:1890-1943`; executable
+`/home/user/Projects/provider-references/multiprovider/node_modules/@earendil-works/pi-coding-agent/dist/core/agent-session.js:1449-1537`.
+
+Tests: `lifecycle_pre_prompt` passes (2/2). Before-hook branch/preparation exclude
+a marker in the newly accepted prompt; SQLite reopen verifies the operation
+intent survives compaction abort, with no provider call or transcript placement.
+A separate transient-429 → overflow → recovery sequence verifies a durable
+ordinary retry record, one compaction, and three generation calls. These are
+component tests, not a process-kill/loaded-plugin acceptance test.
+Mutation A5 moved transcript placement back before preparation: killed (exit
+101, marker found in preparation/branch); reverted and tests rerun. No network,
+real user configuration, or retained-tail migration was involved.
+The wider harness suite caught an admission regression on a lane with no
+provider: its prompt must still be placed before returning `no_provider`.
+That check now runs after the transcript boundary; all 210 harness unit tests
+and both pre-prompt tests pass with the correction.
