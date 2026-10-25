@@ -18,7 +18,8 @@ use super::*;
 
 use rpi_ai::auth::{AuthError, Credential, CredentialStore};
 use rpi_extensions::provider_auth::{
-    AuthAction, AuthInteraction, AuthResponseKind, ProviderAuthentication,
+    login_with_pasted_key, AuthAction, AuthInteraction, AuthMethod, AuthResponseKind,
+    ProviderAuthentication,
 };
 use rpi_extensions::UiDialogMailbox;
 use serde_json::{json, Value};
@@ -249,14 +250,14 @@ where
     }
 }
 
-async fn select_method(
+async fn select_method<'a>(
     auth: &ProviderAuthentication,
-    methods: Vec<rpi_extensions::provider_auth::AuthMethod>,
+    methods: &'a [AuthMethod],
     mailbox: &UiDialogMailbox,
     signal: &CancellationToken,
-) -> Result<String, AuthError> {
-    match methods.as_slice() {
-        [only] => Ok(only.id.clone()),
+) -> Result<&'a AuthMethod, AuthError> {
+    match methods {
+        [only] => Ok(only),
         [] => Err(AuthError::Resolve),
         _ => {
             let spec = json!({
@@ -265,22 +266,24 @@ async fn select_method(
                 "searchable": true,
                 "choices": methods
                     .iter()
-                    // Pi renders `loginLabel ?? name`.
                     .map(|method| json!({
                         "value": method.id,
-                        "label": method.login_label.as_deref().unwrap_or(&method.name)
+                        "label": method.display_label(),
                     }))
                     .collect::<Vec<_>>(),
             });
             let Some(answer) = ask(mailbox, spec, signal).await? else {
                 return Err(AuthError::Cancelled);
             };
-            answer
+            let id = answer
                 .get("values")
                 .and_then(Value::as_array)
                 .and_then(|values| values.first())
                 .and_then(Value::as_str)
-                .map(str::to_string)
+                .ok_or(AuthError::Resolve)?;
+            methods
+                .iter()
+                .find(|method| method.id == id)
                 .ok_or(AuthError::Resolve)
         }
     }
@@ -305,7 +308,7 @@ async fn login_with_dialogs(
         ProviderAuthentication::Native(native) => native.methods(signal.clone()).await?,
         other => other.manifest().methods.clone(),
     };
-    let method = select_method(auth.as_ref(), methods, mailbox, signal).await?;
+    let method = select_method(auth.as_ref(), &methods, mailbox, signal).await?;
 
     let mailbox_present = mailbox.clone();
     let signal_present = signal.clone();
@@ -316,11 +319,34 @@ async fn login_with_dialogs(
         let report = report_present.clone();
         async move { present(interaction, &mailbox, &signal, &report).await }
     };
-    match auth.as_ref() {
+    login_with_method(auth.as_ref(), method, store, signal, interact).await
+}
+
+/// Pi's `api_key_paste` route (`multiprovider.ts:1196-1208`) shared with the CLI:
+/// a method that only discovers an ambient credential prompts for the key here
+/// instead of entering the provider's login flow.
+async fn login_with_method<F, Fut>(
+    auth: &ProviderAuthentication,
+    method: &AuthMethod,
+    store: Arc<dyn CredentialStore>,
+    signal: &CancellationToken,
+    interact: F,
+) -> Result<(), AuthError>
+where
+    F: FnMut(AuthInteraction) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, AuthError>>,
+{
+    if method.requires_paste_prompt() {
+        return login_with_pasted_key(&auth.manifest().id, method, store, signal.clone(), interact)
+            .await;
+    }
+    match auth {
         ProviderAuthentication::Native(native) => {
-            native.login(&method, store, signal.clone(), interact).await
+            native
+                .login(&method.id, store, signal.clone(), interact)
+                .await
         }
-        _ => drive(auth.as_ref(), &method, store, signal.clone(), interact).await,
+        other => drive(other, &method.id, store, signal.clone(), interact).await,
     }
 }
 
@@ -423,7 +449,7 @@ pub(super) fn begin_auth_login(ctx: &CommandContext, provider_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rpi_extensions::provider_auth::AuthChoice;
+    use rpi_extensions::provider_auth::{AuthChoice, AuthManifest, RegisteredAuthProvider};
     use rpi_extensions::{ExtensionRegistry, ExtensionSession, PluginKeepalive};
     use std::sync::Mutex;
 
@@ -655,5 +681,147 @@ mod tests {
             [("Waiting for the provider…".to_string(), false)]
         );
         assert!(mailbox.take_pending().is_none());
+    }
+
+    const NATIVE_MANIFEST: &str = r#"{"version":1,"id":"example","displayName":"Example","apiKey":true,"oauth":true,"methods":[{"id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false},{"id":"browser","name":"Browser login","kind":"oauth","loginLabel":"Sign in with Example"}]}"#;
+
+    #[derive(Default)]
+    struct Fixture {
+        requests: Mutex<Vec<Value>>,
+    }
+
+    extern "C" fn request(
+        input: rpi_plugin_sdk::StbStringRef,
+        _: *const rpi_plugin_sdk::AuthRequestControl,
+        out: *mut rpi_plugin_sdk::StbString,
+        context: *mut std::ffi::c_void,
+    ) -> i32 {
+        rpi_plugin_sdk::guard_or(70, || {
+            // SAFETY: the fixture outlives the session built over it.
+            let fixture = unsafe { &*context.cast::<Fixture>() };
+            let input: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+            let response = match input["action"].as_str().unwrap() {
+                "login" => json!({
+                    "version":1,"kind":"interaction",
+                    "payload":{"kind":"input","title":"Enter code","continuation":"private-state"}
+                }),
+                _ => json!({
+                    "version":1,"kind":"credential",
+                    "payload":{"type":"oauth","access":"login-access","refresh":"login-refresh","expires":1234567890123_i64}
+                }),
+            };
+            fixture.requests.lock().unwrap().push(input);
+            unsafe {
+                *out = rpi_plugin_sdk::StbString::from_string(response.to_string());
+            }
+            0
+        })
+    }
+
+    fn native_session(fixture: &Arc<Fixture>) -> ExtensionSession {
+        let mut registry = ExtensionRegistry::new();
+        assert!(!registry.register_provider_auth(RegisteredAuthProvider {
+            action_bridge: None,
+            plugin: "fixture".into(),
+            manifest: AuthManifest::parse(NATIVE_MANIFEST).unwrap(),
+            request_fn: request,
+            plugin_free_string: rpi_plugin_sdk::callbacks::free_string,
+            user_data: Arc::as_ptr(fixture).cast_mut().cast(),
+        }));
+        ExtensionSession::from_parts(
+            Arc::new(registry.snapshot()),
+            PluginKeepalive::empty(),
+            vec![],
+            None,
+        )
+    }
+
+    #[tokio::test]
+    async fn paste_methods_present_pis_key_prompt_and_skip_the_provider_flow() {
+        let _cfg = TestConfigDir::new();
+        let fixture = Arc::new(Fixture::default());
+        let mailbox = UiDialogMailbox::new();
+        mailbox.attach();
+        let signal = CancellationToken::new();
+        let task = spawn_login(native_session(&fixture), &mailbox, &signal);
+
+        // Row labels: `loginLabel ?? name`, plus Pi's ` (paste)` suffix.
+        let request = next_dialog(&mailbox).await;
+        let spec = request.ui.get("nativeDialog").expect("native dialog");
+        assert_eq!(spec["kind"], "select");
+        assert_eq!(spec["title"], "Log in to Example");
+        assert_eq!(
+            spec["choices"],
+            json!([
+                {"value":"key","label":"Example API key (paste)"},
+                {"value":"browser","label":"Sign in with Example"}
+            ])
+        );
+        mailbox
+            .respond(
+                &request.request_id,
+                json!({"type":"select","values":["key"]}),
+            )
+            .unwrap();
+
+        // `api_key_paste`: the host asks for the key itself.
+        let request = next_dialog(&mailbox).await;
+        let spec = request.ui.get("nativeDialog").expect("native dialog");
+        assert_eq!(spec["kind"], "input");
+        assert_eq!(spec["masked"], true);
+        assert_eq!(spec["title"], "Enter Example API key:");
+        assert!(fixture.requests.lock().unwrap().is_empty());
+        mailbox
+            .respond(
+                &request.request_id,
+                json!({"type":"input","value":"pasted-key"}),
+            )
+            .unwrap();
+
+        assert!(task.await.unwrap().is_ok());
+        assert!(matches!(
+            crate::config::read_auth().unwrap().get("example"),
+            Some(crate::config::Credential::ApiKey { key: Some(key), .. }) if key == "pasted-key"
+        ));
+        assert!(fixture.requests.lock().unwrap().is_empty());
+        assert!(mailbox.take_pending().is_none());
+    }
+
+    #[tokio::test]
+    async fn labelled_oauth_methods_still_enter_the_provider_flow() {
+        let _cfg = TestConfigDir::new();
+        let fixture = Arc::new(Fixture::default());
+        let mailbox = UiDialogMailbox::new();
+        mailbox.attach();
+        let signal = CancellationToken::new();
+        let task = spawn_login(native_session(&fixture), &mailbox, &signal);
+
+        let request = next_dialog(&mailbox).await;
+        mailbox
+            .respond(
+                &request.request_id,
+                json!({"type":"select","values":["browser"]}),
+            )
+            .unwrap();
+        let request = next_dialog(&mailbox).await;
+        let spec = request.ui.get("nativeDialog").expect("native dialog");
+        assert_eq!(spec["kind"], "input");
+        assert_eq!(spec["title"], "Enter code");
+        assert!(!spec.to_string().contains("private-state"));
+        mailbox
+            .respond(&request.request_id, json!({"type":"input","value":"code"}))
+            .unwrap();
+
+        assert!(task.await.unwrap().is_ok());
+        let requests = fixture.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0]["action"], "login");
+        assert_eq!(requests[0]["input"]["methodId"], "browser");
+        assert_eq!(requests[1]["action"], "continue");
+        assert_eq!(requests[1]["input"]["value"], "code");
+        assert!(matches!(
+            crate::config::read_auth().unwrap().get("example"),
+            Some(crate::config::Credential::Oauth { .. })
+        ));
     }
 }

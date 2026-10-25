@@ -420,13 +420,190 @@ fn optional_presentation_metadata_round_trips_and_old_methods_keep_their_json() 
 }
 
 #[test]
-fn blank_login_labels_are_rejected_but_absent_ones_are_not() {
+fn blank_login_labels_normalize_to_absent_and_keep_the_registration() {
     let mut value: Value = serde_json::from_str(MANIFEST).unwrap();
     value["methods"][0]["loginLabel"] = json!("Browser login");
-    assert!(AuthManifest::parse(&value.to_string()).is_ok());
+    let labelled = AuthManifest::parse(&value.to_string()).unwrap();
+    assert_eq!(
+        labelled.methods[0].login_label.as_deref(),
+        Some("Browser login")
+    );
+    let original: Value = serde_json::from_str(MANIFEST).unwrap();
     for label in [json!(""), json!("   ")] {
         value["methods"][0]["loginLabel"] = label;
-        assert!(AuthManifest::parse(&value.to_string()).is_err());
+        let manifest = AuthManifest::parse(&value.to_string()).unwrap();
+        assert_eq!(manifest.methods[0].login_label, None);
+        assert_eq!(manifest.methods[0].display_label(), "Browser login");
+        assert_eq!(serde_json::to_value(&manifest).unwrap(), original);
+    }
+}
+
+#[test]
+fn interactive_login_only_survives_on_api_key_methods() {
+    let mut value: Value = serde_json::from_str(MANIFEST).unwrap();
+    value["methods"][0]["interactiveLogin"] = json!(false);
+    let manifest = AuthManifest::parse(&value.to_string()).unwrap();
+    assert_eq!(manifest.methods[0].interactive_login, None);
+    assert_eq!(manifest.methods[0].login_value(), "oauth");
+    assert_eq!(manifest.methods[0].display_label(), "Browser login");
+    assert_eq!(
+        serde_json::to_value(&manifest).unwrap(),
+        serde_json::from_str::<Value>(MANIFEST).unwrap()
+    );
+
+    let mut paste = value.clone();
+    paste["methods"] = json!([{
+        "id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false
+    }]);
+    let manifest = AuthManifest::parse(&paste.to_string()).unwrap();
+    assert_eq!(manifest.methods[0].interactive_login, Some(false));
+}
+
+#[test]
+fn display_label_and_login_value_match_pis_rows() {
+    let cases = [
+        (
+            json!({"id":"browser","name":"Browser login","kind":"oauth"}),
+            "oauth",
+            "Browser login",
+        ),
+        (
+            json!({"id":"browser","name":"Browser login","kind":"oauth","loginLabel":"Sign in with Example"}),
+            "oauth",
+            "Sign in with Example",
+        ),
+        (
+            json!({"id":"key","name":"Example API key","kind":"api_key"}),
+            "api_key",
+            "Example API key",
+        ),
+        (
+            json!({"id":"key","name":"Example API key","kind":"api_key","interactiveLogin":true}),
+            "api_key",
+            "Example API key",
+        ),
+        (
+            json!({"id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false}),
+            "api_key_paste",
+            "Example API key (paste)",
+        ),
+        (
+            json!({"id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false,"loginLabel":"Paste your key"}),
+            "api_key_paste",
+            "Paste your key (paste)",
+        ),
+    ];
+    for (value, login_value, label) in cases {
+        let mut method: AuthMethod = serde_json::from_value(value).unwrap();
+        method.normalize();
+        assert_eq!(method.login_value(), login_value);
+        assert_eq!(method.display_label(), label);
+        assert_eq!(
+            method.requires_paste_prompt(),
+            login_value == "api_key_paste"
+        );
+        if method.requires_paste_prompt() {
+            assert_eq!(
+                serde_json::to_value(method.paste_prompt()).unwrap(),
+                json!({
+                    "kind":"input","title":format!("Enter {}:", method.name),
+                    "message":null,"url":null,
+                    "secret":true,"allowEmpty":false,"continuation":null
+                })
+            );
+        }
+    }
+}
+
+struct PasteStore {
+    credential: std::sync::Mutex<Option<Credential>>,
+}
+struct PasteTransaction(Arc<PasteStore>);
+struct PasteStoreHandle(Arc<PasteStore>);
+
+#[async_trait::async_trait]
+impl rpi_ai::auth::CredentialTransaction for PasteTransaction {
+    fn current(&self) -> Option<Credential> {
+        self.0.credential.lock().unwrap().clone()
+    }
+    async fn replace(&mut self, credential: Credential) -> Result<(), AuthError> {
+        *self.0.credential.lock().unwrap() = Some(credential);
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl rpi_ai::auth::CredentialStore for PasteStoreHandle {
+    async fn read(&self, _: &str) -> Result<Option<Credential>, AuthError> {
+        Ok(self.0.credential.lock().unwrap().clone())
+    }
+    async fn lock(
+        &self,
+        _: &str,
+        _: CancellationToken,
+    ) -> Result<Box<dyn rpi_ai::auth::CredentialTransaction>, AuthError> {
+        Ok(Box::new(PasteTransaction(self.0.clone())))
+    }
+}
+
+fn paste_store() -> (Arc<PasteStore>, Arc<dyn rpi_ai::auth::CredentialStore>) {
+    let store = Arc::new(PasteStore {
+        credential: std::sync::Mutex::new(None),
+    });
+    let handle: Arc<dyn rpi_ai::auth::CredentialStore> = Arc::new(PasteStoreHandle(store.clone()));
+    (store, handle)
+}
+
+#[tokio::test]
+async fn pasted_key_login_prompts_commits_and_never_calls_the_provider() {
+    let fixture = Fixture::default();
+    let (_registry, _auth) = setup(&fixture);
+    let (store, handle) = paste_store();
+    let method: AuthMethod = serde_json::from_value(json!({
+        "id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false
+    }))
+    .unwrap();
+    let mut prompts = Vec::new();
+    login_with_pasted_key(
+        "example",
+        &method,
+        handle,
+        CancellationToken::new(),
+        |interaction| {
+            prompts.push(serde_json::to_value(&interaction).unwrap());
+            async { Ok(json!({"value":"  typed-key  "})) }
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        prompts,
+        vec![json!({
+            "kind":"input","title":"Enter Example API key:",
+            "message":null,"url":null,"secret":true,
+            "allowEmpty":false,"continuation":null
+        })]
+    );
+    match store.credential.lock().unwrap().clone() {
+        Some(Credential::ApiKey { key, env }) => {
+            assert_eq!(key.as_deref(), Some("typed-key"));
+            assert!(env.is_empty());
+        }
+        _ => panic!("expected a committed pasted API key"),
+    }
+    assert!(fixture.requests.lock().unwrap().is_empty());
+
+    for blank in [json!({"value":"   "}), json!({}), json!({"value":5})] {
+        let (store, handle) = paste_store();
+        let error =
+            login_with_pasted_key("example", &method, handle, CancellationToken::new(), |_| {
+                let blank = blank.clone();
+                async move { Ok(blank) }
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(error, AuthError::Resolve);
+        assert!(store.credential.lock().unwrap().is_none());
     }
 }
 
@@ -542,7 +719,6 @@ async fn dynamic_auth_methods_convey_presentation_metadata_losslessly() {
 
     for invalid in [
         json!([{"id":"key","name":"Key","kind":"api_key","login":"secret"}]),
-        json!([{"id":"key","name":"Key","kind":"api_key","loginLabel":"  "}]),
         json!([{"id":"key","kind":"api_key"}]),
     ] {
         *fixture.0.lock().unwrap() = invalid;
@@ -550,5 +726,24 @@ async fn dynamic_auth_methods_convey_presentation_metadata_losslessly() {
             auth.methods(CancellationToken::new()).await,
             Err(AuthError::Resolve)
         ));
+    }
+
+    // Advisory presentation defects are normalized, not rejected: the dynamic
+    // path keeps the method and drops the unusable metadata.
+    for degraded in [
+        json!([{"id":"key","name":"Key","kind":"api_key","loginLabel":"  "}]),
+        json!([{"id":"browser","name":"Browser login","kind":"oauth","interactiveLogin":false}]),
+    ] {
+        *fixture.0.lock().unwrap() = degraded.clone();
+        let methods = auth.methods(CancellationToken::new()).await.unwrap();
+        assert_eq!(methods.len(), 1);
+        assert_eq!(methods[0].login_label, None);
+        assert_eq!(methods[0].interactive_login, None);
+        assert_eq!(serde_json::to_value(&methods).unwrap()[0], {
+            let mut expected = degraded[0].clone();
+            expected.as_object_mut().unwrap().remove("loginLabel");
+            expected.as_object_mut().unwrap().remove("interactiveLogin");
+            expected
+        });
     }
 }

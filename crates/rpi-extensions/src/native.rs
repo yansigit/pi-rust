@@ -301,6 +301,7 @@ pub(crate) extern "C" fn request(
                     "auth.configuredValues",
                     "auth.dynamicMethods",
                     "auth.resolveOwned",
+                    "auth.methodPresentation",
                     "context.inspect",
                     "context.bootstrap",
                     "context.snapshot",
