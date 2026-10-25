@@ -1593,7 +1593,7 @@ fn test_slash_command_dispatch() {
     resolves_to("/help", "/help");
     resolves_to("/?", "/help"); // alias → canonical
     resolves_to("/clear", "/clear");
-    resolves_to("/new", "/clear"); // alias
+    resolves_to("/new", "/new"); // real replacement, not presentation clearing
     resolves_to("/q", "/exit"); // alias
     resolves_to("/quit", "/exit"); // alias
     resolves_to("/version", "/version");

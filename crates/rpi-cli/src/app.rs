@@ -541,13 +541,11 @@ async fn run_inner() -> i32 {
                     // `rpi --connect` talks to. The extension `UiDialog`
                     // mailbox is bridged over the same channel so a permission
                     // gate can ask the client mid-run.
-                    let extensions = reload_context.extension_session.lock().unwrap().clone();
-                    crate::modes::rpc(
+                    crate::modes::rpc_with_context(
                         &harness,
                         Some(event_rx),
                         model_catalog,
-                        reload_context.ui_dialog.clone(),
-                        Some(extensions),
+                        &reload_context,
                     )
                     .await
                 };

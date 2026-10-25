@@ -187,7 +187,8 @@ pub(super) fn add_help_message(container: &Arc<Container>) {
 
     let cmds: &[(&str, &str)] = &[
         ("/help, /?", "Show this help message"),
-        ("/clear, /new", "Clear the conversation"),
+        ("/clear", "Clear the display (keep the session)"),
+        ("/new", "Start a new session"),
         ("/exit, /quit, /q", "Exit the application"),
         ("/version, /v", "Show version information"),
         ("/changelog", "Show recent release changes"),

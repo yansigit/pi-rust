@@ -678,6 +678,7 @@ enum TuiMessage {
     Exit,
     /// Clear the transcript (from `/clear`).
     ClearChat,
+    NewSession,
     /// Compact the conversation (from `/compact`).
     Compact,
     /// Copy the last assistant reply to the clipboard (from `/copy`).
@@ -3029,6 +3030,32 @@ pub async fn interactive_tui(
                     request,
                 )
                 .await;
+            }
+            Some(TuiMessage::NewSession) => {
+                match crate::session::replace_host_session(
+                    harness,
+                    &reload_context,
+                    crate::session::HostSessionRequest::New,
+                )
+                .await
+                {
+                    Ok(crate::session::SessionReplacement::Replaced) => {
+                        chat_container.clear();
+                        add_welcome_message(&chat_container);
+                        state.set_status(RunStatus::Idle);
+                    }
+                    Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
+                        add_note_message(
+                            &chat_container,
+                            &format!("New session cancelled: {reason}"),
+                        );
+                    }
+                    Err(error) => add_error_message(
+                        &chat_container,
+                        &format!("Could not create session: {error}"),
+                    ),
+                }
+                tui.request_render(false);
             }
             Some(TuiMessage::ClearChat) => {
                 chat_container.clear();
