@@ -82,6 +82,34 @@ impl AgentHarness {
         }
     }
 
+    /// Exhaustion has no new start/summarizer. The public end adapter must
+    /// precede this failure hook (the host progress channel has no payload).
+    pub(super) async fn recovery_exhausted(&self, run_id: &str, error: &str) {
+        self.bus.emit(&HarnessEvent::CompactionProgress(
+            crate::events::CompactionProgressEvent {
+                lane: self.lane.clone(),
+                manual: false,
+                active: false,
+            },
+        ));
+        let hooks = self.inner.lock().unwrap().provider_hooks.clone();
+        if let Some(hooks) = hooks {
+            let identity =
+                RequestIdentity::operation(Some(self.session.storage().metadata().id), run_id);
+            let _ = hooks
+                .lifecycle(
+                    "session_compact_failed",
+                    serde_json::json!({
+                        "reason":"overflow", "automatic":true, "fromExtension":false,
+                        "aborted":false, "willRetry":false, "errorMessage":error,
+                    }),
+                    identity,
+                    CancellationToken::new(),
+                )
+                .await;
+        }
+    }
+
     pub(super) async fn compact_with_extensions(
         &self,
         run_id: &str,
@@ -89,6 +117,7 @@ impl AgentHarness {
         branch_entries: &[Entry],
         options: &CompactionLlmOptions,
         reason: CompactionReason,
+        will_retry: bool,
     ) -> Result<Option<(CompactResult, Entry)>, CompactionError> {
         let metadata = self
             .session
@@ -96,7 +125,6 @@ impl AgentHarness {
             .await
             .map_err(|e| CompactionError::summarization_failed(e.to_string()))?;
         let manual = matches!(reason, CompactionReason::Manual);
-        let will_retry = matches!(reason, CompactionReason::Overflow);
         let identity = RequestIdentity {
             session_id: Some(metadata.id),
             operation_id: if manual {
@@ -117,8 +145,14 @@ impl AgentHarness {
             });
         }
         rpi_ai::identity::scope(identity.clone(), async {
+            let mut progress = Some(crate::events::CompactionProgressGuard::new(
+                &self.bus, &self.lane, manual,
+            ));
             let mut from_extension = false;
             let outcome: Result<Option<(CompactResult, Entry)>, CompactionError> = async {
+                if options.signal.is_cancelled() {
+                    return Err(CompactionError::aborted("Compaction cancelled"));
+                }
                 let override_result = if let Some(hooks) = &hooks {
                     hooks
                         .lifecycle(
@@ -149,8 +183,6 @@ impl AgentHarness {
                         CompactionError::summarization_failed("invalid extension compaction result")
                     })?
                 } else {
-                    let _progress =
-                        crate::events::CompactionProgressGuard::new(&self.bus, &self.lane, manual);
                     compact(prep, &options).await?
                 };
                 if options.signal.is_cancelled() {
@@ -163,6 +195,11 @@ impl AgentHarness {
                 Ok(Some((result, entry)))
             }
             .await;
+            // Pi ends failed/cancelled compaction before its awaited failure hook;
+            // successful compaction ends after the awaited success hook.
+            if !matches!(&outcome, Ok(Some(_))) {
+                drop(progress.take());
+            }
             if let Some(hooks) = &hooks {
                 let (event, payload) = match &outcome {
                     Ok(Some((_, entry))) => (
@@ -190,6 +227,7 @@ impl AgentHarness {
                     .lifecycle(event, payload, identity, CancellationToken::new())
                     .await;
             }
+            drop(progress);
             outcome
         })
         .await

@@ -57,6 +57,10 @@ pub fn provisioned_from_entry(entry: &Entry) -> ProvisionedEntry {
             usage: m.usage.clone(),
             from_hook: m.from_hook,
         },
+        Entry::ContextEdit(m) => ProvisionedKind::ContextEdit {
+            target_id: m.target_id.clone(),
+            replacement: m.replacement.clone(),
+        },
         Entry::Custom(m) => ProvisionedKind::Custom {
             custom_type: m.custom_type.clone(),
             data: m.data.clone(),
@@ -211,6 +215,17 @@ pub struct CustomEntry {
     pub data: Option<JsonValue>,
 }
 
+/// Branch-local replacement of model-visible content; null durably omits it.
+/// `replacement` is required on the wire: absence must not mean omission.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextEditEntry {
+    #[serde(flatten)]
+    pub base: EntryBase,
+    pub target_id: String,
+    pub replacement: JsonValue,
+}
+
 /// `Entry = MessageEntry | ModelChangeEntry | ... | CustomEntry`.
 ///
 /// Serialized as a flat object (each arm `#[serde(flatten)]`s its `base`), so
@@ -227,6 +242,7 @@ pub enum Entry {
     Compaction(CompactionEntry),
     BranchSummary(BranchSummaryEntry),
     Custom(CustomEntry),
+    ContextEdit(ContextEditEntry),
 }
 
 impl Entry {
@@ -239,6 +255,7 @@ impl Entry {
             Entry::Compaction(e) => &e.base,
             Entry::BranchSummary(e) => &e.base,
             Entry::Custom(e) => &e.base,
+            Entry::ContextEdit(e) => &e.base,
         }
     }
 
@@ -251,6 +268,7 @@ impl Entry {
             Entry::Compaction(e) => &mut e.base,
             Entry::BranchSummary(e) => &mut e.base,
             Entry::Custom(e) => &mut e.base,
+            Entry::ContextEdit(e) => &mut e.base,
         }
     }
 
@@ -272,6 +290,7 @@ impl Entry {
             Entry::Compaction(_) => "compaction",
             Entry::BranchSummary(_) => "branch_summary",
             Entry::Custom(_) => "custom",
+            Entry::ContextEdit(_) => "context_edit",
         }
     }
 
@@ -319,6 +338,7 @@ impl Entry {
             Entry::Compaction(e) => serde_json::to_value(e),
             Entry::BranchSummary(e) => serde_json::to_value(e),
             Entry::Custom(e) => serde_json::to_value(e),
+            Entry::ContextEdit(e) => serde_json::to_value(e),
         };
         if let Ok(Value::Object(arm_map)) = arm {
             for (k, v) in arm_map {
@@ -435,6 +455,16 @@ impl<'de> Deserialize<'de> for Entry {
                 )
                 .map_err(serde::de::Error::custom)?,
             }),
+            "context_edit" => Entry::ContextEdit(ContextEditEntry {
+                base,
+                target_id: serde_json::from_value(obj.get("targetId").cloned().ok_or_else(
+                    || serde::de::Error::custom("context_edit missing \"targetId\""),
+                )?)
+                .map_err(serde::de::Error::custom)?,
+                replacement: obj.get("replacement").cloned().ok_or_else(|| {
+                    serde::de::Error::custom("context_edit missing \"replacement\"")
+                })?,
+            }),
             "custom" => Entry::Custom(CustomEntry {
                 base,
                 custom_type: serde_json::from_value(
@@ -502,6 +532,10 @@ pub struct ProvisionedEntry {
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub enum ProvisionedKind {
+    ContextEdit {
+        target_id: String,
+        replacement: JsonValue,
+    },
     Message {
         message: rpi_agent::message::AgentMessage,
         terminate: Option<bool>,
@@ -547,6 +581,7 @@ impl ProvisionedEntry {
             ProvisionedKind::Compaction { .. } => "compaction",
             ProvisionedKind::BranchSummary { .. } => "branch_summary",
             ProvisionedKind::Custom { .. } => "custom",
+            ProvisionedKind::ContextEdit { .. } => "context_edit",
         }
     }
 }
@@ -566,6 +601,14 @@ pub fn provisioned_into_entry(
         timestamp,
     };
     match p.kind {
+        ProvisionedKind::ContextEdit {
+            target_id,
+            replacement,
+        } => Entry::ContextEdit(ContextEditEntry {
+            base,
+            target_id,
+            replacement,
+        }),
         ProvisionedKind::Message { message, terminate } => Entry::Message(MessageEntry {
             base,
             message,
@@ -1372,6 +1415,20 @@ pub trait SessionStorage: Send + Sync {
 
     // Entries + records
     async fn append_entry(&self, entry: ProvisionedEntry, lane: &str) -> SessionResult<Entry>;
+
+    /// Opt-in durable context editing. External backends must not silently
+    /// acknowledge recovery omissions they cannot persist and replay.
+    async fn append_context_edit(
+        &self,
+        _id: String,
+        _target_id: String,
+        _replacement: JsonValue,
+        _lane: &str,
+    ) -> SessionResult<Entry> {
+        Err(crate::error::SessionError::storage(
+            "storage does not support durable context edits",
+        ))
+    }
     async fn append_record(&self, record: LaneRecord) -> SessionResult<LaneRecord>;
 
     // Reads

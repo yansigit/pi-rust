@@ -3825,60 +3825,9 @@ impl AgentHarness {
         self.write_operation_started(&run_id, source_leaf.clone(), intent)
             .await?;
 
-        // Persist prompts (the user's input) BEFORE the run so they're durable.
-        for (index, msg) in prompts.iter().enumerate() {
-            if let Some(entry_id) = queued_ids.get(index) {
-                self.append_provisioned(ProvisionedEntry {
-                    id: entry_id.clone(),
-                    kind: ProvisionedKind::Message {
-                        message: msg.clone(),
-                        terminate: None,
-                    },
-                })
-                .await?;
-            } else {
-                self.view()
-                    .append_message(msg.clone())
-                    .await
-                    .map_err(session_to_harness_err)?;
-            }
-        }
-
-        self.emit_appended_messages(prompts.iter().take(queued_ids.len()).cloned().collect())
-            .await;
-
         // Snapshot config.
         let snap = self.snapshot_config()?;
-        if snap.models.is_empty() {
-            let _ = self
-                .write_operation_finished(
-                    &run_id,
-                    OperationOutcome::Failed,
-                    Some(OperationError {
-                        code: "no_provider".into(),
-                        message: "No models/providers configured".into(),
-                    }),
-                )
-                .await;
-            let leaf = self
-                .finish_context_writes(&run_id, Some(RunEndOutcome::Failed))
-                .await?
-                .unwrap_or_default();
-            return Ok(RunResult {
-                run_id,
-                outcome: HarnessRunOutcome::Failed {
-                    leaf_id: leaf,
-                    error: OperationError {
-                        code: "no_provider".into(),
-                        message: "No models/providers configured".into(),
-                    },
-                    final_entry_id: None,
-                    final_message: None,
-                },
-            });
-        }
-
-        // Build the branch path (now includes the just-persisted prompts).
+        // Previous finalized branch only: accepted prompts are not transcript entries yet.
         let path = self.branch_path_oldest_first().await?;
         let build_opts = Self::build_opts(&snap.entry_projectors, &snap.entry_transforms);
 
@@ -3929,7 +3878,9 @@ impl AgentHarness {
                             stream_options: snap.stream_options.clone(),
                         };
                         match self
-                            .compact_with_extensions(&run_id, &prep, &path, &llm_opts, reason)
+                            .compact_with_extensions(
+                                &run_id, &prep, &path, &llm_opts, reason, false,
+                            )
                             .await
                         {
                             Ok(_) => {}
@@ -3972,6 +3923,60 @@ impl AgentHarness {
                     }
                 }
             }
+        }
+
+        // Transcript placement follows pre-prompt compaction. Admission is
+        // already durable in operation_started.original_prompt (and queued
+        // prompts retain their queue records), so an abort/crash before this
+        // point does not erase accepted input. Do not summarize the new prompt.
+        for (index, msg) in prompts.iter().enumerate() {
+            if let Some(entry_id) = queued_ids.get(index) {
+                self.append_provisioned(ProvisionedEntry {
+                    id: entry_id.clone(),
+                    kind: ProvisionedKind::Message {
+                        message: msg.clone(),
+                        terminate: None,
+                    },
+                })
+                .await?;
+            } else {
+                self.view()
+                    .append_message(msg.clone())
+                    .await
+                    .map_err(session_to_harness_err)?;
+            }
+        }
+
+        self.emit_appended_messages(prompts.iter().take(queued_ids.len()).cloned().collect())
+            .await;
+
+        if snap.models.is_empty() {
+            let _ = self
+                .write_operation_finished(
+                    &run_id,
+                    OperationOutcome::Failed,
+                    Some(OperationError {
+                        code: "no_provider".into(),
+                        message: "No models/providers configured".into(),
+                    }),
+                )
+                .await;
+            let leaf = self
+                .finish_context_writes(&run_id, Some(RunEndOutcome::Failed))
+                .await?
+                .unwrap_or_default();
+            return Ok(RunResult {
+                run_id,
+                outcome: HarnessRunOutcome::Failed {
+                    leaf_id: leaf,
+                    error: OperationError {
+                        code: "no_provider".into(),
+                        message: "No models/providers configured".into(),
+                    },
+                    final_entry_id: None,
+                    final_message: None,
+                },
+            });
         }
 
         // Rebuild path after potential compaction.
@@ -4209,7 +4214,7 @@ impl AgentHarness {
                             let prep = match projected_preparation(&entries, settings) { Some(p) => p, None => return None };
                             let branch_entries = match harness.branch_path_oldest_first().await { Ok(entries) => entries, Err(_) => return None };
                             let opts = CompactionLlmOptions { provider, model: model.clone(), api_key: None, signal: compaction_signal, thinking_level: None, retry: None, custom_instructions: None, stream_options };
-                            let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &branch_entries, &opts, CompactionReason::Threshold).await { Ok(Some((result, _))) => result, _ => return None };
+                            let result = match harness.compact_with_extensions(&compaction_run_id, &prep, &branch_entries, &opts, CompactionReason::Threshold, false).await { Ok(Some((result, _))) => result, _ => return None };
                             // Mid-loop compaction fires because the turn pushed the
                             // context over the threshold.
                             cut.store(new_messages_len, Ordering::Release);
@@ -4320,10 +4325,13 @@ impl AgentHarness {
             Arc::clone(&settle_state),
             self.clone(),
         ));
+        let mut overflow_recovery_attempted = false;
+        let mut recovery_terminal_error: Option<String> = None;
+        let mut invocation_attempt = retry_attempt;
         let result = loop {
             // Entering from an assistant runs that message's tools as its very
             // first action, which is exactly why it is never retried (see below).
-            let attempt_result = if from_assistant {
+            let attempt_result = if from_assistant && !overflow_recovery_attempted {
                 run_agent_loop_from_assistant(
                     agent_context.clone(),
                     config.clone(),
@@ -4368,6 +4376,102 @@ impl AgentHarness {
                 // so retrying would run them a second time. One attempt only.
                 || from_assistant
             {
+                // Ordinary transport retries have precedence. Recovery is a
+                // separate, one-use budget and always settles this attempt
+                // before persisting branch-local omission edits.
+                if snap.compaction.enabled
+                    && snap.model.context_window > 0
+                    && !signal.is_cancelled()
+                {
+                    if let Ok(messages) = &attempt_result {
+                        let start = post_compaction_cut
+                            .load(Ordering::Acquire)
+                            .min(messages.len());
+                        self.persist_new_messages(&messages[start..], start, &settle_state)
+                            .await?;
+                        let path = self.branch_path_oldest_first().await?;
+                        let ctx = build_session_context(&path, &build_opts);
+                        let assistant_index = messages.iter().rposition(AgentMessage::is_assistant);
+                        let assistant_id =
+                            assistant_index.and_then(|index| settle_state.entry_at(index));
+                        let decision = auto_compaction_decision(&AutoCompactionCheck {
+                            path: &path,
+                            messages: &ctx.messages,
+                            model: &snap.model,
+                            settings: snap.compaction,
+                            assistant_entry_id: assistant_id.as_deref(),
+                            skip_aborted_check: true,
+                            overflow_recovery_attempted,
+                        });
+                        match decision {
+                            AutoCompactionDecision::Exhausted { .. } => {
+                                let length = assistant_index.is_some_and(|index| matches!(&messages[index],
+                                    AgentMessage::Assistant(message) if message.stop_reason == StopReason::Length));
+                                let error = if length {
+                                    "Truncated response recovery failed after one compact-and-retry attempt."
+                                } else {
+                                    "Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model."
+                                };
+                                self.recovery_exhausted(&run_id, error).await;
+                                recovery_terminal_error = Some(error.into());
+                            }
+                            AutoCompactionDecision::Run {
+                                reason,
+                                will_retry: true,
+                            } => {
+                                overflow_recovery_attempted = true;
+                                let recovery: HarnessResult<bool> = async {
+                                    let index = assistant_index.ok_or_else(|| HarnessError::agent(
+                                        "Cannot persist recovery omission because a projected message has no source entry"))?;
+                                    // Resolve every target before appending any edit. Never
+                                    // compare content: identical messages may own different tools.
+                                    let mut targets = Vec::new();
+                                    for (offset, message) in messages[index..].iter().enumerate() {
+                                        if offset == 0 || matches!(message, AgentMessage::ToolResult(_)) {
+                                            let id = settle_state.entry_at(index + offset).ok_or_else(|| HarnessError::agent(
+                                                "Cannot persist recovery omission because a projected message has no source entry"))?;
+                                            targets.push(id);
+                                        }
+                                    }
+                                    for target_id in targets {
+                                        self.session.storage().append_context_edit(
+                                            self.next_entry_id(), target_id, serde_json::Value::Null, &self.lane,
+                                        ).await.map_err(session_to_harness_err)?;
+                                    }
+                                    let path = self.branch_path_oldest_first().await?;
+                                    let Some(prep) = projected_preparation(&path, snap.compaction) else { return Ok(false) };
+                                    let llm_opts = CompactionLlmOptions {
+                                        provider: Self::resolve_provider(&snap.models, &snap.model)?,
+                                        model: snap.model.clone(), api_key: None, signal: signal.clone(),
+                                        thinking_level: Some(snap.thinking_level),
+                                        retry: if snap.retry.enabled { Some(snap.retry.clone()) } else { None },
+                                        custom_instructions: None, stream_options: snap.stream_options.clone(),
+                                    };
+                                    self.compact_with_extensions(&run_id, &prep, &path, &llm_opts, reason, true)
+                                        .await.map(|result| result.is_some()).map_err(|error| HarnessError::agent(error.message))
+                                }.await;
+                                match recovery {
+                                    Ok(true) if !signal.is_cancelled() => {
+                                        invocation_attempt += 1;
+                                        settle_state.set_attempt(invocation_attempt);
+                                        post_compaction_cut.store(0, Ordering::Release);
+                                        let path = self.branch_path_oldest_first().await?;
+                                        agent_context.messages =
+                                            build_session_context(&path, &build_opts).messages;
+                                        continue;
+                                    }
+                                    Err(error) => {
+                                        recovery_terminal_error = Some(format!(
+                                            "Context overflow recovery failed: {error}"
+                                        ));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 break attempt_result;
             }
 
@@ -4422,7 +4526,8 @@ impl AgentHarness {
             // Only discard the old attempt's indices once another invocation
             // will actually run. Compaction cuts use the same per-attempt
             // new_messages indices and must restart with them.
-            settle_state.set_attempt(retry_attempt);
+            invocation_attempt += 1;
+            settle_state.set_attempt(invocation_attempt);
             settle_state.reserve_retry_result(retry_result_id);
             post_compaction_cut.store(0, Ordering::Release);
             // Prior tools and delivered context are durable. Rebuild after the
@@ -4450,7 +4555,11 @@ impl AgentHarness {
                 // retries the turn needs Pi's recovery-omission entries, which
                 // the host session model does not have yet (see
                 // docs/provider-parity/host-life.md).
-                if snap.compaction.enabled && snap.model.context_window > 0 {
+                if recovery_terminal_error.is_none()
+                    && !overflow_recovery_attempted
+                    && snap.compaction.enabled
+                    && snap.model.context_window > 0
+                {
                     if let Ok(path) = self.branch_path_oldest_first().await {
                         let ctx = build_session_context(&path, &build_opts);
                         let last_assistant_entry = path
@@ -4497,7 +4606,7 @@ impl AgentHarness {
                                     };
                                     match self
                                         .compact_with_extensions(
-                                            &run_id, &prep, &path, &llm_opts, reason,
+                                            &run_id, &prep, &path, &llm_opts, reason, false,
                                         )
                                         .await
                                     {
@@ -4541,7 +4650,24 @@ impl AgentHarness {
                         );
                     }
                 }
-                let outcome = Self::derive_outcome(&new_messages, leaf.clone(), final_id.clone());
+                let mut outcome =
+                    Self::derive_outcome(&new_messages, leaf.clone(), final_id.clone());
+                if let Some(message) = recovery_terminal_error.take() {
+                    outcome = HarnessRunOutcome::Failed {
+                        leaf_id: leaf.clone().unwrap_or_default(),
+                        error: OperationError {
+                            code: "compaction_failed".into(),
+                            message,
+                        },
+                        final_entry_id: final_id.clone(),
+                        final_message: new_messages.iter().rev().find_map(
+                            |message| match message {
+                                AgentMessage::Assistant(message) => Some(message.as_ref().clone()),
+                                _ => None,
+                            },
+                        ),
+                    };
+                }
                 // The run's messages are durable now, so its frames are no
                 // longer needed as progress. Retiring them here (rather than at
                 // each `MessageEnd`) is what keeps a *failed retry attempt*'s
@@ -4770,6 +4896,7 @@ impl AgentHarness {
                             &path,
                             &llm_opts,
                             CompactionReason::Manual,
+                            false,
                         )
                         .await
                     {
