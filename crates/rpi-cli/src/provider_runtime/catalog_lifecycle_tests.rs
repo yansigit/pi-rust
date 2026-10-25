@@ -130,11 +130,14 @@ fn fixture_with(
         vec![],
         Some(bridge.clone()),
     );
-    let runtime = ProviderRuntime::new(
+    // Hermetic: never reads `models.json`, so tests that do not hold the
+    // shared env lock cannot observe another test's config directory.
+    let runtime = ProviderRuntime::with_config(
         &session,
         &bridge,
         vec![Arc::new(TestProvider(vec![model("old")]))],
         vec![],
+        Default::default(),
     )
     .unwrap();
     (runtime, owner, host)

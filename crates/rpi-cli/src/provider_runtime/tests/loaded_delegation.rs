@@ -41,7 +41,9 @@ async fn loaded_runtime_publication_terminates_active_stream_and_rejects_stale_c
         &session,
         tokio::runtime::Handle::current(),
     );
-    let runtime = ProviderRuntime::new(&session, &bridge, providers, vec![]).unwrap();
+    let runtime =
+        ProviderRuntime::with_config(&session, &bridge, providers, vec![], Default::default())
+            .unwrap();
     let epoch = runtime.state.lock().await.epoch.clone();
     let resolver: Arc<dyn DelegationResolver> = Arc::new(Resolver(runtime.clone()));
     let binding = DelegationBinding::root(Arc::downgrade(&resolver), epoch.clone(), "a").unwrap();
@@ -204,7 +206,9 @@ async fn public_loaded_stream_termination(caller_cancel: bool) {
     .into_iter()
     .map(|provider| Arc::new(PublicTestProvider(provider)) as Arc<dyn Provider>)
     .collect();
-    let runtime = ProviderRuntime::new(&session, &bridge, providers, vec![]).unwrap();
+    let runtime =
+        ProviderRuntime::with_config(&session, &bridge, providers, vec![], Default::default())
+            .unwrap();
     let source = runtime
         .providers()
         .await
