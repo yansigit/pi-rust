@@ -24,6 +24,7 @@ mod delegation;
 struct State {
     epoch: Arc<DelegationEpoch>,
     catalog: ModelRegistry,
+    config: crate::config::ModelsConfig,
     chains: BTreeMap<String, Arc<dyn Provider>>,
     generations: BTreeMap<String, u64>,
     refreshes: BTreeMap<String, Weak<Publication>>,
@@ -136,6 +137,7 @@ impl ProviderRuntime {
             state: Mutex::new(State {
                 epoch,
                 catalog,
+                config: Default::default(),
                 chains,
                 generations: BTreeMap::new(),
                 refreshes: BTreeMap::new(),
@@ -281,6 +283,7 @@ impl ProviderRuntime {
             state: Mutex::new(State {
                 epoch,
                 catalog,
+                config: state.config.clone(),
                 chains,
                 generations: state.generations.clone(),
                 refreshes: BTreeMap::new(),
@@ -324,7 +327,7 @@ impl ProviderRuntime {
         let action = args["action"].as_str().ok_or("missing provider action")?;
         if action == "inspect" {
             return Ok(
-                json!({"revision":state.catalog.revision(),"providers":state.catalog.list_providers()}),
+                json!({"revision":state.catalog.revision(),"providers":state.catalog.list_providers(),"available":state.catalog.list_providers().into_iter().filter(|provider| provider.auth_status == crate::model_registry::AuthStatus::Authenticated).flat_map(|provider| provider.models).collect::<Vec<_>>()}),
             );
         }
         let id = args["providerId"]
@@ -423,6 +426,11 @@ impl ProviderRuntime {
             }
             _ => return Err("unsupported provider runtime action".into()),
         }
+        if action != "unregister" {
+            candidate
+                .recompose_config(&state.config, Some(&[id.into()]))
+                .map_err(|error| error.to_string())?;
+        }
         let chains = Self::chains(&self.session, &candidate);
         // The same gate protects readers, so the installed proxies cannot see
         // a catalog reservation before the host has accepted the update.
@@ -450,7 +458,137 @@ impl ProviderRuntime {
         }
         Ok(json!({"revision":revision}))
     }
+    // Pi model-runtime.ts:848–888: config -> model snapshot -> callbacks ->
+    // model snapshot -> availability. Callback publication still uses the same
+    // single-use tickets and revokes the delegation epoch at every commit.
     async fn refresh(
+        &self,
+        caller: NativeOwner,
+        args: Value,
+        signal: CancellationToken,
+    ) -> Result<Value, String> {
+        let config = crate::config::load_models_config().map_err(|error| error.to_string())?;
+        self.refresh_config(caller, args, signal, config).await
+    }
+    async fn refresh_config(
+        &self,
+        caller: NativeOwner,
+        args: Value,
+        signal: CancellationToken,
+        config: crate::config::ModelsConfig,
+    ) -> Result<Value, String> {
+        self.validate_owner(&caller)?;
+        let mut selected: Option<Vec<String>> = if let Some(id) = args.get("providerId") {
+            Some(vec![id.as_str().ok_or("invalid provider identity")?.into()])
+        } else {
+            args.get("providers")
+                .map(|ids| serde_json::from_value(ids.clone()))
+                .transpose()
+                .map_err(|_| "invalid provider selection")?
+        };
+        if let Some(ids) = &mut selected {
+            let mut seen = std::collections::BTreeSet::new();
+            ids.retain(|id| seen.insert(id.clone()));
+        }
+        let ids = {
+            let mut state = self.state.lock().await;
+            self.validate_owner(&caller)?;
+            if signal.is_cancelled() {
+                return Err("provider runtime request cancelled".into());
+            }
+            let candidate = state.catalog.fork().map_err(|error| error.to_string())?;
+            candidate
+                .recompose_config(&config, selected.as_deref())
+                .map_err(|error| error.to_string())?;
+            let ids: Vec<String> = selected.clone().unwrap_or_else(|| {
+                candidate
+                    .list_providers()
+                    .into_iter()
+                    .map(|provider| provider.id)
+                    .collect()
+            });
+            // Reserve all generations before awaiting any callback, including an
+            // overlapping provider-local pass that is still in flight.
+            let generations = ids
+                .iter()
+                .map(|id| {
+                    state
+                        .next_generation(id)
+                        .map(|generation| (id.clone(), generation))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            if candidate.revision() != state.catalog.revision() {
+                let chains = Self::chains(&self.session, &candidate);
+                self.host
+                    .install_native_providers(self.proxies(&candidate))
+                    .await?;
+                self.host.replace_model_catalog(candidate.list_models());
+                state.epoch.revoke();
+                state.epoch = DelegationEpoch::new(self.delegation_scope, chains.values().cloned());
+                state.catalog = candidate;
+                state.chains = chains;
+            }
+            if let Some(selected) = &selected {
+                for id in selected {
+                    match config.providers.get(id) {
+                        Some(provider) => {
+                            state.config.providers.insert(id.clone(), provider.clone());
+                        }
+                        None => {
+                            state.config.providers.shift_remove(id);
+                        }
+                    }
+                }
+            } else {
+                state.config = config;
+            }
+            for (id, generation) in &generations {
+                state.supersede(id, *generation);
+            }
+            generations
+        };
+        let mut errors = BTreeMap::new();
+        let mut selected_error = None;
+        let mut revision = self.state.lock().await.catalog.revision();
+        for (id, generation) in ids {
+            if signal.is_cancelled() {
+                break;
+            }
+            let supported =
+                rpi_extensions::provider_runtime::NativeProviderOperations::from_session(
+                    &self.session,
+                    &id,
+                )
+                .is_some_and(|operations| operations.supports("refreshCatalog"));
+            if !supported {
+                continue;
+            }
+            let mut input = args.clone();
+            input["providerId"] = json!(id);
+            input["refreshGeneration"] = json!(generation);
+            match self
+                .refresh_provider(caller.clone(), input, signal.clone())
+                .await
+            {
+                Ok(result) => revision = result["revision"].as_u64().unwrap_or(revision),
+                Err(error) if args.get("providerId").is_some() => selected_error = Some(error),
+                Err(error) => {
+                    errors.insert(id, error);
+                }
+            }
+        }
+        self.refresh_availability(caller, selected.as_deref(), signal.clone())
+            .await?;
+        if let Some(error) = selected_error {
+            return Err(error);
+        }
+        if args.get("providerId").is_some() {
+            Ok(json!({"revision":revision}))
+        } else {
+            Ok(json!({"revision":revision,"aborted":signal.is_cancelled(),"errors":errors}))
+        }
+    }
+    async fn refresh_provider(
         &self,
         caller: NativeOwner,
         args: Value,
@@ -474,6 +612,12 @@ impl ProviderRuntime {
             self.validate_owner(&caller)?;
             if signal.is_cancelled() {
                 return Err("provider runtime request cancelled".into());
+            }
+            if args["refreshGeneration"]
+                .as_u64()
+                .is_some_and(|generation| generation != state.generation(id))
+            {
+                return Err("provider catalog changed during the operation".into());
             }
             let owner = state
                 .catalog
@@ -504,6 +648,10 @@ impl ProviderRuntime {
             return Err("provider catalog changed during the operation".into());
         }
         let result = result?;
+        self.validate_owner(&caller)?;
+        if signal.is_cancelled() {
+            return Err("provider catalog refresh cancelled".into());
+        }
         let committed = publication.committed.load(Ordering::Acquire);
         if committed != 0 || result.get("published").is_some() {
             if committed == 0 || result != json!({"published":true}) {
@@ -512,6 +660,92 @@ impl ProviderRuntime {
             return Ok(json!({"revision":committed}));
         }
         self.catalog_request(publication.owner.clone(), json!({"action":"publish","providerId":id,"models":result["models"],"publicationId":ticket}), signal).await
+    }
+    async fn refresh_availability(
+        &self,
+        owner: NativeOwner,
+        selected: Option<&[String]>,
+        signal: CancellationToken,
+    ) -> Result<(), String> {
+        let (ticket, ids) = {
+            let state = self.state.lock().await;
+            let ticket = state
+                .catalog
+                .begin_availability(selected)
+                .map_err(|error| error.to_string())?;
+            let ids: Vec<String> = selected.map_or_else(
+                || {
+                    state
+                        .catalog
+                        .list_providers()
+                        .into_iter()
+                        .map(|provider| provider.id)
+                        .collect()
+                },
+                |ids| ids.to_vec(),
+            );
+            (ticket, ids)
+        };
+        let mut statuses = Vec::new();
+        for id in ids {
+            // Status reads only local credential storage: availability must not
+            // resolve/refresh OAuth or hand private request headers to a catalog.
+            let status = self
+                .auth_request(
+                    owner.clone(),
+                    json!({"action":"status","providerId":id}),
+                    signal.clone(),
+                )
+                .await;
+            let status = match status {
+                Ok(status) if status["refreshRequired"] == true => {
+                    crate::model_registry::AuthStatus::Expired
+                }
+                Ok(status) if status["present"] == true => {
+                    crate::model_registry::AuthStatus::Authenticated
+                }
+                Ok(_) => crate::model_registry::AuthStatus::Unauthenticated,
+                Err(_) => crate::model_registry::AuthStatus::Unknown,
+            };
+            statuses.push((id, status));
+        }
+        if !signal.is_cancelled() {
+            self.validate_owner(&owner)?;
+            self.state
+                .lock()
+                .await
+                .catalog
+                .finish_availability(ticket, statuses)
+                .map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    }
+    async fn invalidate_credentials(&self, selected: Option<&[String]>) -> Result<(), String> {
+        let state = self.state.lock().await;
+        state
+            .catalog
+            .begin_availability(selected)
+            .map_err(|error| error.to_string())?;
+        let ids: Vec<_> = selected.map_or_else(
+            || {
+                state
+                    .catalog
+                    .list_providers()
+                    .into_iter()
+                    .map(|provider| provider.id)
+                    .collect()
+            },
+            |ids| ids.to_vec(),
+        );
+        for id in ids {
+            if state.catalog.has_provider(&id) {
+                state
+                    .catalog
+                    .update_auth_status(&id, crate::model_registry::AuthStatus::Unknown)
+                    .map_err(|error| error.to_string())?;
+            }
+        }
+        Ok(())
     }
 }
 #[async_trait::async_trait]
@@ -534,7 +768,29 @@ impl NativeProviderRuntime for ProviderRuntime {
                 runtime.refresh(owner, args, signal).await
             }
             Some("providers") => runtime.catalog_request(owner, args, signal).await,
-            Some("auth") => runtime.auth_request(owner, args, signal).await,
+            Some("auth") => {
+                let mutates = matches!(
+                    args["action"].as_str(),
+                    Some("login" | "continue" | "refresh" | "logout" | "credentialStore")
+                );
+                if !mutates {
+                    return runtime.auth_request(owner, args, signal).await;
+                }
+                let selected = args["providerId"].as_str().map(|id| vec![id.to_string()]);
+                runtime.invalidate_credentials(selected.as_deref()).await?;
+                let result = runtime
+                    .auth_request(owner.clone(), args, signal.clone())
+                    .await;
+                // Invalidate again after writes settle, even on error/cancellation:
+                // a status pass may have read the pre-write credential meanwhile.
+                runtime.invalidate_credentials(selected.as_deref()).await?;
+                if result.is_ok() {
+                    runtime
+                        .refresh_availability(owner, selected.as_deref(), signal)
+                        .await?;
+                }
+                result
+            }
             _ => Err("unsupported native runtime port".into()),
         }
     }
@@ -669,5 +925,8 @@ pub(crate) async fn error_stream(model: &Model, message: String) -> AssistantMes
     stream
 }
 
+#[cfg(test)]
+#[path = "provider_runtime/catalog_lifecycle_tests.rs"]
+mod catalog_lifecycle_tests;
 #[cfg(test)]
 mod tests;
