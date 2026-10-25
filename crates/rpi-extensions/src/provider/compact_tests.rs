@@ -107,6 +107,9 @@ fn compact_sdk_frames_match_full_frames_after_every_mapper_prefix() {
         partial: Arc::new(message.clone()),
     });
     events.push(text(&mut message, "after index switch"));
+    // A usage-only change must not compact: the host would keep the old usage.
+    message.usage.output = 8;
+    events.push(text(&mut message, "!"));
     let mut complete = message.clone();
     complete.stop_reason = rpi_ai::StopReason::Stop;
     let mut script = events.clone();
