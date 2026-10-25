@@ -6527,7 +6527,12 @@ mod session_switch_tests {
         let side = h.lane("side");
 
         let result = side.prompt_text("side branch", Vec::new()).await.unwrap();
-        assert!(matches!(result.outcome, HarnessRunOutcome::Failed { .. }));
+        // The side lane has no provider, so the run must fail for that reason
+        // and not for some other failure that happens to share the outcome.
+        let HarnessRunOutcome::Failed { error, .. } = result.outcome else {
+            panic!("expected the no-provider failure, got {:?}", result.outcome);
+        };
+        assert_eq!(error.code, "no_provider");
 
         let entries = side
             .session_view()
