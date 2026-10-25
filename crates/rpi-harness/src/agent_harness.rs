@@ -3327,11 +3327,22 @@ impl AgentHarness {
                         // reach the provider — then layer the per-call
                         // `ProviderHooks::before_request` patch on top.
                         let mut opts = stream_options.merge_into(opts.clone());
+                        // `ProviderHooks::prepare_request` is the single per-call
+                        // firing point for `transform_context` (pi's
+                        // `transform_context`: the last chance to change what the
+                        // model reads, applied to `ctx` so a plugin's forced
+                        // prompt is what *this* request carries) and
+                        // `before_request`. Do not also call the synchronous
+                        // hooks here: their default boundary already chains them,
+                        // and firing both would run every hook twice per request.
                         tokio::task::block_in_place(|| {
                             Handle::current().block_on(async {
                                 if let Some(hooks) = &provider_hooks {
-                                    // Hooks may patch the context: copy it only then.
-                                    hooks.prepare_request(&model, ctx.to_mut(), &mut opts).await;
+                                    // Hand over the same `Cow` the provider reads:
+                                    // an observer-only hook keeps the caller's
+                                    // history borrowed (no copy), and a hook that
+                                    // patches materialises it with `to_mut`.
+                                    hooks.prepare_request(&model, &mut ctx, &mut opts).await;
                                 }
                                 p.stream_simple(&model, &ctx, &opts).await
                             })
@@ -7214,19 +7225,13 @@ mod borrowed_context_tests {
                 .await
                 .unwrap();
             let (pointer, prompt) = observed.lock().unwrap().clone();
-            // The async `prepare_request` hook takes `&mut Context`, so any
-            // installed hook gets a private copy; without hooks it is borrowed.
-            if hook.is_none() {
-                assert_eq!(pointer, context.messages.as_ptr() as usize);
-            } else {
+            if hook == Some(2) {
                 assert_ne!(pointer, context.messages.as_ptr() as usize);
-            }
-            let expected = if hook == Some(2) {
-                "patched"
+                assert_eq!(prompt.as_deref(), Some("patched"));
             } else {
-                "original"
-            };
-            assert_eq!(prompt.as_deref(), Some(expected));
+                assert_eq!(pointer, context.messages.as_ptr() as usize);
+                assert_eq!(prompt.as_deref(), Some("original"));
+            }
             assert_eq!(context.system_prompt.as_deref(), Some("original"));
         }
     }
