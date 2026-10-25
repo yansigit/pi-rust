@@ -156,7 +156,9 @@ impl ProviderRuntime {
                 .await
             }
             "status" => {
-                let credential = store.read(id).await.map_err(|e| e.to_string())?;
+                // Presence only: availability must never execute a `!command`
+                // credential (pi `auth-storage.js:213-214`).
+                let credential = store.read_unresolved(id).await.map_err(|e| e.to_string())?;
                 Ok(match credential {
                     Some(Credential::Oauth(credential)) => {
                         json!({"present":true,"type":"oauth","expires":credential.expires_ms,"refreshRequired":credential.expires_ms <= SystemClock.now_ms().saturating_add(rpi_ai::auth::MINIMUM_OAUTH_VALIDITY_MS)})
