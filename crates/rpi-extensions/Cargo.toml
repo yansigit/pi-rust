@@ -32,6 +32,9 @@ uuid = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "sync"] }
 tempfile = { workspace = true }
+# The harness loop drives the provider-hook cadence test. rpi-harness does not
+# depend on rpi-extensions, so this adds no cycle.
+rpi-harness = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true

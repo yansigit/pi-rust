@@ -150,6 +150,16 @@ impl ProviderHooks for ExtensionProviderHooks {
             },
         })
     }
+    /// Runs the extension `context` event on every provider request: pi's
+    /// per-request `transformContext` (`agent-loop.js` `streamAssistantResponse`,
+    /// then `runner.emitContext`). A handler that rewrites the messages
+    /// materialises a private copy. An unchanged round-trip keeps the caller's
+    /// history borrowed.
+    ///
+    /// It does not run `before_agent_start`. pi fires that once per run
+    /// (`agent-session.js` `_prepareRun`), and `begin_operation` applies it to
+    /// the loop context, which every request of the run carries. Running it here
+    /// too would fire it once per request on top of the run start.
     async fn prepare_request(
         &self,
         model: &Model,
@@ -286,6 +296,7 @@ fn user_content_image_count(content: &UserContent) -> usize {
 mod tests {
     use super::*;
     use rpi_plugin_sdk::EventTag;
+    use serde_json::json;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
@@ -687,12 +698,13 @@ mod tests {
 
     /// The `BeforeAgentStart` observer sees the **post-transform** prompt.
     ///
-    /// rpi emits that event from `before_request`, and `transform_context` runs
-    /// first (the order `agent_harness::build_stream_fn` uses, mirroring pi's
-    /// `assistant.ts`). So an observer is told what the provider is about to be
-    /// given, not what it would have been given. This is a deliberate contract
-    /// and a subtle one: swapping the two calls in `build_stream_fn` would
+    /// rpi emits that event from `before_request`, and the default
+    /// `prepare_request` chain runs `transform_context` first (pi's
+    /// `assistant.ts` order). So an observer is told what the provider is about
+    /// to be given, not what it would have been given. This is a deliberate
+    /// contract and a subtle one: swapping the two calls in that chain would
     /// silently change what every observer reports, with no other test failing.
+    /// This test makes the two calls in that order by hand.
     #[test]
     fn the_observer_sees_the_prompt_after_the_transform() {
         let _guard = PROVIDER_LOCK.lock().unwrap();
@@ -751,6 +763,275 @@ mod tests {
         assert_eq!(
             payload["systemPrompt"], "base MARK",
             "observers must be shown the prompt the provider will actually get"
+        );
+    }
+
+    // ---- The `prepare_request` cadence ------------------------------------
+    //
+    // Each handler is an in-process result callback. The counters belong to one
+    // test each, so these tests need no shared lock.
+
+    static CONTEXT_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static START_CALLS: AtomicUsize = AtomicUsize::new(0);
+
+    fn answer(out: *mut rpi_plugin_sdk::StbString, body: serde_json::Value) -> i32 {
+        unsafe { *out = rpi_plugin_sdk::StbString::from_string(body.to_string()) };
+        0
+    }
+
+    /// Counts `context` events and leaves the history alone.
+    extern "C" fn count_context(
+        _input: rpi_plugin_sdk::StbStringRef,
+        _control: *const rpi_plugin_sdk::AuthRequestControl,
+        out: *mut rpi_plugin_sdk::StbString,
+        _context: *mut std::ffi::c_void,
+    ) -> i32 {
+        CONTEXT_CALLS.fetch_add(1, Ordering::SeqCst);
+        answer(out, json!({"version": 1, "result": {}}))
+    }
+
+    /// Returns no change, so the round-trip must keep the history borrowed.
+    extern "C" fn leave_context_alone(
+        _input: rpi_plugin_sdk::StbStringRef,
+        _control: *const rpi_plugin_sdk::AuthRequestControl,
+        out: *mut rpi_plugin_sdk::StbString,
+        _context: *mut std::ffi::c_void,
+    ) -> i32 {
+        answer(out, json!({"version": 1, "result": {}}))
+    }
+
+    /// Replaces the messages, which must materialise a private copy.
+    extern "C" fn rewrite_context(
+        _input: rpi_plugin_sdk::StbStringRef,
+        _control: *const rpi_plugin_sdk::AuthRequestControl,
+        out: *mut rpi_plugin_sdk::StbString,
+        _context: *mut std::ffi::c_void,
+    ) -> i32 {
+        answer(out, json!({"version": 1, "result": {"messages": []}}))
+    }
+
+    /// Counts the `before_agent_start` event dispatched by `begin_operation`.
+    extern "C" fn count_start_event(
+        _input: rpi_plugin_sdk::StbStringRef,
+        _control: *const rpi_plugin_sdk::AuthRequestControl,
+        out: *mut rpi_plugin_sdk::StbString,
+        _context: *mut std::ffi::c_void,
+    ) -> i32 {
+        START_CALLS.fetch_add(1, Ordering::SeqCst);
+        answer(out, json!({"version": 1, "result": {}}))
+    }
+
+    /// The `before_agent_start` prompt transformer: the bridge behind
+    /// `transform_context`, which `begin_operation` calls once per run.
+    static PROMPT_CALLS: AtomicUsize = AtomicUsize::new(0);
+    rpi_plugin_sdk::string_handler! { fn count_and_append_cadence(input, out, _data) {
+        PROMPT_CALLS.fetch_add(1, Ordering::SeqCst);
+        append_marker(input, out, " [cadence]")
+    } }
+
+    fn handler(
+        tag: EventTag,
+        request: rpi_plugin_sdk::AuthRequestFn,
+    ) -> (EventTag, rpi_plugin_sdk::AuthRequestFn) {
+        (tag, request)
+    }
+
+    fn hooks_with_results(
+        handlers: Vec<(EventTag, rpi_plugin_sdk::AuthRequestFn)>,
+    ) -> ExtensionProviderHooks {
+        let mut registry = crate::registry::ExtensionRegistry::new();
+        for (tag, request) in handlers {
+            registry.register_result_handler(
+                "cadence-test".into(),
+                tag,
+                crate::private_callback::Callback {
+                    request,
+                    free: rpi_plugin_sdk::callbacks::free_string,
+                    context: std::ptr::null_mut(),
+                },
+                None,
+            );
+        }
+        ExtensionProviderHooks {
+            snapshot: Arc::new(registry.snapshot()),
+            _keepalive: Arc::new(crate::PluginKeepalive::new(Vec::new(), None)),
+            last_before_agent_start: Mutex::new(None),
+        }
+    }
+
+    /// `prepare_request` runs the `context` event on every call. The history stays
+    /// borrowed unless a handler changes the messages.
+    #[tokio::test]
+    async fn prepare_request_runs_context_per_call_and_borrows_unless_changed() {
+        let model = Model::new(
+            "cadence",
+            "Cadence",
+            rpi_ai::Api::Faux,
+            "cadence",
+            "http://localhost",
+        );
+        let context = Context::new(vec![rpi_ai::UserMessage::new("history", 0).into()]);
+        let mut opts = SimpleStreamOptions::default();
+
+        let unchanged = hooks_with_results(vec![handler(EventTag::Context, leave_context_alone)]);
+        let mut cow = std::borrow::Cow::Borrowed(&context);
+        unchanged.prepare_request(&model, &mut cow, &mut opts).await;
+        unchanged.prepare_request(&model, &mut cow, &mut opts).await;
+        assert!(
+            matches!(cow, std::borrow::Cow::Borrowed(_)),
+            "an unchanged round-trip must keep the history borrowed"
+        );
+
+        let rewriting = hooks_with_results(vec![handler(EventTag::Context, rewrite_context)]);
+        let mut cow = std::borrow::Cow::Borrowed(&context);
+        rewriting.prepare_request(&model, &mut cow, &mut opts).await;
+        assert!(
+            matches!(cow, std::borrow::Cow::Owned(_)),
+            "a rewritten history must be materialised"
+        );
+        assert!(
+            cow.messages.is_empty(),
+            "the handler's messages must reach the request"
+        );
+    }
+
+    /// Through the real harness loop, `context` runs before every provider request
+    /// of a two-request run, and `before_agent_start` runs once for the run. The
+    /// prompt it produced is on both requests, because the loop context keeps it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn context_runs_per_request_and_before_agent_start_once_per_run() {
+        use rpi_ai::providers::faux::{
+            faux_assistant_message, FauxBlock, FauxProvider, FauxScript, FauxStep,
+        };
+        use rpi_ai::types::StopReason;
+        use rpi_harness::agent_harness::AgentLane;
+
+        /// The one tool the scripted run calls, so the run spans two requests.
+        struct NoopTool(rpi_ai::types::Tool);
+        #[async_trait::async_trait]
+        impl rpi_agent::agent_tool::AgentTool for NoopTool {
+            fn schema(&self) -> &rpi_ai::types::Tool {
+                &self.0
+            }
+            fn label(&self) -> &str {
+                "noop"
+            }
+            async fn execute(
+                &self,
+                _id: &str,
+                _params: serde_json::Value,
+                _signal: tokio_util::sync::CancellationToken,
+                _on_update: Arc<dyn Fn(rpi_agent::types::ToolResultPartial) + Send + Sync>,
+            ) -> Result<rpi_agent::types::AgentToolResult, rpi_agent::error::AgentError>
+            {
+                Ok(rpi_agent::types::AgentToolResult::default())
+            }
+        }
+
+        let systems = Arc::new(Mutex::new(Vec::<String>::new()));
+        let (first, second) = (Arc::clone(&systems), Arc::clone(&systems));
+        let script = FauxScript::new();
+        script.set_responses(vec![
+            FauxStep::factory(move |context: &Context| {
+                first
+                    .lock()
+                    .unwrap()
+                    .push(context.system_prompt.clone().unwrap_or_default());
+                faux_assistant_message(
+                    vec![FauxBlock::tool_call("noop", serde_json::json!({}))],
+                    StopReason::ToolUse,
+                )
+            }),
+            FauxStep::factory(move |context: &Context| {
+                second
+                    .lock()
+                    .unwrap()
+                    .push(context.system_prompt.clone().unwrap_or_default());
+                faux_assistant_message(vec![FauxBlock::text("done")], StopReason::Stop)
+            }),
+        ]);
+        let provider = FauxProvider::new(script);
+
+        // Both `before_agent_start` paths: the awaited event `begin_operation`
+        // dispatches, and the prompt transformer its `transform_context` bridge runs.
+        let mut registry = crate::registry::ExtensionRegistry::new();
+        registry.register_before_agent_start(
+            count_and_append_cadence,
+            rpi_plugin_sdk::callbacks::free_string,
+            std::ptr::null_mut(),
+        );
+        for (tag, request) in [
+            handler(EventTag::Context, count_context),
+            handler(EventTag::BeforeAgentStart, count_start_event),
+        ] {
+            registry.register_result_handler(
+                "cadence-test".into(),
+                tag,
+                crate::private_callback::Callback {
+                    request,
+                    free: rpi_plugin_sdk::callbacks::free_string,
+                    context: std::ptr::null_mut(),
+                },
+                None,
+            );
+        }
+        let hooks = ExtensionProviderHooks {
+            snapshot: Arc::new(registry.snapshot()),
+            _keepalive: Arc::new(crate::PluginKeepalive::new(Vec::new(), None)),
+            last_before_agent_start: Mutex::new(None),
+        };
+        let tool = rpi_harness::types::HarnessTool::new(Arc::new(NoopTool(rpi_ai::types::Tool {
+            name: "noop".into(),
+            description: "noop".into(),
+            parameters: rpi_ai::types::Schema::empty_object(),
+            constrained_sampling: None,
+        })));
+        let options = rpi_harness::types::AgentHarnessOptions {
+            model: provider.default_model().clone(),
+            active_tool_names: vec!["noop".into()],
+            tools: vec![tool],
+            models: vec![provider.clone() as Arc<dyn rpi_ai::Provider>],
+            provider_hooks: Some(Arc::new(hooks) as Arc<dyn ProviderHooks>),
+            ..Default::default()
+        };
+        let harness = rpi_harness::agent_harness::AgentHarness::create(options)
+            .await
+            .unwrap();
+        let result = harness.prompt_text("hello", Vec::new()).await.unwrap();
+        assert!(
+            matches!(
+                result.outcome,
+                rpi_harness::agent_harness::HarnessRunOutcome::Completed { .. }
+            ),
+            "the scripted run must complete: {:?}",
+            result.outcome
+        );
+
+        assert_eq!(
+            provider.state().call_count.load(Ordering::SeqCst),
+            2,
+            "the run makes two provider requests"
+        );
+        assert_eq!(
+            CONTEXT_CALLS.load(Ordering::SeqCst),
+            2,
+            "the context event must run once per provider request"
+        );
+        assert_eq!(
+            START_CALLS.load(Ordering::SeqCst),
+            1,
+            "the before_agent_start event must run once per run, not per request"
+        );
+        assert_eq!(
+            PROMPT_CALLS.load(Ordering::SeqCst),
+            1,
+            "the before_agent_start prompt transformer must run once per run, not per request"
+        );
+        let systems = systems.lock().unwrap().clone();
+        assert_eq!(systems.len(), 2, "one recorded prompt per request");
+        assert!(
+            systems.iter().all(|system| system.ends_with(" [cadence]")),
+            "every request must carry the run's prompt: {systems:?}"
         );
     }
 }
