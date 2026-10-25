@@ -3103,14 +3103,14 @@ impl AgentHarness {
                         // reach the provider — then layer the per-call
                         // `ProviderHooks::before_request` patch on top.
                         let mut opts = stream_options.merge_into(opts.clone());
-                        // `ProviderHooks::prepare_request` is the single per-call
-                        // firing point for `transform_context` (pi's
-                        // `transform_context`: the last chance to change what the
-                        // model reads, applied to `ctx` so a plugin's forced
-                        // prompt is what *this* request carries) and
-                        // `before_request`. Do not also call the synchronous
-                        // hooks here: their default boundary already chains them,
-                        // and firing both would run every hook twice per request.
+                        // `ProviderHooks::prepare_request` is the one per-request
+                        // call. Its default chain runs `transform_context` and
+                        // `before_request`; `ExtensionProviderHooks` overrides it to
+                        // run the extension `context` event per request, and it
+                        // applies `before_agent_start` (its `transform_context`
+                        // bridge) once per run in `begin_operation`, as pi does.
+                        // Do not also call the hooks here: that would run each of
+                        // them twice per request.
                         tokio::task::block_in_place(|| {
                             Handle::current().block_on(async {
                                 if let Some(hooks) = &provider_hooks {
