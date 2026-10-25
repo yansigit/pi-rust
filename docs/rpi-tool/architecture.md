@@ -147,7 +147,7 @@ pub struct AssistantMessage {
     content: Vec<Content>,
     api: Api, provider: ProviderId, model: String, response_model: Option<String>,
     usage: Usage, stop_reason: StopReason, error_message: Option<String>,
-    end_turn: Option<bool>, timestamp: i64,
+    end_turn: Option<bool>, timestamp: i64, duration_ms: Option<f64>,
 }
 
 pub struct Context {
