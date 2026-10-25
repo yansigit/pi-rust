@@ -180,7 +180,13 @@ pub(crate) fn replace_message_content(
 ) -> Option<AgentMessage> {
     let mut value = serde_json::to_value(message).ok()?;
     let content = replacement.get("content")?;
-    value["content"] = if matches!(message, AgentMessage::Custom(_)) && content.is_string() {
+    // Pi normalizes a string replacement into a text block for the roles whose
+    // content is a block list (`projectContextEntry`, `session-manager.ts:526-536`).
+    value["content"] = if matches!(
+        message,
+        AgentMessage::Custom(_) | AgentMessage::Assistant(_) | AgentMessage::ToolResult(_)
+    ) && content.is_string()
+    {
         serde_json::json!([{"type":"text", "text":content.as_str()?}])
     } else {
         content.clone()
