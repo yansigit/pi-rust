@@ -1,9 +1,9 @@
 //! Private provider authentication. Callback output never enters event dispatch.
 
-use std::{ffi::c_void, sync::Arc};
+use std::{borrow::Cow, ffi::c_void, sync::Arc};
 
 use rpi_ai::auth::{
-    AuthContext, AuthError, Credential, OAuthCredential, ProviderAuth, RequestAuth,
+    AuthContext, AuthError, Credential, CredentialStore, OAuthCredential, ProviderAuth, RequestAuth,
 };
 #[cfg(test)]
 use rpi_plugin_sdk::{AuthRequestControl, StbString, StbStringRef};
@@ -22,12 +22,17 @@ pub use legacy::LegacyOAuthAuth;
 
 /// Public method discovery.
 ///
-/// `login_label` carries Pi's `oauth.loginLabel`, which the multiprovider rows
-/// render as `loginLabel ?? name`.
-/// `interactive_login` carries whether Pi's `apiKey.login` exists: `Some(false)`
-/// means discovery only, and a host must fall back to a paste prompt. Both are
-/// optional so payloads written before they existed still parse, and unchanged
-/// methods keep their previous JSON.
+/// `login_label` carries Pi's `oauth.loginLabel` (`types.d.ts:222`), which every
+/// surface renders as `loginLabel ?? name`.
+/// `interactive_login` carries whether Pi's `apiKey.login` exists
+/// (`types.d.ts:174`): `Some(false)` means discovery only, and the host then
+/// prompts for the key itself with Pi's `api_key_paste` route. Both are optional
+/// so payloads written before they existed still parse, and unchanged methods
+/// keep their previous JSON.
+///
+/// Neither field is a registration requirement: [`AuthMethod::normalize`] drops
+/// a blank label and an `interactive_login` that the method kind cannot carry
+/// instead of rejecting the provider.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AuthMethod {
@@ -58,11 +63,127 @@ pub struct AuthManifest {
     pub methods: Vec<AuthMethod>,
 }
 
+impl AuthMethod {
+    /// Presentation metadata is advisory, so it is normalized instead of being
+    /// validated: a blank `loginLabel` means "no label" (Pi's `??` then falls
+    /// through to `name`) and `interactiveLogin` describes `apiKey.login` alone,
+    /// so it is meaningless on an OAuth method (`types.d.ts:170-175` vs `216-222`).
+    /// Rejecting either would drop the whole auth surface of a provider whose
+    /// only defect is cosmetic.
+    pub fn normalize(&mut self) {
+        if self
+            .login_label
+            .as_deref()
+            .is_some_and(|label| label.trim().is_empty())
+        {
+            self.login_label = None;
+        }
+        if self.kind != AuthMethodKind::ApiKey {
+            self.interactive_login = None;
+        }
+    }
+
+    /// Pi's auth-method value: `oauth`, `api_key`, or `api_key_paste`
+    /// (`multiprovider.ts:1196-1201`).
+    pub fn login_value(&self) -> &'static str {
+        match self.kind {
+            AuthMethodKind::Oauth => "oauth",
+            AuthMethodKind::ApiKey if self.interactive_login == Some(false) => "api_key_paste",
+            AuthMethodKind::ApiKey => "api_key",
+        }
+    }
+
+    /// Pi's `api_key_paste`: the method only discovers an ambient credential, so
+    /// the host prompts for the key itself instead of entering the provider's
+    /// login flow (`multiprovider.ts:1205-1208`).
+    pub fn requires_paste_prompt(&self) -> bool {
+        self.login_value() == "api_key_paste"
+    }
+
+    /// The one label every host surface renders: `loginLabel ?? name`, plus Pi's
+    /// ` (paste)` suffix for an ambient-only API key.
+    pub fn display_label(&self) -> Cow<'_, str> {
+        let label = self.login_label.as_deref().unwrap_or(&self.name);
+        if self.requires_paste_prompt() {
+            Cow::Owned(format!("{label} (paste)"))
+        } else {
+            Cow::Borrowed(label)
+        }
+    }
+
+    /// Pi's `promptApiKeyCredential` prompt (`Enter <apiKey.name>:`,
+    /// `multilogin.ts:342-357`) used when [`Self::requires_paste_prompt`] holds.
+    pub fn paste_prompt(&self) -> AuthInteraction {
+        AuthInteraction::Input {
+            title: format!("Enter {}:", self.name),
+            message: None,
+            url: None,
+            secret: true,
+            allow_empty: false,
+            continuation: Value::Null,
+        }
+    }
+}
+
+/// Commit a key the host itself prompted for, bypassing the provider-owned
+/// login flow that [`NativeProviderAuth::login`] drives.
+pub async fn replace_pasted_api_key(
+    store: Arc<dyn CredentialStore>,
+    provider: &str,
+    key: String,
+    signal: CancellationToken,
+) -> Result<(), AuthError> {
+    let mut transaction = store.lock(provider, signal).await?;
+    transaction
+        .replace(Credential::ApiKey {
+            key: Some(key),
+            env: Default::default(),
+        })
+        .await
+}
+
+/// Run Pi's `api_key_paste` login for a method whose credential the host owns:
+/// present [`AuthMethod::paste_prompt`], require a non-blank key, then commit it.
+/// The provider's callback is never invoked.
+pub async fn login_with_pasted_key<F, Fut>(
+    provider: &str,
+    method: &AuthMethod,
+    store: Arc<dyn CredentialStore>,
+    signal: CancellationToken,
+    mut interact: F,
+) -> Result<(), AuthError>
+where
+    F: FnMut(AuthInteraction) -> Fut,
+    Fut: std::future::Future<Output = Result<Value, AuthError>>,
+{
+    let answer = tokio::select! {
+        biased;
+        _ = signal.cancelled() => return Err(AuthError::Cancelled),
+        result = interact(method.paste_prompt()) => result?,
+    };
+    let key = answer
+        .get("value")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .ok_or(AuthError::Resolve)?;
+    replace_pasted_api_key(store, provider, key.to_owned(), signal).await
+}
+
 impl AuthManifest {
     pub fn parse(value: &str) -> Result<Self, AuthError> {
-        let manifest: Self = serde_json::from_str(value).map_err(|_| AuthError::Resolve)?;
+        let mut manifest: Self = serde_json::from_str(value).map_err(|_| AuthError::Resolve)?;
+        manifest.normalize();
         manifest.validate()?;
         Ok(manifest)
+    }
+
+    /// Drop advisory presentation metadata a method cannot carry. Static
+    /// manifests and dynamic `authMethods` results both go through this.
+    pub fn normalize(&mut self) {
+        for method in &mut self.methods {
+            method.normalize();
+        }
     }
 
     pub fn validate(&self) -> Result<(), AuthError> {
@@ -73,10 +194,6 @@ impl AuthManifest {
             || self.methods.iter().any(|method| {
                 method.id.trim().is_empty()
                     || method.name.trim().is_empty()
-                    || method
-                        .login_label
-                        .as_deref()
-                        .is_some_and(|label| label.trim().is_empty())
                     || !ids.insert(&method.id)
                     || match method.kind {
                         AuthMethodKind::ApiKey => !self.api_key,
@@ -189,6 +306,7 @@ impl NativeProviderAuth {
                     }
                 })?;
             manifest.methods = serde_json::from_value(value).map_err(|_| AuthError::Resolve)?;
+            manifest.normalize();
             manifest.validate()?;
         }
         Ok(manifest.methods)
