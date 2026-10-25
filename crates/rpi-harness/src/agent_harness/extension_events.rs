@@ -100,8 +100,8 @@ impl AgentHarness {
                 .lifecycle(
                     "session_compact_failed",
                     serde_json::json!({
-                        "reason":"overflow", "automatic":true, "fromExtension":false,
-                        "aborted":false, "willRetry":false, "errorMessage":error,
+                        "reason":"overflow", "fromExtension":false, "aborted":false,
+                        "willRetry":false, "errorMessage":error,
                     }),
                     identity,
                     CancellationToken::new(),
@@ -158,7 +158,7 @@ impl AgentHarness {
                         .lifecycle(
                             "session_before_compact",
                             serde_json::json!({"preparation":prep,"branchEntries":branch_entries,
-                        "customInstructions":options.custom_instructions,"automatic":!manual,
+                        "customInstructions":options.custom_instructions,
                         "reason":reason,"willRetry":will_retry}),
                             identity.clone(),
                             options.signal.clone(),
@@ -204,7 +204,7 @@ impl AgentHarness {
                 let (event, payload) = match &outcome {
                     Ok(Some((_, entry))) => (
                         "session_compact",
-                        serde_json::json!({"compactionEntry":entry,"automatic":!manual,
+                        serde_json::json!({"compactionEntry":entry,
                             "reason":reason,"willRetry":will_retry,"fromExtension":from_extension}),
                     ),
                     Err(error) => (
@@ -240,10 +240,12 @@ fn compaction_failure(
     aborted: bool,
     error: Option<&str>,
 ) -> serde_json::Value {
+    // Pi's `_emitSessionCompactFailed` sends exactly
+    // `{reason, errorMessage, aborted, willRetry, fromExtension}` and omits
+    // `errorMessage` for an abort (`agent-session.ts:3262-3270`, `:1054-1058`).
     let mut payload = serde_json::json!({"reason":reason,"fromExtension":from_extension,
-        "aborted":aborted,"willRetry":false,"automatic":reason != CompactionReason::Manual});
+        "aborted":aborted,"willRetry":false});
     if let Some(error) = error {
-        payload["error"] = error.into();
         if !aborted {
             let prefix = match reason {
                 CompactionReason::Manual => "Compaction failed",
@@ -286,8 +288,6 @@ mod tests {
                 Some(error),
             );
             let fields = actual.as_object_mut().unwrap();
-            fields.remove("error");
-            fields.remove("automatic");
             fields.insert("type".into(), "session_compact_failed".into());
             assert_eq!(&actual, expected, "{} / {mode}", row["reason"]);
             checked += 1;

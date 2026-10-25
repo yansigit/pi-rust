@@ -3314,6 +3314,21 @@ impl AgentHarness {
         self.session.id_generator().next()
     }
 
+    /// Pi `_omitRecoveryAttempt(message, toolResults)`
+    /// (`agent-session.ts:1241-1258`): one durable `context_edit(target, null)`
+    /// per target, appended before the recovery compaction so the preparation
+    /// already sees the omission. Pi throws if a projected target has no source
+    /// entry; callers resolve every id first, for the same reason.
+    async fn omit_recovery_attempt(&self, targets: &[String]) -> HarnessResult<()> {
+        for target_id in targets {
+            self.session
+                .append_context_edit_to_lane(&self.lane, target_id, serde_json::Value::Null)
+                .await
+                .map_err(session_to_harness_err)?;
+        }
+        Ok(())
+    }
+
     /// Write a `tool_started` record on this harness's lane.
     ///
     /// This is the record that lets recovery name the tool whose side effect is
@@ -3851,7 +3866,22 @@ impl AgentHarness {
                 skip_aborted_check: false,
                 overflow_recovery_attempted: false,
             });
-            if let AutoCompactionDecision::Run { reason, .. } = decision {
+            if let AutoCompactionDecision::Run { reason, will_retry } = decision {
+                // Pi persists the recovery omission before preparing the summary
+                // (`_checkCompaction`: `_overflowRecoveryAttempted = true` then
+                // `_omitRecoveryAttempt(...)` then `_runAutoCompaction(...)`,
+                // `agent-session.ts:3071-3075`), and the boundary passes the
+                // assistant's retry intent to the compaction hooks as `willRetry`.
+                let path = if will_retry {
+                    let targets = last_assistant_entry
+                        .as_deref()
+                        .map(|id| recovery_omission_targets(&path, id))
+                        .unwrap_or_default();
+                    self.omit_recovery_attempt(&targets).await?;
+                    self.branch_path_oldest_first().await?
+                } else {
+                    path
+                };
                 if let Some(prep) = projected_preparation(&path, snap.compaction) {
                     let compaction_provider = Self::resolve_provider(&snap.models, &snap.model)
                         .or_else(|_| {
@@ -3879,7 +3909,7 @@ impl AgentHarness {
                         };
                         match self
                             .compact_with_extensions(
-                                &run_id, &prep, &path, &llm_opts, reason, false,
+                                &run_id, &prep, &path, &llm_opts, reason, will_retry,
                             )
                             .await
                         {
@@ -4327,6 +4357,9 @@ impl AgentHarness {
         ));
         let mut overflow_recovery_attempted = false;
         let mut recovery_terminal_error: Option<String> = None;
+        // Set when a successful recovery compaction is followed by an abort:
+        // Pi ends the run as a cancelled retry, not as a finished turn.
+        let mut cancelled_retry = false;
         let mut invocation_attempt = retry_attempt;
         let result = loop {
             // Entering from an assistant runs that message's tools as its very
@@ -4433,11 +4466,7 @@ impl AgentHarness {
                                             targets.push(id);
                                         }
                                     }
-                                    for target_id in targets {
-                                        self.session.storage().append_context_edit(
-                                            self.next_entry_id(), target_id, serde_json::Value::Null, &self.lane,
-                                        ).await.map_err(session_to_harness_err)?;
-                                    }
+                                    self.omit_recovery_attempt(&targets).await?;
                                     let path = self.branch_path_oldest_first().await?;
                                     let Some(prep) = projected_preparation(&path, snap.compaction) else { return Ok(false) };
                                     let llm_opts = CompactionLlmOptions {
@@ -4451,7 +4480,20 @@ impl AgentHarness {
                                         .await.map(|result| result.is_some()).map_err(|error| HarnessError::agent(error.message))
                                 }.await;
                                 match recovery {
-                                    Ok(true) if !signal.is_cancelled() => {
+                                    Ok(true) => {
+                                        // Pi ends the loop instead of continuing when
+                                        // the abort arrived while the recovery
+                                        // compaction ran: `_handlePostAgentRun`
+                                        // returns `!this._agentRunAbortRequested`
+                                        // (`agent-session.ts:1978`), `_startRun`
+                                        // breaks, and its `finally` reports the
+                                        // cancelled retry (`:1878`, `:3776-3786`).
+                                        // The compaction entry is already durable,
+                                        // so the run is cancelled, not finished.
+                                        if signal.is_cancelled() {
+                                            cancelled_retry = true;
+                                            break attempt_result;
+                                        }
                                         invocation_attempt += 1;
                                         settle_state.set_attempt(invocation_attempt);
                                         post_compaction_cut.store(0, Ordering::Release);
@@ -4461,11 +4503,22 @@ impl AgentHarness {
                                         continue;
                                     }
                                     Err(error) => {
+                                        // `_runAutoCompaction` rethrows "Compaction
+                                        // cancelled" only while the abort is live:
+                                        // the catch marks that event `aborted` and
+                                        // returns false (`agent-session.ts:3245-3268`),
+                                        // `_handlePostAgentRun` then reports the run
+                                        // as aborted rather than finishing it
+                                        // (`:1978`, `:3776-3786`).
+                                        if signal.is_cancelled() {
+                                            cancelled_retry = true;
+                                            break attempt_result;
+                                        }
                                         recovery_terminal_error = Some(format!(
                                             "Context overflow recovery failed: {error}"
                                         ));
                                     }
-                                    _ => {}
+                                    Ok(false) => {}
                                 }
                             }
                             _ => {}
@@ -4550,13 +4603,13 @@ impl AgentHarness {
                     .persist_new_messages(&new_messages[start..], start, &settle_state)
                     .await?;
                 // Pi checks the finished turn after it is persisted
-                // (`_handlePostAgentRun` → `_checkCompaction`). Only the
-                // no-retry cases are handled here: overflow recovery that
-                // retries the turn needs Pi's recovery-omission entries, which
-                // the host session model does not have yet (see
-                // docs/provider-parity/host-life.md).
+                // (`_handlePostAgentRun` → `_checkCompaction`), including after a
+                // recovery compaction whose retried turn then finished: the
+                // threshold case has no recovery flag of its own
+                // (`agent-session.ts:3088-3110`). Only the no-retry cases are
+                // handled here — a post-loop `will_retry: true` decision cannot
+                // continue the loop, which has already exited.
                 if recovery_terminal_error.is_none()
-                    && !overflow_recovery_attempted
                     && snap.compaction.enabled
                     && snap.model.context_window > 0
                 {
@@ -4574,7 +4627,10 @@ impl AgentHarness {
                             settings: snap.compaction,
                             assistant_entry_id: last_assistant_entry.as_deref(),
                             skip_aborted_check: true,
-                            overflow_recovery_attempted: false,
+                            // Pi's per-run flag is still set here, so an
+                            // overflowing finished turn reports exhaustion
+                            // instead of starting a second recovery.
+                            overflow_recovery_attempted,
                         });
                         if matches!(
                             decision,
@@ -4655,8 +4711,13 @@ impl AgentHarness {
                 if let Some(message) = recovery_terminal_error.take() {
                     outcome = HarnessRunOutcome::Failed {
                         leaf_id: leaf.clone().unwrap_or_default(),
+                        // Exhaustion is a *recovery* failure: no summarizer ran,
+                        // Pi emits `session_compact_failed` and never
+                        // `session_compact` for it (`agent-session.ts:3047-3062`),
+                        // so `compaction_failed` would misreport a run whose
+                        // compaction succeeded.
                         error: OperationError {
-                            code: "compaction_failed".into(),
+                            code: "overflow_recovery_exhausted".into(),
                             message,
                         },
                         final_entry_id: final_id.clone(),
@@ -4666,6 +4727,31 @@ impl AgentHarness {
                                 _ => None,
                             },
                         ),
+                    };
+                } else if cancelled_retry {
+                    // The recovery compaction is durable, but the turn it was
+                    // about to retry was cancelled: Pi reports that as a
+                    // cancelled retry (`agent-session.ts:1878`, `:3776-3786`),
+                    // so the operation record says aborted instead of claiming
+                    // the overflowing attempt finished the run.
+                    outcome = HarnessRunOutcome::Aborted {
+                        leaf_id: leaf.clone().unwrap_or_default(),
+                        final_entry_id: final_id.clone().unwrap_or_default(),
+                        final_message: new_messages
+                            .iter()
+                            .rev()
+                            .find_map(|message| match message {
+                                AgentMessage::Assistant(message) => Some(message.as_ref().clone()),
+                                _ => None,
+                            })
+                            .unwrap_or_else(|| {
+                                rpi_ai::types::AssistantMessage::empty(
+                                    rpi_ai::Api::AnthropicMessages,
+                                    "",
+                                    "",
+                                    0,
+                                )
+                            }),
                     };
                 }
                 // The run's messages are durable now, so its frames are no
@@ -6050,6 +6136,38 @@ mod queue_tests {
 // ===========================================================================
 // Free helpers
 // ===========================================================================
+
+/// The durable omission targets of one recovery attempt, in branch order: the
+/// assistant entry plus the `toolResult` entries that follow it.
+///
+/// Pi's post-run check passes the turn's tool results explicitly
+/// (`_handlePostAgentRun` → `_checkCompaction(message, true, toolResults)`,
+/// `agent-session.ts:1972-1978`) and `_omitRecoveryAttempt` omits each of them.
+/// At the pre-prompt boundary Pi passes no tool results (`_prepareRun`,
+/// `agent-session.ts:1886-1897`); the host includes them anyway, because an
+/// omitted assistant whose results stay on the branch would leave orphan
+/// `toolResult`s in every later request.
+fn recovery_omission_targets(path: &[Entry], assistant_entry_id: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut started = false;
+    for entry in path {
+        if !started {
+            if entry.id() == assistant_entry_id {
+                started = true;
+                targets.push(entry.id().to_string());
+            }
+            continue;
+        }
+        match entry.as_message() {
+            Some(AgentMessage::ToolResult(_)) => targets.push(entry.id().to_string()),
+            // Only the results that belong to this assistant precede the next
+            // model-visible message.
+            Some(_) => break,
+            None => {}
+        }
+    }
+    targets
+}
 
 /// Map a [`SessionError`] to a [`HarnessError`]. Session storage failures
 /// surface as `Io`; invalid-lane errors surface as `InvalidLane`.
