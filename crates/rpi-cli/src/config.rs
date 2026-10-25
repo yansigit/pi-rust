@@ -1165,6 +1165,50 @@ pub(crate) mod test_support {
             }
         }
     }
+
+    /// Isolate the config-directory override (`RPI_CODING_AGENT_DIR`) for a
+    /// test that needs the process config dir to be a private temporary
+    /// directory. Acquires the shared env lock, and restores the inherited
+    /// value on drop (including on unwind) before releasing it.
+    pub(crate) struct ConfigDirEnv {
+        _guard: std::sync::MutexGuard<'static, ()>,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl ConfigDirEnv {
+        pub(crate) fn new(directory: Option<&std::path::Path>) -> Self {
+            let guard = env_lock().lock().unwrap();
+            let previous = std::env::var_os(crate::config::CONFIG_DIR_ENV);
+            replace(directory);
+            Self {
+                _guard: guard,
+                previous,
+            }
+        }
+
+        /// Repoint the override while this guard still holds the env lock.
+        pub(crate) fn repoint(&self, directory: Option<&std::path::Path>) {
+            replace(directory);
+        }
+    }
+
+    fn replace(directory: Option<&std::path::Path>) {
+        match directory {
+            Some(directory) => {
+                std::env::set_var(crate::config::CONFIG_DIR_ENV, directory);
+            }
+            None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
+        }
+    }
+
+    impl Drop for ConfigDirEnv {
+        fn drop(&mut self) {
+            match self.previous.take() {
+                Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
+                None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
