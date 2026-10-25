@@ -51,7 +51,10 @@ impl ProviderRuntime {
                 rpi_extensions::credential_store::NativeStoreHandle(store),
             ))
         } else {
-            let path = crate::config::auth_path().map_err(|_| "credential storage unavailable")?;
+            let path = self
+                .credential_path
+                .clone()
+                .ok_or("credential storage unavailable")?;
             Ok(Arc::new(
                 crate::config::auth_store::CompatibilityCredentialStore::new(path)
                     .map_err(|e| e.to_string())?,
@@ -307,7 +310,10 @@ impl ProviderRuntime {
                 .filter(|ms| *ms <= 30_000)
                 .ok_or("invalid credential lock timeout")
         })?;
-        let path = crate::config::auth_path().map_err(|_| "credential storage unavailable")?;
+        let path = self
+            .credential_path
+            .clone()
+            .ok_or("credential storage unavailable")?;
         let store = crate::config::auth_store::CompatibilityCredentialStore::new(path)
             .map_err(|e| e.to_string())?;
         let input = args["input"].clone();
