@@ -1447,6 +1447,10 @@ pub type AuthRequestFn = extern "C" fn(
 
 /// Manifest: `{version:1,id,displayName,apiKey,oauth,methods:[{id,name,kind}]}`.
 /// Method kind is `api_key` or `oauth`. No credentials belong in the manifest.
+/// A method may also carry the optional presentation fields `loginLabel`
+/// (string; Pi's `oauth.loginLabel`) and `interactiveLogin` (bool; Pi's
+/// `apiKey.login` exists). Both are omitted when absent, so older manifests and
+/// responses are unchanged; this is a JSON wire addition with no ABI change.
 pub type RegisterProviderAuthFn = extern "C" fn(
     manifest: StbStringRef,
     request: AuthRequestFn,
@@ -1652,6 +1656,8 @@ pub struct PluginApi {
     /// Private versioned runtime ports, scoped to this registration and invocation.
     pub native_request: Option<AuthRequestFn>,
     /// Provider-owned catalog refresh, admission, and auth-method discovery.
+    /// An `authMethods` result is the same method array as the auth manifest,
+    /// including the optional `loginLabel` and `interactiveLogin` fields.
     pub register_provider_runtime: Option<RegisterProviderAuthFn>,
     /// Awaited, ordered event callbacks. Request and response use the versioned JSON event contract.
     pub register_event_result_handler:

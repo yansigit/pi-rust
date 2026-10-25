@@ -265,7 +265,11 @@ async fn select_method(
                 "searchable": true,
                 "choices": methods
                     .iter()
-                    .map(|method| json!({"value": method.id, "label": method.name}))
+                    // Pi renders `loginLabel ?? name`.
+                    .map(|method| json!({
+                        "value": method.id,
+                        "label": method.login_label.as_deref().unwrap_or(&method.name)
+                    }))
                     .collect::<Vec<_>>(),
             });
             let Some(answer) = ask(mailbox, spec, signal).await? else {

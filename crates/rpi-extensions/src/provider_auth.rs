@@ -20,12 +20,24 @@ pub use compatibility::ProviderAuthentication;
 pub use interaction::{AuthChoice, AuthInteraction};
 pub use legacy::LegacyOAuthAuth;
 
+/// Public method discovery.
+///
+/// `login_label` carries Pi's `oauth.loginLabel`, which the multiprovider rows
+/// render as `loginLabel ?? name`.
+/// `interactive_login` carries whether Pi's `apiKey.login` exists: `Some(false)`
+/// means discovery only, and a host must fall back to a paste prompt. Both are
+/// optional so payloads written before they existed still parse, and unchanged
+/// methods keep their previous JSON.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AuthMethod {
     pub id: String,
     pub name: String,
     pub kind: AuthMethodKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub login_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive_login: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -61,6 +73,10 @@ impl AuthManifest {
             || self.methods.iter().any(|method| {
                 method.id.trim().is_empty()
                     || method.name.trim().is_empty()
+                    || method
+                        .login_label
+                        .as_deref()
+                        .is_some_and(|label| label.trim().is_empty())
                     || !ids.insert(&method.id)
                     || match method.kind {
                         AuthMethodKind::ApiKey => !self.api_key,
