@@ -89,6 +89,36 @@ async fn os_conforms_over_tempdir() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
+/// `truncate_file` shrinks an existing file and never grows or creates one.
+async fn check_truncate_file(env: &dyn FileSystem) {
+    env.write_file("log.jsonl", FileContent::Text("keep\ntorn".into()), None)
+        .await
+        .expect("write");
+    env.truncate_file("log.jsonl", 5, None)
+        .await
+        .expect("shrink");
+    assert_eq!(
+        env.read_text_file("log.jsonl", None).await.expect("read"),
+        "keep\n"
+    );
+    assert!(
+        env.truncate_file("log.jsonl", 6, None).await.is_err(),
+        "growing a file must be refused"
+    );
+    assert_eq!(
+        env.read_text_file("log.jsonl", None).await.expect("read"),
+        "keep\n"
+    );
+    assert!(env.truncate_file("missing.jsonl", 0, None).await.is_err());
+}
+
+#[tokio::test]
+async fn truncate_file_only_shrinks_on_both_backends() {
+    let directory = tempfile::tempdir().unwrap();
+    check_truncate_file(&InMemoryExecutionEnv::with_cwd(directory.path().to_owned())).await;
+    check_truncate_file(&OsExecutionEnv::with_cwd(directory.path().to_owned())).await;
+}
+
 #[tokio::test]
 async fn os_cancel_interrupts_even_when_timeout_is_set() {
     let tmp = std::env::temp_dir().join(format!("pi-tools-cancel-{}", std::process::id()));

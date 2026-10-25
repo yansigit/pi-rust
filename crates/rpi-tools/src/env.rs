@@ -225,6 +225,23 @@ pub trait FileSystem: Send + Sync {
         Ok(None)
     }
 
+    /// Cut the file at `path` back to `len` bytes, discarding a tail that a
+    /// failed append left behind. It never grows a file. Backends without it
+    /// fail, so a caller cannot take a tail for clean when it was not cut.
+    async fn truncate_file(
+        &self,
+        path: &str,
+        len: u64,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<(), FileError> {
+        let _ = (len, cancel);
+        Err(FileError::new(
+            FileErrorCode::NotSupported,
+            "file truncation is unavailable",
+        )
+        .with_path(path))
+    }
+
     async fn rename_file(
         &self,
         source: &str,

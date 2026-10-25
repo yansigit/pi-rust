@@ -101,11 +101,11 @@ struct PendingWrite<'a> {
 impl PendingWrite<'_> {
     /// Declare the write's outcome *known*.
     ///
-    /// Two outcomes are known: the line reached the file, or the append
-    /// reported an error, in which case nothing persisted and the failed writer
-    /// handle is discarded so a retry reopens it. Only a drop that never
-    /// settles — the future cancelled or panicking while the append is in
-    /// flight — leaves the on-disk state unknown.
+    /// Two outcomes are known: the line reached the file, or a reported append
+    /// failure was cut back to the state before the append. Only a drop that
+    /// never settles leaves the on-disk state unknown: the future cancelled or
+    /// panicking while the append is in flight, or a failure whose tail could
+    /// not be proven clean. Either refuses writes until a reopen.
     fn settle(&mut self) {
         self.settled = true;
     }
@@ -395,6 +395,26 @@ impl JsonlSessionStorage {
         Ok(())
     }
 
+    /// Restore the session file to its state before a failed reusable-handle
+    /// append. Returns `true` only when that state is proven, so that no later
+    /// append can land after a fragment of the failed one.
+    async fn discard_failed_append(&self, line: &[u8]) -> bool {
+        let path = &self.metadata.path;
+        let Ok(bytes) = self.fs.read_binary_file(path, None).await else {
+            return false;
+        };
+        let Some(start) = failed_append_start(&bytes, line) else {
+            return false;
+        };
+        if start == bytes.len() {
+            return true;
+        }
+        self.fs
+            .truncate_file(path, start as u64, None)
+            .await
+            .is_ok()
+    }
+
     async fn append_mutation_line(
         &self,
         mutation: &SessionMutation,
@@ -422,16 +442,20 @@ impl JsonlSessionStorage {
         }
         if let Some(writer) = append.as_mut() {
             // The tail lock still orders every append, and the writer flushes
-            // before acknowledgement. A failed handle is discarded for retry:
-            // whatever the backend does with a torn write, the next append
-            // reopens the file and rewrites nothing, so the caller may retry.
+            // before acknowledgement. A writer that reports failure may already
+            // have put a prefix of the line on disk, so its handle is discarded
+            // and the file is cut back before the outcome is settled.
             let result = writer.append(line.as_bytes()).await;
             if result.is_err() {
                 *append = None;
-                // The writer reported the failure and is gone, so the line was
-                // not persisted and a retry reopens the handle: the outcome is
-                // known, not uncertain (upstream's discard-and-retry contract).
-                pending.settle();
+                // Known only once the file is provably back at a line boundary,
+                // so the retry reopens the handle and writes after intact lines.
+                // If the tail cannot be proven clean, or the cut fails, the write
+                // stays uncertain and writes are refused until a reopen repairs
+                // the tail.
+                if self.discard_failed_append(line.as_bytes()).await {
+                    pending.settle();
+                }
             }
             file_result(
                 result,
@@ -453,6 +477,24 @@ impl JsonlSessionStorage {
         )?;
         Ok(pending)
     }
+}
+
+/// Where a failed append of `line` begins in the session file `bytes`, or `None`
+/// when the bytes after the last newline are not a prefix of `line`.
+///
+/// Every acknowledged line ends in `\n`, so the bytes after the last newline are
+/// the failed append's own fragment: a prefix of `line`, or nothing. A writer
+/// that reports failure may still have written the whole line, which is then the
+/// file's last bytes; it is cut too, because its state change was never applied.
+fn failed_append_start(bytes: &[u8], line: &[u8]) -> Option<usize> {
+    if bytes.ends_with(line) {
+        return Some(bytes.len() - line.len());
+    }
+    let start = bytes
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1);
+    line.starts_with(&bytes[start..]).then_some(start)
 }
 
 /// Normalize an entry's parent onto the lane's current leaf before applying.
@@ -1166,44 +1208,261 @@ mod tests {
         assert_eq!(storage.append_entry(entry, "main").await.unwrap().seq(), 1);
     }
 
-    #[tokio::test]
-    async fn abandoned_append_poisons_the_session_until_a_reopen() {
-        let fs: Arc<dyn FileSystem> =
-            Arc::new(rpi_tools::InMemoryExecutionEnv::with_cwd("/".into()));
+    /// A reusable writer whose failed append leaves `written(line)` on disk, as a
+    /// write that hits ENOSPC or EIO part-way does.
+    struct WriteThenFail {
+        path: std::path::PathBuf,
+        written: fn(&[u8]) -> Vec<u8>,
+    }
+    #[async_trait::async_trait]
+    impl rpi_tools::env::AppendFile for WriteThenFail {
+        async fn append(&mut self, bytes: &[u8]) -> Result<(), rpi_tools::FileError> {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&self.path)
+                .unwrap();
+            file.write_all(&(self.written)(bytes)).unwrap();
+            Err(rpi_tools::FileError::new(
+                rpi_tools::FileErrorCode::Unknown,
+                "injected write failure after a partial write",
+            ))
+        }
+    }
+
+    /// A reusable writer whose append never completes, like a write the host
+    /// cancels while it is in flight.
+    struct PendingAppend {
+        entered: tokio::sync::mpsc::UnboundedSender<()>,
+    }
+    #[async_trait::async_trait]
+    impl rpi_tools::env::AppendFile for PendingAppend {
+        async fn append(&mut self, _: &[u8]) -> Result<(), rpi_tools::FileError> {
+            let _ = self.entered.send(());
+            std::future::pending().await
+        }
+    }
+
+    fn message_entry(id: &str) -> ProvisionedEntry {
+        ProvisionedEntry {
+            id: id.into(),
+            kind: ProvisionedKind::Message {
+                message: user_msg(id),
+                terminate: None,
+            },
+        }
+    }
+
+    /// A session on a real directory, so its append handle is the OS writer.
+    async fn os_session(
+        temp: &tempfile::TempDir,
+    ) -> (
+        Arc<dyn FileSystem>,
+        Arc<dyn Clock>,
+        Arc<dyn IdGenerator>,
+        JsonlSessionStorage,
+    ) {
+        let fs: Arc<dyn FileSystem> = Arc::new(rpi_tools::OsExecutionEnv::with_cwd(
+            temp.path().to_path_buf(),
+        ));
+        let clock: Arc<dyn Clock> = Arc::new(FakeClock::new());
+        let ids: Arc<dyn IdGenerator> = Arc::new(CounterIdGenerator::new());
         let storage = JsonlSessionStorage::create(
-            fs,
-            "/s.jsonl",
+            fs.clone(),
+            "session.jsonl",
             header(),
-            Arc::new(FakeClock::new()),
-            Arc::new(CounterIdGenerator::new()),
+            clock.clone(),
+            ids.clone(),
         )
         .await
         .unwrap();
-        // A write whose fate was never learned (the future was cancelled or
-        // panicked mid-append) must block further writes: the file may or may
-        // not carry the line, so only a reopen can resynchronize the state.
-        drop(PendingWrite {
-            uncertain: &storage.uncertain,
-            settled: false,
-        });
-        let error = storage
-            .append_entry(
-                ProvisionedEntry {
-                    id: "lost".into(),
-                    kind: ProvisionedKind::Message {
-                        message: user_msg("lost"),
-                        terminate: None,
-                    },
-                },
-                "main",
-            )
+        (fs, clock, ids, storage)
+    }
+
+    /// Every line of the session file must be one whole JSON record. A fragment
+    /// left by a failed append would merge with the line written after it.
+    fn assert_whole_records(path: &std::path::Path) {
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(
+            content.ends_with('\n'),
+            "session must end on a line boundary"
+        );
+        for line in content.lines() {
+            serde_json::from_str::<serde_json::Value>(line)
+                .unwrap_or_else(|error| panic!("torn or merged line {line:?}: {error}"));
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_append_that_tore_a_prefix_is_cut_back_before_the_retry() {
+        let temp = tempfile::tempdir().unwrap();
+        let (fs, clock, ids, storage) = os_session(&temp).await;
+        storage
+            .append_entry(message_entry("before"), "main")
+            .await
+            .unwrap();
+        // Half of the line reaches the file before the writer reports failure.
+        *storage.append.lock().await = Some(Box::new(WriteThenFail {
+            path: temp.path().join("session.jsonl"),
+            written: |line| line[..line.len() / 2].to_vec(),
+        }));
+        assert!(storage
+            .append_entry(message_entry("torn"), "main")
+            .await
+            .is_err());
+        // The retry is acknowledged, and it lands on a clean line boundary.
+        storage
+            .append_entry(message_entry("kept"), "main")
+            .await
+            .unwrap();
+        storage
+            .append_entry(message_entry("after"), "main")
+            .await
+            .unwrap();
+        assert_whole_records(&temp.path().join("session.jsonl"));
+        let reloaded = JsonlSessionStorage::load(fs, "session.jsonl", clock, ids)
+            .await
+            .unwrap();
+        for id in ["before", "kept", "after"] {
+            assert!(
+                reloaded.get_entry(id).await.unwrap().is_some(),
+                "acknowledged entry {id} was lost"
+            );
+        }
+        assert!(reloaded.get_entry("torn").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn failed_append_that_landed_whole_is_removed_before_the_retry() {
+        let temp = tempfile::tempdir().unwrap();
+        let (fs, clock, ids, storage) = os_session(&temp).await;
+        storage
+            .append_entry(message_entry("before"), "main")
+            .await
+            .unwrap();
+        // The whole line reaches the file, yet the writer reports failure. The
+        // state change was never applied, so the line must not survive: the
+        // retry reuses its sequence number.
+        *storage.append.lock().await = Some(Box::new(WriteThenFail {
+            path: temp.path().join("session.jsonl"),
+            written: |line| line.to_vec(),
+        }));
+        assert!(storage
+            .append_entry(message_entry("failed"), "main")
+            .await
+            .is_err());
+        storage
+            .append_entry(message_entry("kept"), "main")
+            .await
+            .unwrap();
+        assert_whole_records(&temp.path().join("session.jsonl"));
+        let reloaded = JsonlSessionStorage::load(fs, "session.jsonl", clock, ids)
+            .await
+            .unwrap();
+        assert!(
+            reloaded.get_entry("kept").await.unwrap().is_some(),
+            "acknowledged entry was shadowed by the failed line"
+        );
+        assert!(reloaded.get_entry("failed").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn failed_append_with_an_unknown_tail_stays_uncertain_until_reopen() {
+        let temp = tempfile::tempdir().unwrap();
+        let (fs, clock, ids, storage) = os_session(&temp).await;
+        storage
+            .append_entry(message_entry("before"), "main")
+            .await
+            .unwrap();
+        // Bytes that are not a prefix of the line cannot be proven to be this
+        // append's own, so the file is not cut and the session refuses writes.
+        *storage.append.lock().await = Some(Box::new(WriteThenFail {
+            path: temp.path().join("session.jsonl"),
+            written: |_| b"XYZ".to_vec(),
+        }));
+        assert!(storage
+            .append_entry(message_entry("torn"), "main")
+            .await
+            .is_err());
+        let refused = storage
+            .append_entry(message_entry("refused"), "main")
             .await
             .unwrap_err();
+        assert!(
+            refused.message.contains("write outcome is uncertain"),
+            "unexpected error: {refused}"
+        );
+        assert!(storage.snapshot().await.is_err());
+        drop(storage);
+        // A reopen repairs the unterminated tail, and the reopened session writes.
+        let reloaded = JsonlSessionStorage::load(fs, "session.jsonl", clock, ids)
+            .await
+            .unwrap();
+        assert!(reloaded.get_entry("before").await.unwrap().is_some());
+        reloaded
+            .append_entry(message_entry("after"), "main")
+            .await
+            .unwrap();
+        assert_whole_records(&temp.path().join("session.jsonl"));
+    }
+
+    #[tokio::test]
+    async fn abandoned_append_poisons_the_session_until_a_reopen() {
+        let temp = tempfile::tempdir().unwrap();
+        let (fs, clock, ids, storage) = os_session(&temp).await;
+        storage
+            .append_entry(message_entry("before"), "main")
+            .await
+            .unwrap();
+        let (entered, mut in_flight) = tokio::sync::mpsc::unbounded_channel();
+        *storage.append.lock().await = Some(Box::new(PendingAppend { entered }));
+        let storage = Arc::new(storage);
+        let work = tokio::spawn({
+            let storage = storage.clone();
+            async move { storage.append_entry(message_entry("lost"), "main").await }
+        });
+        // Cancel only once the append is really in flight, so the outcome is unknown.
+        in_flight.recv().await.unwrap();
+        work.abort();
+        assert!(work.await.unwrap_err().is_cancelled());
+        // A refused write fails at once. Without the guard it would wait on the
+        // abandoned writer, so the timeout turns that hang into a failure.
+        let error = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            storage.append_entry(message_entry("refused"), "main"),
+        )
+        .await
+        .expect("a write after an abandoned append must not wait on it")
+        .unwrap_err();
         assert_eq!(error.code, crate::error::SessionErrorCode::Storage);
         assert!(
             error.message.contains("write outcome is uncertain"),
             "unexpected error: {error}"
         );
+        assert!(storage.snapshot().await.is_err());
+        drop(storage);
+        // Only a reopen resynchronizes the state, and the reopened session writes.
+        let reloaded = JsonlSessionStorage::load(fs, "session.jsonl", clock, ids)
+            .await
+            .unwrap();
+        reloaded
+            .append_entry(message_entry("after"), "main")
+            .await
+            .unwrap();
+        assert_whole_records(&temp.path().join("session.jsonl"));
+    }
+
+    #[test]
+    fn failed_append_start_proves_only_the_fragment_of_its_own_line() {
+        let line: &[u8] = b"{\"seq\":2}\n";
+        // Nothing written, a torn prefix, and the whole line are each cut back
+        // to where the failed append began.
+        assert_eq!(failed_append_start(b"h\nb\n", line), Some(4));
+        assert_eq!(failed_append_start(b"h\nb\n{\"se", line), Some(4));
+        assert_eq!(failed_append_start(b"h\nb\n{\"seq\":2}\n", line), Some(4));
+        // Foreign bytes after the last newline are not this append's to remove.
+        assert_eq!(failed_append_start(b"h\nb\nXYZ", line), None);
     }
 
     #[tokio::test]
