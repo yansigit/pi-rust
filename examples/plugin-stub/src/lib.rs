@@ -298,6 +298,19 @@ extern "C" fn echo_destroy(handle: StepHandle) {
 /// message). A process-global atomic because `extern "C" fn` cannot capture.
 static MESSAGE_END_HITS: AtomicUsize = AtomicUsize::new(0);
 
+/// The default `context` result handler: counts each dispatch and returns no
+/// change, so the messages reach the request untouched.
+extern "C" fn on_context(
+    _input: StbStringRef,
+    _control: *const rpi_plugin_sdk::AuthRequestControl,
+    out: *mut StbString,
+    _context: *mut c_void,
+) -> i32 {
+    CONTEXT_HITS.fetch_add(1, Ordering::SeqCst);
+    unsafe { *out = StbString::from_string(r#"{"version":1,"result":{}}"#.to_string()) };
+    0
+}
+
 /// The handler the plugin registers for `MessageEnd`. Receives a
 /// [`rpi_plugin_sdk::StablePluginEvent`]; per the SDK contract the handler MUST
 /// NOT free the event's strings (the host frees exactly once after the fan-out).
@@ -391,6 +404,18 @@ static PROMPT_TRANSFORM_HITS: AtomicUsize = AtomicUsize::new(0);
 #[no_mangle]
 pub extern "C" fn plugin_stub_prompt_transform_hits() -> usize {
     PROMPT_TRANSFORM_HITS.load(Ordering::SeqCst)
+}
+
+/// How many extension `context` events the stub has received. The host runs
+/// that event once per provider request, so the smoke test reads this to prove
+/// `prepare_request` really dispatched it.
+pub static CONTEXT_HITS: AtomicUsize = AtomicUsize::new(0);
+
+/// Exported so the smoke test can read the `context` hit counter across the
+/// cdylib boundary.
+#[no_mangle]
+pub extern "C" fn plugin_stub_context_hits() -> usize {
+    CONTEXT_HITS.load(Ordering::SeqCst)
 }
 
 rpi_plugin_sdk::string_handler! {
@@ -874,6 +899,22 @@ rpi_plugin_sdk::export_plugin!(|api| {
         return 2;
     };
     let rc = register_event_handler(EventTag::MessageEnd, on_message_end, std::ptr::null_mut());
+    if rc != 0 {
+        return rc;
+    }
+
+    // The default `context` hook: an awaited result handler that counts each
+    // dispatch and changes nothing. The smoke test reads the count to prove the
+    // host runs this event once per provider request.
+    let Some(register_event_result_handler) = api.register_event_result_handler else {
+        return 2;
+    };
+    let rc = register_event_result_handler(
+        EventTag::Context,
+        on_context,
+        plugin_free_string,
+        std::ptr::null_mut(),
+    );
     if rc != 0 {
         return rc;
     }

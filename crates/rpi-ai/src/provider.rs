@@ -471,6 +471,13 @@ pub trait ProviderHooks: Send + Sync {
     /// Awaited before the provider opens a stream. Existing synchronous hooks
     /// retain their order; native result handlers override this boundary.
     ///
+    /// The default chain runs [`Self::transform_context`] and then
+    /// [`Self::before_request`], both on every provider request of a run. An
+    /// implementation that overrides this method owns its own cadence:
+    /// `ExtensionProviderHooks` runs the extension `context` event on every
+    /// request and applies its `before_agent_start` bridge once per run, in
+    /// [`Self::begin_operation`], as pi does.
+    ///
     /// The context arrives as a [`std::borrow::Cow`] so an observer-only hook
     /// keeps the caller's history borrowed — the provider's zero-copy fast path
     /// — and a copy is materialised only when a patch actually changes
@@ -496,12 +503,17 @@ pub trait ProviderHooks: Send + Sync {
     /// harness applies to a clone of `ctx` before calling the provider; return
     /// `None` to leave `ctx` untouched.
     ///
-    /// This is the seam pi calls `transform_context`
-    /// (`harness/execution/assistant.ts:142`), and it fires on **every** provider
-    /// request of a run — the same cadence as [`Self::before_request`], and the
-    /// reason a plugin can change the prompt for one turn without the change
-    /// sticking to the session. It runs before `before_request` so a prompt the
-    /// hook installs is what that request carries.
+    /// This is the seam pi calls `transformContext` on the harness path
+    /// (`pi-agent-core` `dist/harness/execution/assistant.js`). The default
+    /// [`Self::prepare_request`] chain calls it on **every** provider request of
+    /// a run, the same cadence as [`Self::before_request`]. A change therefore
+    /// applies to that request and does not stick to the session. It runs before
+    /// `before_request`, so a prompt the hook installs is what that request
+    /// carries.
+    ///
+    /// `ExtensionProviderHooks` does not fire it per request: its bridge is the
+    /// extension `before_agent_start` event, which pi fires once per run, so the
+    /// bridge runs once in [`Self::begin_operation`].
     ///
     /// Unlike `before_request` this cannot patch `opts`; the two are separate so
     /// a caller can reason about "what the model sees" independently of "how the

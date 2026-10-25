@@ -2407,6 +2407,7 @@ dependencies = [
  "libloading",
  "rpi-agent",
  "rpi-ai",
+ "rpi-harness",
  "rpi-plugin-sdk",
  "serde",
  "serde_json",

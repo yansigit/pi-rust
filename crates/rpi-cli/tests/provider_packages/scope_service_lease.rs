@@ -6,18 +6,60 @@ use rpi_harness::{
     types::{AgentHarnessOptions, CompactionSettings},
 };
 use serde_json::{json, Value};
-async fn wait_file(path: &Path) {
+/// Wait until `path` holds a complete JSON document and return it.
+///
+/// The plugin creates the file before it writes the payload, so neither the
+/// directory entry nor a non-empty length proves the write finished: a reader
+/// that stops at the first non-empty read can see a prefix ("EOF while parsing
+/// a value", or a truncated object). Only a payload that parses is accepted.
+async fn wait_json_file(path: &Path) -> Value {
     tokio::time::timeout(Duration::from_secs(20), async {
-        // Wait for the handshake *payload*, not just the directory entry: the
-        // plugin creates the file before it writes it, so an existence-only
-        // wait can hand the reader an empty file ("EOF while parsing a
-        // value") whenever the machine is busy.
-        while !std::fs::metadata(path).is_ok_and(|metadata| metadata.len() > 0) {
+        loop {
+            if let Some(value) = std::fs::read(path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+            {
+                return value;
+            }
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
     .await
-    .unwrap_or_else(|_| panic!("missing {}", path.display()));
+    .unwrap_or_else(|_| panic!("missing or incomplete {}", path.display()))
+}
+
+/// Wait until `path` holds exactly `expected`. A text marker has no
+/// self-delimiting form, so the expected value is the completeness check.
+async fn wait_text_file(path: &Path, expected: &str) {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !std::fs::read_to_string(path).is_ok_and(|text| text == expected) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| {
+        panic!(
+            "missing or incomplete {} (expected {expected:?})",
+            path.display()
+        )
+    });
+}
+
+#[tokio::test]
+async fn wait_json_file_waits_for_the_whole_payload() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("result");
+    std::fs::write(&path, br#"{"status":"#).unwrap();
+    let writer = {
+        let path = path.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            std::fs::write(&path, br#"{"status":"done"}"#).unwrap();
+        })
+    };
+    let value = wait_json_file(&path).await;
+    writer.await.unwrap();
+    assert_eq!(value, json!({"status": "done"}));
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_and_revocable() {
@@ -158,7 +200,7 @@ async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_an
             child.execution_scope.run(work).await
         };
         assert_eq!(message.stop_reason, StopReason::Stop, "{message:?}");
-        wait_file(&marker.with_extension("ready")).await;
+        wait_text_file(&marker.with_extension("ready"), "expired").await;
         // An independently observed ordinary invocation expiry is the worker's gate.
         assert_eq!(
             std::fs::read_to_string(marker.with_extension("ready")).unwrap(),
@@ -199,10 +241,7 @@ async fn loaded_scope_service_compaction_after_callback_is_selected_idle_only_an
             _ => {}
         }
         std::fs::write(marker.with_extension("go"), "go").unwrap();
-        wait_file(&marker.with_extension("result")).await;
-        let result: Value =
-            serde_json::from_slice(&std::fs::read(marker.with_extension("result")).unwrap())
-                .unwrap();
+        let result = wait_json_file(&marker.with_extension("result")).await;
         match scenario {
             "child" | "main" | "main-via-child" | "child-via-main" => {
                 assert_eq!(result["idle"]["Ok"]["isIdle"], true, "{result}");

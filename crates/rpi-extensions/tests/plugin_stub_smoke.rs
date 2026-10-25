@@ -740,6 +740,23 @@ fn stub_prompt_transform_hits(stub_path: &std::path::Path) -> usize {
     hits
 }
 
+/// Read the stub's `plugin_stub_context_hits` counter through the cdylib.
+fn stub_context_hits(stub_path: &std::path::Path) -> usize {
+    let lib = match unsafe { libloading::Library::new(stub_path) } {
+        Ok(l) => l,
+        Err(_) => return 0,
+    };
+    type HitFn = extern "C" fn() -> usize;
+    let sym: libloading::Symbol<HitFn> = match unsafe { lib.get(b"plugin_stub_context_hits\0") } {
+        Ok(s) => s,
+        Err(_) => return 0,
+    };
+    let hits = sym();
+    drop(sym);
+    drop(lib);
+    hits
+}
+
 /// The system-prompt transform, driven end to end through the **real** cdylib.
 ///
 /// This is the E2E proof that a plugin can change what the model is asked with:
@@ -834,8 +851,16 @@ async fn a_real_cdylib_can_replace_the_system_prompt() {
 
     let mut context: std::borrow::Cow<'_, rpi_ai::Context> = std::borrow::Cow::Owned(ctx.clone());
     context.to_mut().system_prompt = Some(applied.clone());
+    let context_hits_before = stub_context_hits(&stub_path);
     hooks.prepare_request(&model, &mut context, &mut opts).await;
     hooks.prepare_request(&model, &mut context, &mut opts).await;
+    // The `context` event is the per-request hook. A `prepare_request` that did
+    // nothing would leave the stub's counter where it was.
+    assert_eq!(
+        stub_context_hits(&stub_path),
+        context_hits_before + 2,
+        "prepare_request must dispatch the context event once per provider request"
+    );
     assert_eq!(context.system_prompt.as_deref(), Some(applied.as_str()));
     assert_eq!(
         stub_prompt_transform_hits(&stub_path),
