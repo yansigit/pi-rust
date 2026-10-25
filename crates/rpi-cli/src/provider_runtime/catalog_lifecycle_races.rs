@@ -154,19 +154,8 @@ async fn cancelled_recomposition_does_not_install_or_revoke() {
 
 #[tokio::test]
 async fn credential_mutation_invalidates_a_snapshot_captured_before_logout() {
-    let _lock = crate::config::test_support::env_lock().lock().unwrap();
-    struct Restore(Option<std::ffi::OsString>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            match self.0.take() {
-                Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
-                None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
-            }
-        }
-    }
-    let _restore = Restore(std::env::var_os(crate::config::CONFIG_DIR_ENV));
     let directory = tempfile::tempdir().unwrap();
-    std::env::set_var(crate::config::CONFIG_DIR_ENV, directory.path());
+    let _environment = crate::config::test_support::ConfigDirEnv::new(Some(directory.path()));
     let (runtime, owner, _) = fixture();
     let ticket = runtime
         .state

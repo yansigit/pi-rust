@@ -114,19 +114,30 @@ fn fixture() -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
 fn fixture_with(
     configure: impl FnOnce(&mut rpi_extensions::ExtensionRegistry),
 ) -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
-    fixture_seeded(configure, false)
+    fixture_with_config(configure, Default::default())
 }
-/// Disk-seeded fixture (`ProviderRuntime::new`). Callers must hold
-/// `config::test_support::env_lock()` with `CONFIG_DIR_ENV` pointed at a
-/// temporary directory.
+/// Hermetic fixture over an explicit frozen config (rpi-only test extension: Pi
+/// `modelsPath: null` means an empty config, not a pinned one).
+fn fixture_with_config(
+    configure: impl FnOnce(&mut rpi_extensions::ExtensionRegistry),
+    config: crate::config::ModelsConfig,
+) -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
+    fixture_sourced(configure, Some(config))
+}
+/// Disk-seeded fixture (`ProviderRuntime::new`). Callers must hold the config
+/// dir override (`config::test_support::ConfigDirEnv`) pointed at a temporary
+/// directory.
 fn fixture_from_disk(
     configure: impl FnOnce(&mut rpi_extensions::ExtensionRegistry),
 ) -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
-    fixture_seeded(configure, true)
+    fixture_sourced(configure, None)
 }
-fn fixture_seeded(
+fn models_config(value: Value) -> crate::config::ModelsConfig {
+    serde_json::from_value(value).unwrap()
+}
+fn fixture_sourced(
     configure: impl FnOnce(&mut rpi_extensions::ExtensionRegistry),
-    from_disk: bool,
+    config: Option<crate::config::ModelsConfig>,
 ) -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
     let host = Arc::new(Host::default());
     let bridge = rpi_extensions::ActionBridge::new(tokio::runtime::Handle::current(), host.clone());
@@ -158,10 +169,9 @@ fn fixture_seeded(
         Some(bridge.clone()),
     );
     let providers: Vec<Arc<dyn Provider>> = vec![Arc::new(TestProvider(vec![model("old")]))];
-    let runtime = if from_disk {
-        ProviderRuntime::new(&session, &bridge, providers, vec![])
-    } else {
-        ProviderRuntime::with_config(&session, &bridge, providers, vec![], Default::default())
+    let runtime = match config {
+        Some(config) => ProviderRuntime::with_config(&session, &bridge, providers, vec![], config),
+        None => ProviderRuntime::new(&session, &bridge, providers, vec![]),
     }
     .unwrap();
     (runtime, owner, host)
@@ -449,15 +459,6 @@ async fn late_refresh_cannot_overwrite_a_newer_publication() {
 #[test]
 fn native_credential_transition_is_owner_bound_and_retains_lock_through_cancelled_commit() {
     use fs2::FileExt;
-    struct Environment(Option<std::ffi::OsString>);
-    impl Drop for Environment {
-        fn drop(&mut self) {
-            match self.0.take() {
-                Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
-                None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
-            }
-        }
-    }
     struct Gate {
         started: tokio::sync::Notify,
         release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
@@ -502,10 +503,8 @@ fn native_credential_transition_is_owner_bound_and_retains_lock_through_cancelle
             0
         })
     }
-    let _environment_lock = crate::config::test_support::env_lock().lock().unwrap();
     let root = tempfile::tempdir().unwrap();
-    let _environment = Environment(std::env::var_os(crate::config::CONFIG_DIR_ENV));
-    std::env::set_var(crate::config::CONFIG_DIR_ENV, root.path());
+    let _environment = crate::config::test_support::ConfigDirEnv::new(Some(root.path()));
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let (release, receiver) = std::sync::mpsc::channel();
         let gate = Arc::new(Gate {
@@ -593,15 +592,6 @@ fn native_credential_transition_is_owner_bound_and_retains_lock_through_cancelle
 
 #[test]
 fn owned_auth_resolution_keeps_configuration_private_and_environment_request_local() {
-    struct Environment(Option<std::ffi::OsString>);
-    impl Drop for Environment {
-        fn drop(&mut self) {
-            match self.0.take() {
-                Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
-                None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
-            }
-        }
-    }
     extern "C" fn auth(
         input: rpi_plugin_sdk::StbStringRef,
         _: *const rpi_plugin_sdk::AuthRequestControl,
@@ -623,10 +613,8 @@ fn owned_auth_resolution_keeps_configuration_private_and_environment_request_loc
             0
         })
     }
-    let _lock = crate::config::test_support::env_lock().lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
-    let _environment = Environment(std::env::var_os(crate::config::CONFIG_DIR_ENV));
-    std::env::set_var(crate::config::CONFIG_DIR_ENV, directory.path());
+    let _environment = crate::config::test_support::ConfigDirEnv::new(Some(directory.path()));
     std::fs::write(directory.path().join("models.json"), r#"{"providers":{"test":{"apiKey":"configured-private-key","headers":{"X-Overlay":"${RPI_AUTH_TEST_OVERLAY}"}}}}"#).unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     tokio::runtime::Runtime::new().unwrap().block_on(async {
@@ -798,13 +786,11 @@ async fn awaited_publication_commits_once_and_rejects_stale_or_expired_refresh_t
 /// pass before anything publishes a catalog over it.
 #[tokio::test]
 async fn construction_seeds_disk_config_and_credential_availability() {
-    let _guard = crate::config::test_support::env_lock().lock().unwrap();
     let agent = tempfile::tempdir().unwrap();
-    let previous = std::env::var_os(crate::config::CONFIG_DIR_ENV);
-    std::env::set_var(crate::config::CONFIG_DIR_ENV, agent.path());
-    std::fs::write(
-        agent.path().join("models.json"),
-        r#"{"providers":{"test":{"baseUrl":"https://configured.invalid"}}}"#,
+    let _environment = crate::config::test_support::ConfigDirEnv::new(Some(agent.path()));
+    crate::config::atomic_write(
+        &agent.path().join("models.json"),
+        br#"{"providers":{"test":{"baseUrl":"https://configured.invalid"}}}"#,
     )
     .unwrap();
 
@@ -840,11 +826,6 @@ async fn construction_seeds_disk_config_and_credential_availability() {
             .unwrap()["revision"],
         revision
     );
-
-    match previous {
-        Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
-        None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
-    }
 }
 
 /// A disk-backed runtime's catalog refresh re-reads `models.json` (Pi
@@ -852,45 +833,86 @@ async fn construction_seeds_disk_config_and_credential_availability() {
 /// unlocked tests never observe another test's config directory.
 #[tokio::test]
 async fn refresh_reads_models_json_only_for_disk_backed_runtimes() {
-    let _guard = crate::config::test_support::env_lock().lock().unwrap();
     let agent = tempfile::tempdir().unwrap();
-    let previous = std::env::var_os(crate::config::CONFIG_DIR_ENV);
-    std::env::set_var(crate::config::CONFIG_DIR_ENV, agent.path());
+    let _environment = crate::config::test_support::ConfigDirEnv::new(Some(agent.path()));
 
     let (disk, disk_owner, _) = fixture_from_disk(|_| {});
-    let (hermetic, hermetic_owner, _) = fixture_with(|_| {});
-    std::fs::write(
-        agent.path().join("models.json"),
-        r#"{"providers":{"configured":{"baseUrl":"https://configured.invalid","apiKey":"k","api":"openai-completions","models":[{"id":"configured-model"}]}}}"#,
-    )
-    .unwrap();
-    for (runtime, owner) in [(&disk, &disk_owner), (&hermetic, &hermetic_owner)] {
-        request(
-            runtime,
-            owner.clone(),
-            json!({"action":"refresh","allowNetwork":false}),
+    let (hermetic, hermetic_owner, _) = fixture_with_config(
+        |_| {},
+        models_config(json!({
+            "providers": {"fixed": {
+                "baseUrl": "https://fixed.invalid",
+                "apiKey": "frozen-key",
+                "api": "openai-completions",
+                "models": [{"id": "fixed-model"}]
+            }}
+        })),
+    );
+    // A hermetic runtime keeps a *non-empty* config, so it can only report a
+    // file-backed provider if it actually re-read the disk (`Fixed(_) =>
+    // Ok(Default)` would instead drop its own frozen provider).
+    let write = |providers: &str| {
+        crate::config::atomic_write(
+            &agent.path().join("models.json"),
+            format!("{{\"providers\":{{{providers}}}}}").as_bytes(),
         )
-        .await
         .unwrap();
-    }
-    let configured = |runtime: &ProviderRuntime| {
+    };
+    let refresh = |runtime: &Arc<ProviderRuntime>, owner: &NativeOwner| {
+        let runtime = runtime.clone();
+        let owner = owner.clone();
+        async move {
+            request(
+                &runtime,
+                owner,
+                json!({"action":"refresh","allowNetwork":false}),
+            )
+            .await
+            .unwrap();
+        }
+    };
+    let seen = |runtime: &ProviderRuntime, provider: &str| {
         let runtime = runtime.state.try_lock().unwrap();
         (
-            runtime.config.providers.contains_key("configured"),
+            runtime.config.providers.contains_key(provider),
             runtime
                 .catalog
                 .list_providers()
                 .iter()
-                .any(|provider| provider.id == "configured"),
+                .any(|listed| listed.id == provider),
         )
     };
-    assert_eq!(configured(&disk), (true, true));
-    assert_eq!(configured(&hermetic), (false, false));
+    write(
+        r#""configured":{"baseUrl":"https://configured.invalid","apiKey":"k","api":"openai-completions","models":[{"id":"configured-model"}]}"#,
+    );
+    refresh(&disk, &disk_owner).await;
+    refresh(&hermetic, &hermetic_owner).await;
+    assert_eq!(seen(&disk, "configured"), (true, true));
+    assert_eq!(seen(&hermetic, "configured"), (false, false));
+    assert_eq!(
+        seen(&hermetic, "fixed"),
+        (true, true),
+        "a hermetic runtime must keep its frozen provider"
+    );
 
-    match previous {
-        Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
-        None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
-    }
+    // The disk runtime follows the file on every pass; the hermetic runtime
+    // must not, even when the file changed in between.
+    write(
+        r#""other":{"baseUrl":"https://other.invalid","apiKey":"k","api":"openai-completions","models":[{"id":"other-model"}]}"#,
+    );
+    refresh(&disk, &disk_owner).await;
+    refresh(&hermetic, &hermetic_owner).await;
+    assert_eq!(seen(&disk, "other"), (true, true));
+    assert_eq!(
+        seen(&disk, "configured"),
+        (false, false),
+        "a disk runtime adopts the file wholesale"
+    );
+    // A disk runtime adopts the file, so it never keeps the frozen provider.
+    assert_eq!(seen(&disk, "fixed"), (false, false));
+    assert_eq!(seen(&hermetic, "other"), (false, false));
+    assert_eq!(seen(&hermetic, "configured"), (false, false));
+    assert_eq!(seen(&hermetic, "fixed"), (true, true));
 }
 
 /// D-2: a publication installs the host snapshot with the runtime state mutex
@@ -914,4 +936,154 @@ async fn host_install_runs_with_the_state_lock_released() {
         "the host install must not run under the runtime state mutex"
     );
     assert_eq!(host.installs.load(Ordering::SeqCst), 1);
+}
+
+/// Security: reporting credential *presence* must never run a `!command` API
+/// key. Pi returns command values unresolved from storage
+/// (`auth-storage.js:213-214`) and reports them as configured without executing
+/// them (`provider-composer.js:266-267`); resolution stays request-time work.
+#[tokio::test]
+async fn availability_reports_command_credentials_without_executing_them() {
+    let agent = tempfile::tempdir().unwrap();
+    let _environment = crate::config::test_support::ConfigDirEnv::new(Some(agent.path()));
+    let marker = agent.path().join("credential-command-ran");
+    let credential =
+        json!({"test": {"type": "api_key", "key": format!("!touch {}", marker.display())}});
+    crate::config::atomic_write(
+        &agent.path().join("auth.json"),
+        serde_json::to_vec(&credential).unwrap().as_slice(),
+    )
+    .unwrap();
+
+    let (runtime, owner, _) = fixture();
+    let status = runtime
+        .request(
+            owner,
+            json!({"port":"auth","action":"status","providerId":"test"}),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(status, json!({"present":true,"type":"api_key"}));
+    assert!(
+        !marker.exists(),
+        "credential availability must not execute a command credential"
+    );
+
+    // Request-time resolution is unchanged: a request still resolves (and
+    // therefore runs) the command value.
+    let store = crate::config::auth_store::CompatibilityCredentialStore::new(
+        agent.path().join("auth.json"),
+    )
+    .unwrap();
+    use rpi_ai::auth::CredentialStore;
+    assert!(store.read("test").await.unwrap().is_some());
+    assert!(
+        marker.exists(),
+        "a resolving read must still resolve the command credential"
+    );
+}
+
+/// MEDIUM-1: a hermetic runtime binds native auth from its frozen config. It
+/// must never read `models.json`, whose writer is another process or test.
+#[tokio::test]
+async fn hermetic_construction_reads_the_frozen_config_not_models_json() {
+    extern "C" fn auth(
+        _: rpi_plugin_sdk::StbStringRef,
+        _: *const rpi_plugin_sdk::AuthRequestControl,
+        _: *mut rpi_plugin_sdk::StbString,
+        _: *mut std::ffi::c_void,
+    ) -> i32 {
+        1
+    }
+    let agent = tempfile::tempdir().unwrap();
+    let _environment = crate::config::test_support::ConfigDirEnv::new(Some(agent.path()));
+    // A truncated file is what a concurrent writer leaves behind: a hermetic
+    // runtime that parsed it would fail construction here.
+    crate::config::atomic_write(&agent.path().join("models.json"), b"{").unwrap();
+
+    let (runtime, _, _) = fixture_with_config(
+        |registry| {
+            registry.register_provider_auth(
+                rpi_extensions::provider_auth::RegisteredAuthProvider {
+                    action_bridge: None,
+                    plugin: "test-plugin".into(),
+                    manifest: serde_json::from_value(json!({"version":1,"id":"test","displayName":"Test","apiKey":true,"oauth":false,"methods":[]})).unwrap(),
+                    request_fn: auth,
+                    plugin_free_string: rpi_plugin_sdk::callbacks::free_string,
+                    user_data: std::ptr::null_mut(),
+                },
+            );
+        },
+        models_config(json!({"providers":{"test":{"apiKey":"frozen-key"}}})),
+    );
+    assert!(
+        runtime.auth.contains_key("test"),
+        "the frozen config must decide the native credential bindings"
+    );
+}
+
+/// MEDIUM-2: Pi freezes credential storage on the runtime
+/// (`model-runtime.js:80`), so a later config-dir change cannot redirect the
+/// credential reads of an already-created runtime.
+#[tokio::test]
+async fn credential_store_path_is_pinned_by_construction() {
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let environment = crate::config::test_support::ConfigDirEnv::new(Some(first.path()));
+    crate::config::atomic_write(
+        &first.path().join("auth.json"),
+        br#"{"test":{"type":"api_key","key":"stored-in-first"}}"#,
+    )
+    .unwrap();
+
+    let (runtime, owner, _) = fixture();
+    environment.repoint(Some(second.path()));
+    let status = runtime
+        .request(
+            owner,
+            json!({"port":"auth","action":"status","providerId":"test"}),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        status,
+        json!({"present":true,"type":"api_key"}),
+        "the store path is frozen at construction, not re-resolved per request"
+    );
+
+    // A runtime created after the change resolves the new directory: this is
+    // the behaviour the pin preserves for fresh runtimes.
+    let (later, later_owner, _) = fixture();
+    assert_eq!(
+        later
+            .request(
+                later_owner,
+                json!({"port":"auth","action":"status","providerId":"test"}),
+                CancellationToken::new(),
+            )
+            .await
+            .unwrap(),
+        json!({"present":false})
+    );
+}
+
+/// LOW-2: child runtimes serve child sessions of the same runtime, so they must
+/// answer from their parent's config source instead of falling back to disk.
+#[tokio::test]
+async fn child_runtimes_inherit_the_config_source() {
+    let agent = tempfile::tempdir().unwrap();
+    let _environment = crate::config::test_support::ConfigDirEnv::new(Some(agent.path()));
+    let (disk, _, _) = fixture_from_disk(|_| {});
+    let (hermetic, _, _) = fixture_with(|_| {});
+    assert!(matches!(&*hermetic.config_source, ConfigSource::Fixed(_)));
+    assert!(matches!(&*disk.config_source, ConfigSource::Disk));
+
+    let scope = Arc::new(rpi_agent::tool_execution_scope::ToolExecutionScope::default());
+    let child = scope.run(hermetic.for_current_scope()).await.unwrap();
+    assert!(Arc::ptr_eq(&child.config_source, &hermetic.config_source));
+    assert!(matches!(&*child.config_source, ConfigSource::Fixed(_)));
+    let child = scope.run(disk.for_current_scope()).await.unwrap();
+    assert!(matches!(&*child.config_source, ConfigSource::Disk));
 }
