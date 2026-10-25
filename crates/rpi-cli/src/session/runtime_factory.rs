@@ -98,54 +98,7 @@ impl SessionRuntimeFactory {
         file: Option<&str>,
         reason: SessionReplacementReason,
     ) -> Result<(), String> {
-        let cwd = self.cwd.canonicalize().map_err(|e| e.to_string())?;
-        if !cwd.is_dir() {
-            return Err(format!(
-                "Session working directory does not exist: {}",
-                self.cwd.display()
-            ));
-        }
-        if let Some(source) = file.and_then(import_provenance) {
-            if reason == SessionReplacementReason::Import {
-                return Ok(());
-            }
-            return Err(format!(
-                "imported session from {source} is archive-only: Pi v1-v3 session logs \
-                 are not resumable; start a new session or re-import it"
-            ));
-        }
-        // Native CLI sessions are JSONL. The shared SessionMetadata intentionally
-        // has no cwd; validate the durable header rather than assuming the host cwd.
-        use std::io::BufRead;
-        let header = match file {
-            Some(file) => {
-                let line =
-                    std::io::BufReader::new(std::fs::File::open(file).map_err(|e| e.to_string())?)
-                        .lines()
-                        .next()
-                        .transpose()
-                        .map_err(|e| e.to_string())?
-                        .ok_or("session file is empty")?;
-                serde_json::from_str::<serde_json::Value>(&line).map_err(|e| e.to_string())?
-            }
-            None => serde_json::Value::Null,
-        };
-        let header_cwd = header
-            .get("cwd")
-            .and_then(|cwd| cwd.as_str())
-            .unwrap_or_else(|| self.cwd.to_str().unwrap_or(""));
-        let destination = Path::new(header_cwd);
-        if !destination.is_dir() {
-            return Err(format!(
-                "Session working directory does not exist: {header_cwd}"
-            ));
-        }
-        if destination.canonicalize().map_err(|e| e.to_string())? != cwd {
-            return Err(
-                "cross-cwd session replacement requires rebuilding cwd-bound services".into(),
-            );
-        }
-        Ok(())
+        validate_destination_cwd(&self.cwd, file, reason)
     }
 
     /// Register against a NEW bridge only after outgoing shutdown/invalidation.
@@ -325,5 +278,104 @@ impl SessionRuntimeFactory {
         *ctx.extension_session.lock().unwrap() = session;
         *ctx.action_bridge.lock().unwrap() = Some(bridge);
         RebuildOutcome::Installed
+    }
+}
+
+/// [`SessionRuntimeFactory::validate_destination`] over an explicit cwd, so the
+/// rule for each replacement reason is exercisable without a live factory.
+pub(super) fn validate_destination_cwd(
+    cwd: &Path,
+    file: Option<&str>,
+    reason: SessionReplacementReason,
+) -> Result<(), String> {
+    // Check existence before canonicalizing: a missing directory would otherwise
+    // surface as a bare io error instead of the actionable message.
+    if !cwd.is_dir() {
+        return Err(format!(
+            "Session working directory does not exist: {}",
+            cwd.display()
+        ));
+    }
+    let cwd = cwd.canonicalize().map_err(|e| e.to_string())?;
+    if let Some(source) = file.and_then(import_provenance) {
+        if reason == SessionReplacementReason::Import {
+            return Ok(());
+        }
+        return Err(format!(
+            "imported session from {source} is archive-only: Pi v1-v3 session logs \
+             are not resumable; start a new session or re-import it"
+        ));
+    }
+    // Native CLI sessions are JSONL. The shared SessionMetadata intentionally
+    // has no cwd; validate the durable header rather than assuming the host cwd.
+    use std::io::BufRead;
+    let header = match file {
+        Some(file) => {
+            let line =
+                std::io::BufReader::new(std::fs::File::open(file).map_err(|e| e.to_string())?)
+                    .lines()
+                    .next()
+                    .transpose()
+                    .map_err(|e| e.to_string())?
+                    .ok_or("session file is empty")?;
+            serde_json::from_str::<serde_json::Value>(&line).map_err(|e| e.to_string())?
+        }
+        None => serde_json::Value::Null,
+    };
+    let header_cwd = header
+        .get("cwd")
+        .and_then(|cwd| cwd.as_str())
+        .unwrap_or_else(|| cwd.to_str().unwrap_or(""));
+    let destination = Path::new(header_cwd);
+    if !destination.is_dir() {
+        return Err(format!(
+            "Session working directory does not exist: {header_cwd}"
+        ));
+    }
+    if destination.canonicalize().map_err(|e| e.to_string())? != cwd {
+        return Err("cross-cwd session replacement requires rebuilding cwd-bound services".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod validate_destination_tests {
+    use super::*;
+
+    /// B-3: `Import` is validated, not bypassed — the cwd the copy runs in must
+    /// exist — and it accepts the archive it is creating. `Resume` of the same
+    /// archive is refused by the archive rule, never by the header cwd that the
+    /// verbatim copy preserves.
+    #[test]
+    fn import_is_validated_and_only_import_accepts_an_archive() {
+        let temporary = tempfile::tempdir().unwrap();
+        let cwd = temporary.path().join("project");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let archive = temporary.path().join("archive.jsonl");
+        std::fs::write(&archive, "{\"cwd\":\"/elsewhere\"}\n").unwrap();
+        std::fs::write(
+            import_marker_path(&archive.to_string_lossy()),
+            "{\"source\":\"/elsewhere/log.jsonl\"}",
+        )
+        .unwrap();
+        let archive = archive.to_string_lossy().into_owned();
+
+        assert_eq!(
+            validate_destination_cwd(&cwd, Some(&archive), SessionReplacementReason::Import),
+            Ok(())
+        );
+        let refused =
+            validate_destination_cwd(&cwd, Some(&archive), SessionReplacementReason::Resume)
+                .expect_err("resuming an archive must be refused");
+        assert!(refused.contains("archive-only"), "{refused}");
+        assert!(!refused.contains("cross-cwd"), "{refused}");
+
+        // With the destination gone the same archive is refused for import too:
+        // import goes through validation rather than around it (B-3).
+        let missing = temporary.path().join("gone");
+        let refused =
+            validate_destination_cwd(&missing, Some(&archive), SessionReplacementReason::Import)
+                .expect_err("import must validate the destination cwd");
+        assert!(refused.contains("does not exist"), "{refused}");
     }
 }
