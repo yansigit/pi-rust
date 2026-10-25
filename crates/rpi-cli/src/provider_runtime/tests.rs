@@ -768,3 +768,57 @@ async fn awaited_publication_commits_once_and_rejects_stale_or_expired_refresh_t
     }
     assert_eq!(runtime.providers().await[0].models()[0].id, "newer");
 }
+
+/// D-1 + X-1: constructing a runtime is Pi's `ModelRuntime.create`, so it must
+/// seed the on-disk config (`model-runtime.js:79-108`) and run one credential
+/// pass before anything publishes a catalog over it.
+#[tokio::test]
+async fn construction_seeds_disk_config_and_credential_availability() {
+    let _guard = crate::config::test_support::env_lock().lock().unwrap();
+    let agent = tempfile::tempdir().unwrap();
+    let previous = std::env::var_os(crate::config::CONFIG_DIR_ENV);
+    std::env::set_var(crate::config::CONFIG_DIR_ENV, agent.path());
+    std::fs::write(
+        agent.path().join("models.json"),
+        r#"{"providers":{"test":{"baseUrl":"https://configured.invalid"}}}"#,
+    )
+    .unwrap();
+
+    let (runtime, owner, host) = fixture_with(|_| {});
+    let revision = {
+        let state = runtime.state.lock().await;
+        assert!(
+            state.config.providers.contains_key("test"),
+            "a replaced session must start from models.json, not an empty config"
+        );
+        assert_eq!(
+            state.catalog.list_providers()[0].auth_status,
+            crate::model_registry::AuthStatus::Unknown,
+            "nothing has read credentials yet"
+        );
+        state.catalog.revision()
+    };
+
+    runtime.refresh_availability_on_create().await.unwrap();
+    let providers = runtime.state.lock().await.catalog.list_providers();
+    assert!(!providers.is_empty());
+    assert!(
+        providers
+            .iter()
+            .all(|provider| provider.auth_status != crate::model_registry::AuthStatus::Unknown),
+        "the create-time pass must record a credential status: {providers:?}"
+    );
+    // A create-time pass is not a publication: no catalog revision is installed.
+    assert_eq!(host.installs.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        request(&runtime, owner, json!({"action":"inspect"}))
+            .await
+            .unwrap()["revision"],
+        revision
+    );
+
+    match previous {
+        Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
+        None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
+    }
+}
