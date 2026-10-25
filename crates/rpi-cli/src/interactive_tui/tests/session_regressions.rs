@@ -306,6 +306,30 @@ async fn imported_archive_is_archive_only_for_import_and_resume() {
         "a refused resume keeps the imported session live"
     );
     assert_eq!(std::fs::read(&stored).unwrap(), original);
+
+    // Import is validated, not bypassed: with the project gone another archive
+    // is refused before any teardown instead of being copied into a cwd this
+    // process cannot serve (B-3).
+    let second = crate::session::create_jsonl_session(&source_root, &old_cwd.to_string_lossy())
+        .await
+        .unwrap();
+    second
+        .append_message(user_message_with_images("second prompt", vec![]))
+        .await
+        .unwrap();
+    let second_source = crate::session::list_session_files_sync(&source_root)
+        .into_iter()
+        .find(|path| path != &source_path)
+        .unwrap();
+    std::fs::remove_dir_all(&cwd).unwrap();
+    let error = crate::session::replace_host_session(
+        &harness,
+        &reload_context,
+        crate::session::HostSessionRequest::Import(second_source),
+    )
+    .await
+    .expect_err("import must validate the destination cwd");
+    assert!(error.contains("does not exist"), "{error}");
 }
 
 /// B-1/B-2: a rebuild failure after `set_active_session` must be reported as a

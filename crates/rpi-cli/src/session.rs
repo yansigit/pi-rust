@@ -3103,6 +3103,20 @@ pub async fn replace_active_session_idle(
 /// Upper bound on settling the active turn before a replacement tears the
 /// session down. The abort is already issued, so this only fires when a lane is
 /// wedged; replacing under an unsettled turn would corrupt the transcript.
+/// Translate a [`RebuildOutcome`] into the coordinator's answer.
+///
+/// The durable session is already the replacement by the time a rebuild runs, so
+/// a degraded rebuild is a *successful* swap that lost its extension authority:
+/// it is reported as [`SessionReplacement::ReplacedDegraded`], never as a clean
+/// replacement and never as a failure the caller could retry (B-2).
+fn replacement_outcome(outcome: RebuildOutcome) -> Result<SessionReplacement, String> {
+    match outcome {
+        RebuildOutcome::Installed => Ok(SessionReplacement::Replaced),
+        RebuildOutcome::Failed(error) => Err(error),
+        RebuildOutcome::Degraded(reason) => Ok(SessionReplacement::ReplacedDegraded { reason }),
+    }
+}
+
 const SETTLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 async fn replace_active_session_inner(
@@ -3226,17 +3240,15 @@ async fn replace_active_session_inner(
 
     set_active_session(ctx.harness, session, Some(ctx.tool_context)).await?;
     if let (Some(factory), Some(bridge)) = (ctx.runtime_factory, old_bridge) {
-        match factory
+        let outcome = factory
             .rebuild(ctx, old_session.loaded_paths().to_vec(), bridge)
-            .await
-        {
-            RebuildOutcome::Installed => {}
-            RebuildOutcome::Failed(error) => return Err(error),
-            // The durable session is already the replacement; report the
-            // missing authority instead of pretending the swap was clean.
-            RebuildOutcome::Degraded(reason) => {
-                return Ok(SessionReplacement::ReplacedDegraded { reason });
-            }
+            .await;
+        // The durable session is already the replacement; a degraded rebuild
+        // must report the missing authority instead of pretending the swap was
+        // clean, and only a pre-apply failure is retryable (B-2).
+        match replacement_outcome(outcome)? {
+            SessionReplacement::Replaced => {}
+            degraded => return Ok(degraded),
         }
     }
 
@@ -5125,5 +5137,28 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+}
+
+#[cfg(test)]
+mod replacement_outcome_tests {
+    use super::*;
+
+    /// B-2: a degraded rebuild is a swap with dead authority — it must never be
+    /// flattened into a clean replacement or into a retryable failure.
+    #[test]
+    fn degraded_outcome_is_surfaced_and_failures_stay_retryable() {
+        assert!(matches!(
+            replacement_outcome(RebuildOutcome::Installed),
+            Ok(SessionReplacement::Replaced)
+        ));
+        match replacement_outcome(RebuildOutcome::Degraded("hooks".into())) {
+            Ok(SessionReplacement::ReplacedDegraded { reason }) => assert_eq!(reason, "hooks"),
+            other => panic!("degraded rebuild must be surfaced: {other:?}"),
+        }
+        assert_eq!(
+            replacement_outcome(RebuildOutcome::Failed("staged".into())).unwrap_err(),
+            "staged"
+        );
     }
 }

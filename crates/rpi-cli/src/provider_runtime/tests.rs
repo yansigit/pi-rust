@@ -12,6 +12,11 @@ struct Host {
     installs: AtomicUsize,
     models: std::sync::Mutex<Vec<Model>>,
     child_models: std::sync::Mutex<BTreeMap<String, Vec<Model>>>,
+    /// D-2 guard: whether the runtime state mutex was free while the host
+    /// install ran. Holding it across the install deadlocks a plugin that
+    /// re-enters `inspect`/`auth` from the install path.
+    state_free_during_install: std::sync::Mutex<Option<bool>>,
+    runtime: std::sync::OnceLock<std::sync::Weak<ProviderRuntime>>,
 }
 macro_rules! host {
     ($($name:ident),*) => {
@@ -19,6 +24,9 @@ macro_rules! host {
         impl RuntimeActionHost for Host {
             $(async fn $name(&self, _:Value) -> Result<Value,String> { Err("unused test action".into()) })*
             async fn install_native_providers(&self, providers: Vec<Arc<dyn Provider>>) -> Result<(), String> {
+                if let Some(port) = self.runtime.get().and_then(|weak| weak.upgrade()) {
+                    *self.state_free_during_install.lock().unwrap() = Some(port.state.try_lock().is_ok());
+                }
                 if self.fail.load(Ordering::SeqCst) { return Err("injected installation failure".into()); }
                 let models = providers.iter().flat_map(|p| p.models().to_vec()).collect();
                 if let Some(scope) = rpi_agent::tool_execution_scope::current_scope() {
@@ -821,4 +829,27 @@ async fn construction_seeds_disk_config_and_credential_availability() {
         Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
         None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
     }
+}
+
+/// D-2: a publication installs the host snapshot with the runtime state mutex
+/// released. Holding it across the install would deadlock any plugin that
+/// re-enters `inspect` or `auth` from the install path, so the guard is stated
+/// directly: at install time the state lock must be free.
+#[tokio::test]
+async fn host_install_runs_with_the_state_lock_released() {
+    let (runtime, owner, host) = fixture();
+    host.runtime.set(Arc::downgrade(&runtime)).unwrap();
+    request(
+        &runtime,
+        owner,
+        json!({"action":"publish","providerId":"test","models":[model("new")]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        *host.state_free_during_install.lock().unwrap(),
+        Some(true),
+        "the host install must not run under the runtime state mutex"
+    );
+    assert_eq!(host.installs.load(Ordering::SeqCst), 1);
 }
