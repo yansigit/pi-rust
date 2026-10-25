@@ -371,3 +371,184 @@ async fn explicit_public_diagnostics_survive_login_refresh_and_derivation() {
         );
     }
 }
+
+#[test]
+fn optional_presentation_metadata_round_trips_and_old_methods_keep_their_json() {
+    let old: AuthMethod =
+        serde_json::from_value(json!({"id":"browser","name":"Browser login","kind":"oauth"}))
+            .unwrap();
+    assert_eq!(old.login_label, None);
+    assert_eq!(old.interactive_login, None);
+    assert_eq!(
+        serde_json::to_value(&old).unwrap(),
+        json!({"id":"browser","name":"Browser login","kind":"oauth"})
+    );
+
+    let labelled: AuthMethod = serde_json::from_value(json!({
+        "id":"browser","name":"Browser login","kind":"oauth","loginLabel":"Sign in with Example"
+    }))
+    .unwrap();
+    assert_eq!(
+        labelled.login_label.as_deref(),
+        Some("Sign in with Example")
+    );
+    assert_eq!(labelled.interactive_login, None);
+    assert_eq!(
+        serde_json::to_value(&labelled).unwrap(),
+        json!({"id":"browser","name":"Browser login","kind":"oauth","loginLabel":"Sign in with Example"})
+    );
+
+    let paste: AuthMethod = serde_json::from_value(json!({
+        "id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false
+    }))
+    .unwrap();
+    assert_eq!(paste.login_label, None);
+    assert_eq!(paste.interactive_login, Some(false));
+    assert_eq!(
+        serde_json::to_value(&paste).unwrap(),
+        json!({"id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false})
+    );
+
+    assert!(serde_json::from_value::<AuthMethod>(json!({
+        "id":"key","name":"Key","kind":"api_key","login":"secret"
+    }))
+    .is_err());
+    assert!(serde_json::from_value::<AuthMethod>(json!({
+        "id":"key","name":"Key","kind":"api_key","login_label":"snake_case"
+    }))
+    .is_err());
+}
+
+#[test]
+fn blank_login_labels_are_rejected_but_absent_ones_are_not() {
+    let mut value: Value = serde_json::from_str(MANIFEST).unwrap();
+    value["methods"][0]["loginLabel"] = json!("Browser login");
+    assert!(AuthManifest::parse(&value.to_string()).is_ok());
+    for label in [json!(""), json!("   ")] {
+        value["methods"][0]["loginLabel"] = label;
+        assert!(AuthManifest::parse(&value.to_string()).is_err());
+    }
+}
+
+struct DynamicMethods(std::sync::Mutex<Value>);
+
+extern "C" fn dynamic_methods(
+    input: StbStringRef,
+    _: *const AuthRequestControl,
+    out: *mut StbString,
+    context: *mut c_void,
+) -> i32 {
+    rpi_plugin_sdk::guard_or(70, || {
+        // SAFETY: the fixture outlives the registration used by this test.
+        let fixture = unsafe { &*context.cast::<DynamicMethods>() };
+        let request: Value = serde_json::from_str(unsafe { input.as_str() }).unwrap();
+        assert_eq!(request["action"], "authMethods");
+        let methods = fixture.0.lock().unwrap().clone();
+        unsafe {
+            *out = StbString::from_string(json!({"version":1,"result":methods}).to_string());
+        }
+        0
+    })
+}
+
+extern "C" fn dynamic_provider_request(_: StbStringRef, _: *mut StbString, _: *mut c_void) -> i32 {
+    1
+}
+
+fn dynamic_setup(fixture: &DynamicMethods) -> Arc<NativeProviderAuth> {
+    let mut registry = ExtensionRegistry::new();
+    registry.register_provider_owned(
+        crate::RegisteredProvider {
+            action_bridge: None,
+            provider_id: "dynamic".into(),
+            base_url: String::new(),
+            api_style: "faux".into(),
+            request_fn: dynamic_provider_request,
+            stream_fn: None,
+            plugin_free_string: rpi_plugin_sdk::callbacks::free_string,
+            user_data: std::ptr::null_mut(),
+        },
+        Some(crate::native::NativeOwner {
+            generation: "test".into(),
+            id: 1,
+            plugin: "fixture".into(),
+            child: false,
+        }),
+    );
+    let record = RegisteredAuthProvider {
+        action_bridge: None,
+        plugin: "fixture".into(),
+        manifest: AuthManifest::parse(
+            r#"{"version":1,"id":"dynamic","displayName":"Dynamic","apiKey":true,"oauth":true,"methods":[{"id":"key","name":"Key","kind":"api_key"}]}"#,
+        )
+        .unwrap(),
+        request_fn: request,
+        plugin_free_string: rpi_plugin_sdk::callbacks::free_string,
+        user_data: std::ptr::null_mut(),
+    };
+    assert!(!registry.register_provider_auth(record));
+    assert!(!registry.register_provider_runtime(
+        crate::provider_runtime::RegisteredProviderRuntime {
+            action_bridge: None,
+            plugin: "fixture".into(),
+            manifest: crate::provider_runtime::RuntimeManifest {
+                version: 1,
+                id: "dynamic".into(),
+                actions: vec!["authMethods".into()],
+            },
+            request_fn: dynamic_methods,
+            free: rpi_plugin_sdk::callbacks::free_string,
+            context: (fixture as *const DynamicMethods).cast_mut().cast(),
+        }
+    ));
+    let session = ExtensionSession::from_parts(
+        Arc::new(registry.snapshot()),
+        PluginKeepalive::empty(),
+        vec![],
+        None,
+    );
+    NativeProviderAuth::from_session(&session, "dynamic").unwrap()
+}
+
+#[tokio::test]
+async fn dynamic_auth_methods_convey_presentation_metadata_losslessly() {
+    let fixture = DynamicMethods(std::sync::Mutex::new(json!([
+        {"id":"browser","name":"Browser login","kind":"oauth","loginLabel":"Sign in with Example"},
+        {"id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false}
+    ])));
+    let auth = dynamic_setup(&fixture);
+    let methods = auth.methods(CancellationToken::new()).await.unwrap();
+    assert_eq!(
+        methods[0].login_label.as_deref(),
+        Some("Sign in with Example")
+    );
+    assert_eq!(methods[0].interactive_login, None);
+    assert_eq!(methods[1].login_label, None);
+    assert_eq!(methods[1].interactive_login, Some(false));
+    assert_eq!(
+        serde_json::to_value(&methods).unwrap(),
+        json!([
+            {"id":"browser","name":"Browser login","kind":"oauth","loginLabel":"Sign in with Example"},
+            {"id":"key","name":"Example API key","kind":"api_key","interactiveLogin":false}
+        ])
+    );
+
+    *fixture.0.lock().unwrap() = json!([{"id":"key","name":"Key","kind":"api_key"}]);
+    let methods = auth.methods(CancellationToken::new()).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(&methods).unwrap(),
+        json!([{"id":"key","name":"Key","kind":"api_key"}])
+    );
+
+    for invalid in [
+        json!([{"id":"key","name":"Key","kind":"api_key","login":"secret"}]),
+        json!([{"id":"key","name":"Key","kind":"api_key","loginLabel":"  "}]),
+        json!([{"id":"key","kind":"api_key"}]),
+    ] {
+        *fixture.0.lock().unwrap() = invalid;
+        assert!(matches!(
+            auth.methods(CancellationToken::new()).await,
+            Err(AuthError::Resolve)
+        ));
+    }
+}

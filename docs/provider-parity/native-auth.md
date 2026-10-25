@@ -10,13 +10,43 @@ the maintainer's release; this patch does not bump workspace versions.
 The manifest contains only public method discovery information:
 
 ```json
-{"version":1,"id":"example","displayName":"Example","apiKey":true,"oauth":true,"methods":[{"id":"browser","name":"Browser login","kind":"oauth"}]}
+{"version":1,"id":"example","displayName":"Example","apiKey":true,"oauth":true,"methods":[{"id":"browser","name":"Browser login","kind":"oauth","loginLabel":"Sign in with Example"}]}
 ```
 
 Method IDs must be unique and nonempty, with kind `api_key` or `oauth`. A method
 requires the corresponding capability. Unknown manifest fields and versions are
 rejected. Registrations are first-wins within the owning registry; they are copied
 into its snapshot and invalidated with that snapshot.
+
+## Presentation metadata
+
+A method may carry two optional presentation fields. They are additive: a payload
+without them parses unchanged, and discovery omits them when absent, so earlier
+traces and evidence keep byte-identical method JSON.
+
+- `loginLabel` (string, default absent): Pi's `oauth.loginLabel`, the label a
+  multi-provider row renders as `loginLabel ?? name`. An empty or blank label is
+  rejected, matching the non-blank method-name rule.
+- `interactiveLogin` (boolean, default absent): Pi's presence test for
+  `apiKey.login`. `false` means the method only discovers an already-available
+  credential, so a host must offer a paste prompt (`api_key_paste` in the TS
+  extension); `true` means the registered flow is interactive. Absent carries no
+  claim, which is what legacy manifests and the old OAuth adapter produce.
+
+Sources: `provider-references/multiprovider/extensions/multiprovider.ts:1192-1208`
+(`oauth.loginLabel ?? oauth.name`, `apiKey.login !== undefined`) and
+`@earendil-works/pi-ai/dist/auth/types.d.ts:170,216` (`ApiKeyAuth.login?`,
+`OAuthAuth.loginLabel?`). Built-in Pi providers that ship a `loginLabel`
+("Sign in with ChatGPT", "Sign in with SuperGrok or X Premium", "Sign in with
+OpenRouter", "Sign in with Kimi Code", "Sign in with Meta") are provider-owned
+plugins here, so this host conveys the fields instead of hard-coding provider
+rows. The host's own API-key fallback (`compatibility.rs`) reports
+`interactiveLogin: true` because its key prompt is interactive; the legacy OAuth
+adapter reports neither field.
+
+The provider runtime's `authMethods` result is the same method array, so a
+dynamic result may carry both fields. `rpi auth methods` and the TUI method
+selector render `loginLabel ?? name`.
 
 The callback receives `{version:1,providerId,action,input}` and a separate sized
 `AuthRequestControl`. Actions are `login`, `continue`, `refresh`, `resolveApiKey`,
