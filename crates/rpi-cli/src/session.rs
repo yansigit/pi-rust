@@ -434,6 +434,16 @@ pub async fn build_prepared(
     )
     .map_err(BuildError::HarnessCreate)?;
 
+    // Pi's startup path refreshes the model runtime it just created
+    // (`model-runtime.js:79-108` create -> refresh; `agent-session-runtime.js`
+    // build services). Record credential availability once here so the first
+    // publication reapplies real `models.json` overrides over a seeded config
+    // and the footer never reads `Unknown` for a live provider (D-1/X-1).
+    if let Err(error) = provider_runtime.refresh_availability_on_create().await {
+        if args.verbose {
+            eprintln!("provider availability: {error}");
+        }
+    }
     provider_runtime.activate();
     drop(initialization_runtime);
 
@@ -1133,6 +1143,7 @@ pub(crate) use replacement_requests::replace_session_request;
 pub use replacement_requests::{replace_host_session, HostSessionRequest};
 mod runtime_factory;
 pub use runtime_factory::SessionRuntimeFactory;
+pub(crate) use runtime_factory::{import_marker_path, RebuildOutcome};
 
 /// The cell that holds the live `ActionBridge` across a `/reload`. A plugin
 /// stores the bridge's raw `user_data` pointer during `register`; on reload the
@@ -1905,6 +1916,16 @@ where
     let _ = harness.set_system_prompt(Some(system_prompt)).await;
     let _ = harness.set_resources(resources).await;
     let _ = harness.set_agent_emitter(Some(emitter)).await;
+    // A reload builds a fresh runtime; Pi refreshes on create, so seed credential
+    // availability before the catalog is published to the harness (X-1).
+    if let Err(error) = provider_runtime.refresh_availability_on_create().await {
+        return ReloadOutcome {
+            summary: "Reload failed while reading provider availability".into(),
+            had_warnings: true,
+            details: vec![error],
+            had_errors: true,
+        };
+    }
     if let Err(error) = harness.set_models(provider_runtime.providers().await).await {
         return ReloadOutcome {
             summary: "Reload failed while installing provider catalog".into(),
@@ -1913,11 +1934,13 @@ where
             had_errors: true,
         };
     }
-    provider_runtime.activate();
-    drop(initialization_runtime);
+    // Publish before activate (B-5): a request resolves the port through the
+    // cell, never through a generation binding no reader can see.
     *ctx.provider_runtime
         .write()
-        .unwrap_or_else(|e| e.into_inner()) = provider_runtime;
+        .unwrap_or_else(|e| e.into_inner()) = provider_runtime.clone();
+    provider_runtime.activate();
+    drop(initialization_runtime);
     let (before, after) = extension_tool_hooks(
         &extension_session,
         ctx.extension_session.clone(),
@@ -3010,6 +3033,13 @@ pub enum SessionReplacement {
     Cancelled {
         reason: String,
     },
+    /// The durable session was replaced but the fresh extension authority could
+    /// not be installed (B-2). The harness serves the new session with no, or
+    /// partial, extension authority; hosts must surface `reason` instead of
+    /// reporting a clean replacement.
+    ReplacedDegraded {
+        reason: String,
+    },
 }
 
 /// The live cells a session replacement dispatches through. Session
@@ -3017,6 +3047,16 @@ pub enum SessionReplacement {
 /// `/reload` swaps.
 pub struct SessionReplacementContext<'a> {
     /// Required for loaded extensions; absent only in extension-free embedders.
+    ///
+    /// This is the embedder contract for replacement: a host that installs an
+    /// [`ExtensionSession`] must supply a factory built from the same cells
+    /// ([`SessionRuntimeFactory::from_reload`]) or refuse replacement. Without
+    /// it the outgoing authority is retired but no fresh registrations, hooks,
+    /// provider bindings or emitter can be built, so replacement fails with
+    /// "session replacement requires a fresh runtime factory" and the embedder
+    /// must keep serving one session. With it, `session_before_*`,
+    /// `session_shutdown`, `session_start`, tool/provider hooks and the provider
+    /// catalog all move to the replacement.
     pub runtime_factory: Option<&'a SessionRuntimeFactory>,
     pub harness: &'a AgentHarness,
     pub lane: &'a dyn rpi_harness::agent_harness::AgentLane,
@@ -3059,6 +3099,11 @@ pub async fn replace_active_session_idle(
 ) -> Result<SessionReplacement, String> {
     replace_active_session_inner(ctx, session, reason, fork_entry_id, false, false).await
 }
+
+/// Upper bound on settling the active turn before a replacement tears the
+/// session down. The abort is already issued, so this only fires when a lane is
+/// wedged; replacing under an unsettled turn would corrupt the transcript.
+const SETTLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 async fn replace_active_session_inner(
     ctx: &SessionReplacementContext<'_>,
@@ -3115,11 +3160,10 @@ async fn replace_active_session_inner(
     // authority. Cwd-bound services must not silently keep the outgoing cwd.
     session.get_metadata().await.map_err(|e| e.to_string())?;
     if let Some(factory) = ctx.runtime_factory {
-        // Import copies history into the caller's repository; the preserved
-        // source header's cwd is provenance, not a request to switch projects.
-        if reason != SessionReplacementReason::Import {
-            factory.validate_destination(target_file.as_deref())?;
-        }
+        // Every reason is validated. `Import` is not a bypass: it validates the
+        // cwd the copy runs in, while `Resume` refuses an imported archive
+        // explicitly instead of failing on the header it preserves (B-3).
+        factory.validate_destination(target_file.as_deref(), reason)?;
     }
     session
         .find_entries(&rpi_harness::session::types::EntryQuery::default())
@@ -3149,9 +3193,13 @@ async fn replace_active_session_inner(
                 }
             }
         }
-        ctx.lane.wait_for_idle().await.map_err(|e| e.to_string())?;
+        // Bounded: admission is held, so an unbounded wait would also block
+        // every other replacement request.
+        match tokio::time::timeout(SETTLE_TIMEOUT, ctx.lane.wait_for_idle()).await {
+            Ok(result) => result.map_err(|e| e.to_string())?,
+            Err(_) => return Err("could not settle the active turn".into()),
+        }
     }
-
     let _ = dispatch_session_lifecycle_event(
         ctx.extension_session,
         ctx.action_bridge,
@@ -3178,9 +3226,18 @@ async fn replace_active_session_inner(
 
     set_active_session(ctx.harness, session, Some(ctx.tool_context)).await?;
     if let (Some(factory), Some(bridge)) = (ctx.runtime_factory, old_bridge) {
-        factory
+        match factory
             .rebuild(ctx, old_session.loaded_paths().to_vec(), bridge)
-            .await?;
+            .await
+        {
+            RebuildOutcome::Installed => {}
+            RebuildOutcome::Failed(error) => return Err(error),
+            // The durable session is already the replacement; report the
+            // missing authority instead of pretending the swap was clean.
+            RebuildOutcome::Degraded(reason) => {
+                return Ok(SessionReplacement::ReplacedDegraded { reason });
+            }
+        }
     }
 
     let _ = dispatch_session_lifecycle_event(
@@ -3368,7 +3425,16 @@ pub(crate) async fn import_session_file(
     }
     if let Err(error) = staged.persist(&path) {
         let _ = std::fs::remove_file(&path);
+        // The claim predates the failed publish; drop it, or this process keeps
+        // believing the (now absent) destination is ours (B-7).
+        release_session_lock(&path);
         return Err(format!("publish import: {error}"));
+    }
+    if let Err(error) = write_import_marker(&path, source, cwd) {
+        let _ = std::fs::remove_file(import_marker_path(&path));
+        let _ = std::fs::remove_file(&path);
+        release_session_lock(&path);
+        return Err(error);
     }
     metadata.path = path;
     let storage = repo
@@ -3381,8 +3447,46 @@ pub(crate) async fn import_session_file(
 /// Session logs this process has claimed, so re-claiming is a no-op.
 static SESSION_LOCK_PATHS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 /// The held lock handles. Kept alive for the process lifetime — dropping the
-/// `File` would release the OS lock, so the guard is parked here.
-static SESSION_LOCKS: OnceLock<Mutex<Vec<std::fs::File>>> = OnceLock::new();
+/// `File` would release the OS lock, so the guard is parked here. The path is
+/// kept so a failed publish can release exactly its own claim (B-7).
+static SESSION_LOCKS: OnceLock<Mutex<Vec<(PathBuf, std::fs::File)>>> = OnceLock::new();
+
+/// Record the archive provenance next to an imported log.
+///
+/// The imported file keeps its source bytes (and therefore its source `cwd`)
+/// verbatim, so import and resume are told apart by this marker rather than by
+/// a header the archive deliberately preserves (B-3).
+fn write_import_marker(path: &str, source: &Path, cwd: &str) -> Result<(), String> {
+    let marker = serde_json::json!({
+        "source": source.to_string_lossy(),
+        "importedInto": cwd,
+    });
+    let bytes = serde_json::to_vec_pretty(&marker).map_err(|e| e.to_string())?;
+    std::fs::write(import_marker_path(path), bytes)
+        .map_err(|e| format!("publish import provenance: {e}"))
+}
+
+/// Drop this process's claim on a session path whose log was not published.
+fn release_session_lock(session_path: &str) {
+    let lock_path = PathBuf::from(format!("{session_path}.lock"));
+    let mut paths = SESSION_LOCK_PATHS
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap();
+    if !paths.remove(&lock_path) {
+        return;
+    }
+    let mut locks = SESSION_LOCKS
+        .get_or_init(|| Mutex::new(Vec::new()))
+        .lock()
+        .unwrap();
+    if let Some(index) = locks.iter().position(|(path, _)| path == &lock_path) {
+        // Dropping the handle releases the OS lock.
+        let (_, file) = locks.remove(index);
+        drop(file);
+    }
+    let _ = std::fs::remove_file(&lock_path);
+}
 
 /// Claim the exclusive lock for a session log.
 ///
@@ -3415,7 +3519,7 @@ fn claim_session_lock(session_path: &str) -> Result<(), String> {
         .get_or_init(|| Mutex::new(Vec::new()))
         .lock()
         .unwrap()
-        .push(file);
+        .push((lock_path.clone(), file));
     paths.insert(lock_path);
     Ok(())
 }

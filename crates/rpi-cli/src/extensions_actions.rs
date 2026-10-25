@@ -904,6 +904,14 @@ impl RuntimeActionHost for HarnessActionHost {
             .await?
         {
             crate::session::SessionReplacement::Replaced => {}
+            // The durable session switched; only extension authority is missing.
+            // Report it instead of hiding a degraded replacement (B-2).
+            crate::session::SessionReplacement::ReplacedDegraded { reason } => {
+                return Ok(serde_json::json!({
+                    "sessionId": harness.session().storage().metadata().id,
+                    "degraded": reason,
+                }))
+            }
             crate::session::SessionReplacement::Cancelled { reason } => {
                 return Err(format!("New session cancelled: {reason}"))
             }
@@ -930,6 +938,12 @@ impl RuntimeActionHost for HarnessActionHost {
             .await?
         {
             crate::session::SessionReplacement::Replaced => {}
+            crate::session::SessionReplacement::ReplacedDegraded { reason } => {
+                return Ok(serde_json::json!({
+                    "sessionId": harness.session().storage().metadata().id,
+                    "degraded": reason,
+                }))
+            }
             crate::session::SessionReplacement::Cancelled { reason } => {
                 return Err(format!("Fork cancelled: {reason}"))
             }
@@ -968,6 +982,12 @@ impl RuntimeActionHost for HarnessActionHost {
             .await?
         {
             crate::session::SessionReplacement::Replaced => {}
+            crate::session::SessionReplacement::ReplacedDegraded { reason } => {
+                return Ok(serde_json::json!({
+                    "sessionId": harness.session().storage().metadata().id,
+                    "degraded": reason,
+                }))
+            }
             crate::session::SessionReplacement::Cancelled { reason } => {
                 return Err(format!("Session switch cancelled: {reason}"))
             }
