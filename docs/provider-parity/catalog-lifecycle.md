@@ -119,6 +119,11 @@ failure. The restored implementation subsequently passed the workspace gate.
   after callback awaits. Lane D now provides the create-time refresh that lane B's
   replacement path calls (implemented boundary 7); the replacement itself, its
   staging and its `ReplacedDegraded` signal stay lane B's.
+- D-2 is asserted as a rule, not only by inspection:
+  `host_install_runs_with_the_state_lock_released` records whether the runtime
+  state mutex was free while `install_native_providers` ran (mutation: hold it
+  across the install, test fails). The committed-snapshot re-install for a lost
+  publication race is covered by the existing late-refresh test.
 - No actual Cursor DLL/worker, live OAuth service, cross-lane replacement race,
   or full differential availability trace was qualified here. Local fixtures
   and the existing loaded plugin are not substitutes for that matrix.

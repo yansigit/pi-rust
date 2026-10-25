@@ -124,9 +124,12 @@ reason. `Import` validates the cwd the copy runs in and keeps the source bytes
 verbatim; `import_session_file` writes a durable `<session>.import` provenance
 marker (invisible to `.jsonl` listings), and `Resume` of a marked archive is
 refused with `imported session from … is archive-only: Pi v1-v3 session logs are
-not resumable` instead of a cross-cwd error from the preserved header. A failed
-import publish also drops this process's `SESSION_LOCK_PATHS` entry and its
-`.lock` file (B-7).
+not resumable` instead of a cross-cwd error from the preserved header. Import is
+really validated, not bypassed: with the destination cwd gone it fails with
+`Session working directory does not exist` before any teardown (existence is
+checked before canonicalization, so the caller gets that message rather than a
+bare io error). A failed import publish also drops this process's
+`SESSION_LOCK_PATHS` entry and its `.lock` file (B-7).
 
 Catalog publication no longer awaits the host install while holding the runtime
 state mutex (D-2): the snapshot is staged under the lock, the lock is dropped for
@@ -141,9 +144,39 @@ commit site (D-7).
 
 Tests: `construction_seeds_disk_config_and_credential_availability` (D-1/X-1,
 mechanism), `imported_archive_is_archive_only_for_import_and_resume` (B-3,
-through `validate_destination` rather than around it) and
+through `validate_destination` rather than around it, including a second archive
+refused for import once the destination cwd is gone),
 `rebuild_failure_after_the_swap_is_reported_as_degraded` (B-1/B-2, failure after
-`set_active_session`).
+`set_active_session`), `import_is_validated_and_only_import_accepts_an_archive`
+(the per-reason rule at the predicate), and
+`degraded_outcome_is_surfaced_and_failures_stay_retryable` (the coordinator's
+`RebuildOutcome` translation, so a degraded swap can never be flattened into a
+clean replacement). `host_install_runs_with_the_state_lock_released` states the
+D-2 rule directly: the runtime state mutex is free while the host snapshot is
+installed.
+
+Mutation checks on the new guards (each killed, then reverted):
+revert the config seed → D-1 test fails; restore the `reason != Import` bypass →
+the import test fails on the missing destination cwd; delete the archive rule →
+the per-reason test fails; flatten `Degraded` into `Replaced` → the outcome test
+fails; hold the state mutex across the host install → the D-2 test fails.
+
+### fix-l2bd qualification
+
+Gates were re-run on the fixed tree (`lane/fix-l2bd` = `lane/l2-integration` +
+this lane), foreground under `timeout 270`, with lane target dirs
+`/home/user/Projects/.targets/fix-l2bd-178` (Rust 1.78) and
+`…-195` (Rust 1.95):
+
+- `cargo fmt --all --check`: pass.
+- `RUSTFLAGS=-Dwarnings cargo +1.78.0 check --workspace --all-targets --locked`: pass.
+- `cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features` and `… --features
+  provider`, both `--locked`: pass.
+- `cargo +1.95.0 test --workspace --locked --tests`: 2444 passed, 0 failed, 23
+  ignored across 95 test binaries; `… --doc`: 17 passed, 0 failed, 3 ignored.
+  **Combined 2461 passed, 0 failed, 26 ignored** — integration baseline
+  2455/0/26 plus this lane's six new tests.
+- Seven `docs/provider-parity/check-*.mjs`: pass.
 
 ## Final qualification
 
