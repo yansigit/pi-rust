@@ -306,8 +306,25 @@ pub async fn rpc(
     .await
 }
 
-/// RPC host with live lifecycle cells. The legacy wrapper remains available to
-/// embedders without a replacement factory and refuses replacement commands.
+/// RPC host with live lifecycle cells.
+///
+/// This is the embedder contract for `switch_session`, `new`, `fork` and
+/// `import`: `reload` carries the cells replacement needs, so an embedder that
+/// documents or services session switching must hold a [`crate::session::ReloadContext`]
+/// for the *live* harness — the same cells `/reload` uses (extension session,
+/// action bridge, provider runtime, provider cell, replacement gate). The
+/// factory built from it ([`crate::session::SessionRuntimeFactory::from_reload`])
+/// is what installs the replacement's registrations, hooks, tools, emitter and
+/// provider binding; a context whose cells are stale silently loses extension
+/// authority, and a gate that is already held rejects the request with
+/// "session replacement is already in progress".
+///
+/// Responses carry `cancelled`/`sessionId`/`sessionFile`, plus `degraded` when
+/// the durable session switched but the fresh extension authority could not be
+/// installed (B-2) — embedders must surface that instead of reporting success.
+///
+/// The legacy [`rpc`] wrapper has no context: it stays available to embedders
+/// that never replace sessions and refuses replacement commands.
 pub async fn rpc_with_context(
     harness: &AgentHarness,
     agent_events: Option<tokio::sync::broadcast::Receiver<AgentEvent>>,
@@ -1419,6 +1436,12 @@ async fn rpc_replace_session(
         SessionReplacement::Cancelled { .. } => Ok(serde_json::json!({"cancelled": true})),
         SessionReplacement::Replaced => Ok(serde_json::json!({
             "cancelled": false, "sessionId": harness.session().storage().metadata().id,
+            "sessionFile": harness.session().storage().location().await.map_err(|e| e.to_string())?,
+        })),
+        // Replaced, but the fresh extension authority never installed (B-2).
+        SessionReplacement::ReplacedDegraded { reason } => Ok(serde_json::json!({
+            "cancelled": false, "degraded": reason,
+            "sessionId": harness.session().storage().metadata().id,
             "sessionFile": harness.session().storage().location().await.map_err(|e| e.to_string())?,
         })),
     }

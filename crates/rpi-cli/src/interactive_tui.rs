@@ -3050,6 +3050,16 @@ pub async fn interactive_tui(
                             &format!("New session cancelled: {reason}"),
                         );
                     }
+                    // The session did switch; surface the missing authority (B-2).
+                    Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => {
+                        chat_container.clear();
+                        add_welcome_message(&chat_container);
+                        add_error_message(
+                            &chat_container,
+                            &format!("Extensions unavailable after replacement: {reason}"),
+                        );
+                        state.set_status(RunStatus::Idle);
+                    }
                     Err(error) => add_error_message(
                         &chat_container,
                         &format!("Could not create session: {error}"),

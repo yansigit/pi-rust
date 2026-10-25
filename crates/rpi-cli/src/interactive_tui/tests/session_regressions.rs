@@ -242,3 +242,130 @@ async fn invalid_import_leaves_the_active_session_and_repository_untouched() {
     );
     assert_eq!(std::fs::read_to_string(invalid).unwrap(), "not a session\n");
 }
+
+/// B-3: an imported archive keeps its source bytes (and therefore its source
+/// `cwd`), so import must be validated by the cwd the copy runs in and a later
+/// resume must be refused as an archive — explicitly, not by leaking a
+/// cross-cwd error from the header. Both paths go through
+/// `SessionRuntimeFactory::validate_destination`.
+#[tokio::test]
+async fn imported_archive_is_archive_only_for_import_and_resume() {
+    let temporary = tempfile::tempdir().unwrap();
+    let cwd = temporary.path().join("project");
+    let old_cwd = temporary.path().join("original project");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&old_cwd).unwrap();
+    let root = temporary.path().join("custom sessions");
+    let source_root = temporary.path().join("source");
+    let source = crate::session::create_jsonl_session(&source_root, &old_cwd.to_string_lossy())
+        .await
+        .unwrap();
+    source
+        .append_message(user_message_with_images("archived prompt", vec![]))
+        .await
+        .unwrap();
+    let archived_id = source.storage().metadata().id.clone();
+    let source_path = crate::session::list_session_files_sync(&source_root).remove(0);
+    let original = std::fs::read(&source_path).unwrap();
+    let (harness, reload_context) = harness_with_root(&cwd, &root).await;
+
+    // Import is allowed even though the archive carries another project's cwd:
+    // the copy runs here, and the durable log keeps the source bytes verbatim.
+    match crate::session::replace_host_session(
+        &harness,
+        &reload_context,
+        crate::session::HostSessionRequest::Import(source_path.clone()),
+    )
+    .await
+    {
+        Ok(crate::session::SessionReplacement::Replaced) => {}
+        other => panic!("import must be accepted: {other:?}"),
+    }
+    assert_eq!(harness.session().storage().metadata().id, archived_id);
+    let stored = crate::session::list_session_files_sync(&root).remove(0);
+    assert_eq!(std::fs::read(&stored).unwrap(), original);
+    assert!(
+        std::path::Path::new(&format!("{}.import", stored.display())).is_file(),
+        "the archive must carry durable import provenance"
+    );
+
+    // Resume of the same archive is refused, and the refusal is the archive
+    // rule rather than the header cwd: it happens before any teardown.
+    let error = crate::session::replace_host_session(
+        &harness,
+        &reload_context,
+        crate::session::HostSessionRequest::Resume(archived_id.clone()),
+    )
+    .await
+    .expect_err("resuming an imported archive must be refused");
+    assert!(error.contains("archive-only"), "{error}");
+    assert!(!error.contains("cross-cwd"), "{error}");
+    assert_eq!(
+        harness.session().storage().metadata().id,
+        archived_id,
+        "a refused resume keeps the imported session live"
+    );
+    assert_eq!(std::fs::read(&stored).unwrap(), original);
+}
+
+/// B-1/B-2: a rebuild failure after `set_active_session` must be reported as a
+/// degraded replacement, never as a clean success with dead extension authority.
+/// Every fallible construction step is staged before the first harness mutation;
+/// the remaining failures are harness setters on a harness that went away.
+#[tokio::test]
+async fn rebuild_failure_after_the_swap_is_reported_as_degraded() {
+    let temporary = tempfile::tempdir().unwrap();
+    let cwd = temporary.path().join("project");
+    std::fs::create_dir_all(&cwd).unwrap();
+    let root = temporary.path().join("custom sessions");
+    let (harness, reload_context) = harness_with_root(&cwd, &root).await;
+    let factory = crate::session::SessionRuntimeFactory::from_reload(&reload_context);
+    let replacement = crate::session::create_jsonl_session(&root, &cwd.to_string_lossy())
+        .await
+        .unwrap();
+    let replacement_id = replacement.storage().metadata().id.clone();
+    // The replacement coordinator swaps the durable session *before* rebuilding
+    // the extension authority; do the same, then make the harness go away.
+    crate::session::set_active_session(&harness, replacement, Some(&reload_context.tool_context))
+        .await
+        .unwrap();
+    assert_eq!(harness.session().storage().metadata().id, replacement_id);
+    harness.close().await.unwrap();
+
+    let lane = harness.lane("main");
+    let context = crate::session::SessionReplacementContext {
+        runtime_factory: Some(&factory),
+        harness: &harness,
+        lane: lane.as_ref(),
+        extension_session: &reload_context.extension_session,
+        action_bridge: &reload_context.action_bridge,
+        tool_context: &reload_context.tool_context,
+    };
+    let old_bridge = reload_context
+        .action_bridge
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("a built session owns a bridge");
+    let outcome = factory.rebuild(&context, vec![], old_bridge.clone()).await;
+    match outcome {
+        crate::session::RebuildOutcome::Installed => {
+            panic!("a closed harness cannot install a replacement")
+        }
+        crate::session::RebuildOutcome::Failed(error) => {
+            panic!("failures before the first harness mutation must not reach this point: {error}")
+        }
+        crate::session::RebuildOutcome::Degraded(reason) => {
+            assert!(reason.contains("model runtime"), "{reason}");
+        }
+    }
+    // Nothing of the failed install was published: the cells still name the
+    // outgoing authority, and the degraded signal is the only record (B-1/B-2).
+    let published = reload_context
+        .action_bridge
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("bridge stays published");
+    assert!(std::sync::Arc::ptr_eq(&published, &old_bridge));
+}
