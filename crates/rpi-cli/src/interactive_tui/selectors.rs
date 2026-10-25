@@ -406,6 +406,54 @@ pub(super) fn custom_entry_display_text(
     Some(format!("{label}: {text}"))
 }
 
+/// Whether `/tree`'s default view hides this entry.
+///
+/// Pi's tree selector treats settings entries as non-navigable bookkeeping and
+/// keeps them out of its default filter (`isSettingsEntry`,
+/// `components/tree-selector.ts:259-266`, `:285`). The host has no filter-mode
+/// cycle, so its default filter is the only view it renders: a durable
+/// `context_edit` must not become a fork/summarize target.
+fn is_settings_entry(entry: &Entry) -> bool {
+    matches!(entry, Entry::ContextEdit(_))
+}
+
+/// One `/tree` row. Context edits are rendered Pi's way — `[context omit:
+/// <targetId>]` with `context edit omit|replace <targetId>` as their searchable
+/// text (`tree-selector.ts:487`, `:695`) — and `is_settings_entry` keeps them
+/// out of the default view.
+fn tree_entry_row(entry: &Entry, current: Option<&str>) -> SelectItem {
+    if let Entry::ContextEdit(edit) = entry {
+        let action = if edit.replacement.is_null() {
+            "omit"
+        } else {
+            "replace"
+        };
+        return SelectItem::new(
+            entry.id(),
+            &format!("[context {action}: {}]", edit.target_id),
+        )
+        .with_description(&edit.target_id)
+        .with_search_text(&format!(
+            "context edit {action} {} {} {}",
+            edit.target_id,
+            entry.seq(),
+            entry.id()
+        ));
+    }
+    let label = if current == Some(entry.id()) {
+        format!("{} #{} (current)", entry.entry_type(), entry.seq())
+    } else {
+        format!("{} #{}", entry.entry_type(), entry.seq())
+    };
+    let short_id = &entry.id()[..entry.id().len().min(12)];
+    // Search on the entry type, sequence, and id so `/tree` stays usable in
+    // long sessions.
+    let search_text = format!("{} {} {}", entry.entry_type(), entry.seq(), entry.id());
+    SelectItem::new(entry.id(), &label)
+        .with_description(short_id)
+        .with_search_text(&search_text)
+}
+
 /// Open a selector for the current session's persisted entry tree. Selecting a
 /// message hands it to the tree summary flow (`select_tree_entry`), which moves
 /// the main lane leaf after the "Summarize branch?" dialogs.
@@ -441,20 +489,8 @@ pub(super) async fn open_tree_selector(
     let current = harness.session().get_leaf_id().await.ok().flatten();
     let items: Vec<SelectItem> = entries
         .iter()
-        .map(|entry| {
-            let label = if current.as_deref() == Some(entry.id()) {
-                format!("{} #{} (current)", entry.entry_type(), entry.seq())
-            } else {
-                format!("{} #{}", entry.entry_type(), entry.seq())
-            };
-            let short_id = &entry.id()[..entry.id().len().min(12)];
-            // Search on the entry type, sequence, and id so `/tree` stays
-            // usable in long sessions.
-            let search_text = format!("{} {} {}", entry.entry_type(), entry.seq(), entry.id());
-            SelectItem::new(entry.id(), &label)
-                .with_description(short_id)
-                .with_search_text(&search_text)
-        })
+        .filter(|entry| !is_settings_entry(entry))
+        .map(|entry| tree_entry_row(entry, current.as_deref()))
         .collect();
     if items.is_empty() {
         add_note_message(chat, "The current session has no entries to navigate.");
@@ -1092,4 +1128,50 @@ pub(super) fn open_images_selector(
         list,
         SelectorKind::Images,
     );
+}
+
+#[cfg(test)]
+mod tree_entry_rows {
+    use super::*;
+    use rpi_harness::session::types::{ContextEditEntry, EntryBase};
+
+    fn base(id: &str, seq: u64) -> EntryBase {
+        EntryBase {
+            entry_type: "context_edit".into(),
+            id: id.into(),
+            seq,
+            parent_id: None,
+            timestamp: 0,
+        }
+    }
+
+    #[test]
+    fn context_edits_are_hidden_but_described_the_way_pi_describes_them() {
+        let omission = Entry::ContextEdit(ContextEditEntry {
+            base: base("edit-omit", 3),
+            target_id: "assistant-1".into(),
+            replacement: serde_json::Value::Null,
+        });
+        assert!(is_settings_entry(&omission));
+        let row = tree_entry_row(&omission, None);
+        assert_eq!(row.label, "[context omit: assistant-1]");
+        assert_eq!(row.description.as_deref(), Some("assistant-1"));
+        assert_eq!(
+            row.search_text.as_deref(),
+            Some("context edit omit assistant-1 3 edit-omit")
+        );
+
+        let replacement = Entry::ContextEdit(ContextEditEntry {
+            base: base("edit-replace", 4),
+            target_id: "assistant-1".into(),
+            replacement: serde_json::json!({"content": "redacted"}),
+        });
+        let row = tree_entry_row(&replacement, None);
+        assert_eq!(row.label, "[context replace: assistant-1]");
+        assert!(row
+            .search_text
+            .as_deref()
+            .unwrap()
+            .starts_with("context edit replace assistant-1"));
+    }
 }
