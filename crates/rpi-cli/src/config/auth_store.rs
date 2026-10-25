@@ -266,6 +266,19 @@ impl CredentialTransaction for Transaction {
 
 #[async_trait::async_trait]
 impl CredentialStore for CompatibilityCredentialStore {
+    /// Presence only: a `!command` key is reported as stored, never executed
+    /// (pi `auth-storage.js:213-214`). Resolution belongs to request time.
+    async fn read_unresolved(&self, provider: &str) -> Result<Option<Credential>, AuthError> {
+        let path = self.path.clone();
+        let provider = provider.to_owned();
+        tokio::task::spawn_blocking(move || {
+            let values = read(&path).map_err(|_| AuthError::Store)?;
+            from_legacy(values.get(&provider))
+        })
+        .await
+        .map_err(|_| AuthError::Task)?
+    }
+
     async fn read(&self, provider: &str) -> Result<Option<Credential>, AuthError> {
         let path = self.path.clone();
         let provider = provider.to_owned();

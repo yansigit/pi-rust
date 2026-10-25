@@ -86,14 +86,19 @@ use binding::{ExecutionBinding, RequestAuth};
 pub(crate) use factories::native_alias;
 use factories::RuntimeFactories;
 
+/// Credential bindings for a runtime, resolved from the models config the
+/// runtime already holds. Callers pass the config they are about to install, so
+/// a runtime constructed over a frozen config never re-reads `models.json` (that
+/// file may be mid-write, or absent in a hermetic test).
 pub(crate) fn native_auth_bindings(
     session: &rpi_extensions::ExtensionSession,
+    config: &crate::config::ModelsConfig,
 ) -> Result<BTreeMap<String, Arc<auth::AuthBinding>>, String> {
     let factories = RuntimeFactories::from_session(session);
     if factories.auth.is_empty() {
         return Ok(BTreeMap::new());
     }
-    let mut config = crate::config::load_models_config().map_err(|error| error.to_string())?;
+    let mut config = config.clone();
     apply_manifest_defaults(&mut config, &factories.manifests);
     Ok(factories.with_native_auth_config(&config).auth)
 }

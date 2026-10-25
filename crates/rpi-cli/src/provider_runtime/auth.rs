@@ -51,7 +51,10 @@ impl ProviderRuntime {
                 rpi_extensions::credential_store::NativeStoreHandle(store),
             ))
         } else {
-            let path = crate::config::auth_path().map_err(|_| "credential storage unavailable")?;
+            let path = self
+                .credential_path
+                .clone()
+                .ok_or("credential storage unavailable")?;
             Ok(Arc::new(
                 crate::config::auth_store::CompatibilityCredentialStore::new(path)
                     .map_err(|e| e.to_string())?,
@@ -156,7 +159,9 @@ impl ProviderRuntime {
                 .await
             }
             "status" => {
-                let credential = store.read(id).await.map_err(|e| e.to_string())?;
+                // Presence only: availability must never execute a `!command`
+                // credential (pi `auth-storage.js:213-214`).
+                let credential = store.read_unresolved(id).await.map_err(|e| e.to_string())?;
                 Ok(match credential {
                     Some(Credential::Oauth(credential)) => {
                         json!({"present":true,"type":"oauth","expires":credential.expires_ms,"refreshRequired":credential.expires_ms <= SystemClock.now_ms().saturating_add(rpi_ai::auth::MINIMUM_OAUTH_VALIDITY_MS)})
@@ -305,7 +310,10 @@ impl ProviderRuntime {
                 .filter(|ms| *ms <= 30_000)
                 .ok_or("invalid credential lock timeout")
         })?;
-        let path = crate::config::auth_path().map_err(|_| "credential storage unavailable")?;
+        let path = self
+            .credential_path
+            .clone()
+            .ok_or("credential storage unavailable")?;
         let store = crate::config::auth_store::CompatibilityCredentialStore::new(path)
             .map_err(|e| e.to_string())?;
         let input = args["input"].clone();
