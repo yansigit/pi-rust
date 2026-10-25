@@ -1570,15 +1570,32 @@ async fn rpc_get_messages(
         )
         .await
         .map_err(|error| error.to_string())?;
+    // Project the branch once, then key the rows by source entry id. Pi's
+    // `getMessages` returns `session.messages`, i.e. the projected context
+    // (`rpc-mode.js:534-535`), so a client that renders the transcript must see
+    // the same content the model saw: replacement text for a `context_edit`
+    // and no row at all for an omission.
+    let mut projected: std::collections::BTreeMap<String, Vec<serde_json::Value>> =
+        std::collections::BTreeMap::new();
+    for (id, message) in rpi_harness::session::context::project_context_messages(
+        &entries,
+        &rpi_harness::session::context::SessionContextBuildOptions::default(),
+    ) {
+        let mut value = serde_json::to_value(&message).map_err(|e| e.to_string())?;
+        // The session entry id, not the message's own id: it is what
+        // `beforeId` keys on, and what makes rows stable across reloads.
+        value["entryId"] = serde_json::json!(id);
+        projected.entry(id).or_default().push(value);
+    }
     let mut items: Vec<(String, serde_json::Value)> = Vec::new();
     for entry in entries {
         match entry {
             Entry::Message(entry) => {
-                let mut value = serde_json::to_value(&entry.message).map_err(|e| e.to_string())?;
-                // The session entry id, not the message's own id: it is what
-                // `beforeId` keys on, and what makes rows stable across reloads.
-                value["entryId"] = serde_json::json!(entry.base.id);
-                items.push((entry.base.id, value));
+                // Absent from the projection means a durable omission removed
+                // it from the model context, so the transcript omits it too.
+                for value in projected.remove(&entry.base.id).unwrap_or_default() {
+                    items.push((entry.base.id.clone(), value));
+                }
             }
             // Compaction rewrites what the model sees, not the branch, so the
             // transcript keeps its messages. Marking the boundary is what lets a
@@ -2740,6 +2757,79 @@ mod tests {
         assert_eq!(retry["maxRetries"], 10);
         assert_eq!(retry["delayMs"], 8_000);
         assert_eq!(retry["error"], "503 service unavailable");
+    }
+
+    /// M4: Pi's `getMessages` returns `session.messages`
+    /// (`rpc-mode.js:534-535`), i.e. the projected context — replaced text for
+    /// a `context_edit` and no row at all for a durable omission.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn rpc_get_messages_returns_the_projected_context() {
+        use rpi_agent::message::AgentMessage;
+
+        let (harness, _) = rpc_test_harness("unused", 0.0).await;
+        let view = harness.session().view("main");
+        view.append_message(AgentMessage::User(rpi_ai::types::UserMessage::new(
+            "first question",
+            1,
+        )))
+        .await
+        .unwrap();
+        let replaced = harness.session().get_leaf_id().await.unwrap().unwrap();
+        view.append_message(AgentMessage::Assistant(Box::new(
+            rpi_ai::providers::faux::faux_assistant_message("secret", StopReason::Stop),
+        )))
+        .await
+        .unwrap();
+        let omitted = harness.session().get_leaf_id().await.unwrap().unwrap();
+        view.append_message(AgentMessage::User(rpi_ai::types::UserMessage::new(
+            "second question",
+            3,
+        )))
+        .await
+        .unwrap();
+        harness
+            .session()
+            .append_context_edit(&omitted, serde_json::Value::Null)
+            .await
+            .unwrap();
+        harness
+            .session()
+            .append_context_edit(&replaced, serde_json::json!({"content":"redacted"}))
+            .await
+            .unwrap();
+
+        let output = RpcOutput::default();
+        let code = rpc_with_io(
+            &harness,
+            None,
+            vec![],
+            rpi_extensions::UiDialogMailbox::new(),
+            None,
+            tokio::io::BufReader::new(&b"{\"type\":\"get_messages\",\"id\":7}\n"[..]),
+            output.clone(),
+        )
+        .await;
+        assert_eq!(code, 0);
+        let response = output
+            .messages()
+            .into_iter()
+            .find(|message| message["id"] == 7)
+            .expect("get_messages response");
+        assert_eq!(response["command"], "get_messages");
+        let messages = response["data"]["messages"].as_array().unwrap();
+        assert_eq!(response["data"]["total"], 2, "{messages:#?}");
+        // The omission removes the row; the replacement rewrites it.
+        assert!(
+            !messages
+                .iter()
+                .any(|message| message.to_string().contains("secret")),
+            "{messages:#?}"
+        );
+        assert!(
+            messages[0].to_string().contains("redacted"),
+            "{messages:#?}"
+        );
+        assert!(messages[1].to_string().contains("second question"));
     }
 }
 
