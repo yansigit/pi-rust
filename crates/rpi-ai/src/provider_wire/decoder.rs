@@ -178,7 +178,7 @@ impl StreamMapper {
             }
             "text_delta" => {
                 let index = self.content_index(&chunk)?;
-                let delta = chunk_string(&chunk, "delta");
+                let delta = take_chunk_string(&mut chunk, "delta");
                 if !self.apply_partial(partial) {
                     let block = self.ensure_text_block(index);
                     block.text.push_str(&delta);
@@ -217,7 +217,7 @@ impl StreamMapper {
             }
             "thinking_delta" => {
                 let index = self.content_index(&chunk)?;
-                let delta = chunk_string(&chunk, "delta");
+                let delta = take_chunk_string(&mut chunk, "delta");
                 if !self.apply_partial(partial) {
                     let block = self.ensure_thinking_block(index);
                     block.thinking.push_str(&delta);
@@ -278,7 +278,7 @@ impl StreamMapper {
             }
             "toolcall_delta" => {
                 let index = self.content_index(&chunk)?;
-                let delta = chunk_string(&chunk, "delta");
+                let delta = take_chunk_string(&mut chunk, "delta");
                 let accumulated = self.tool_json.entry(index).or_default();
                 accumulated.push_str(&delta);
                 // Re-parse on every delta so the partial message renders live
@@ -453,4 +453,16 @@ fn chunk_string(chunk: &serde_json::Value, field: &str) -> String {
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default()
         .to_string()
+}
+
+/// Move a delta string out of a chunk, defaulting to empty. The event that the
+/// delta maps to owns the text, so the chunk does not keep a second copy.
+fn take_chunk_string(chunk: &mut serde_json::Value, field: &str) -> String {
+    match chunk
+        .as_object_mut()
+        .and_then(|object| object.remove(field))
+    {
+        Some(serde_json::Value::String(text)) => text,
+        _ => String::new(),
+    }
 }

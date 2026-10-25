@@ -314,6 +314,38 @@ mod tests {
     }
 
     #[test]
+    fn start_and_block_open_snapshots_seed_the_accumulator_for_compact_deltas() {
+        // A compact delta is rebuilt from the mapper's own accumulator, so the
+        // snapshot a `start` or `text_start` frame carries must become that
+        // accumulator. Otherwise the Start event and later deltas lose the
+        // producer's metadata (timestamp, response id, ...).
+        let mut producer = AssistantMessage::empty(crate::Api::Faux, "faux", "m", 42);
+        producer.content.push(crate::Content::text(""));
+        let snapshot = serde_json::to_value(&producer).unwrap();
+        let mut mapper = StreamMapper::new(crate::Api::Faux, "faux".into(), "m".into());
+        let Some(AssistantMessageEvent::Start { partial }) =
+            mapper.apply(serde_json::json!({"type":"start","partial":snapshot.clone()}))
+        else {
+            panic!("expected a Start event")
+        };
+        assert_eq!(*partial, producer);
+        while let Some(deferred) = mapper.take_deferred() {
+            assert!(mapper.apply(deferred).is_none());
+        }
+        assert_eq!(mapper.accumulated(), &producer);
+        assert!(mapper
+            .apply(serde_json::json!({"type":"text_start","contentIndex":0,"partial":snapshot}))
+            .is_some());
+        let Some(AssistantMessageEvent::TextDelta { partial, .. }) =
+            mapper.apply(serde_json::json!({"type":"text_delta","contentIndex":0,"delta":"a"}))
+        else {
+            panic!("expected a TextDelta event")
+        };
+        assert_eq!(partial.timestamp, 42);
+        assert_eq!(partial.content, vec![crate::Content::text("a")]);
+    }
+
+    #[test]
     fn request_options_round_trip_json_metadata_and_provider_extensions_without_auth_forgery() {
         let model = Model::new("m", "M", crate::Api::Faux, "faux", "http://localhost");
         let wire = serde_json::json!({
