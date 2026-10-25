@@ -1,0 +1,23 @@
+{
+  "profile_flags": {
+    "CARGO_PROFILE_RELEASE_DEBUG": "1",
+    "CARGO_PROFILE_RELEASE_STRIP": "none"
+  },
+  "default_release_flags": "Cargo.toml profile.release; no profile overrides",
+  "binaries": {
+    "rpi-after": "b55dd7b9b7701eb7fb0167a0ddafe0bd7c35d5139db00a4bcc4e3bddbd98dffa",
+    "rpi-symbols": "2d66ebb655a688d11d06a45e98dbf083d8ccf1e412ae2f3a2cf6bbb277dd7f2f",
+    "rpi-controls": "0770e473a0f295131ac02410568c2a873ab920c0ac4a66ae0ac9bfb70f452e89",
+    "rpi-fixed": "57a5902e738df0084a2433f9ead9b291c8e3714f93a631f0d14e6f85d80f9a21"
+  },
+  "perf_sample_counts": {
+    "cpu-off": 2684,
+    "cpu-on": 3671
+  },
+  "perf_data_directory": "/root/rpi-cause-20261024",
+  "control_only_flags": [
+    "RPI_DIAG_NO_UNUSED_CONTEXT_COPY",
+    "RPI_DIAG_DROP_RPC_PROGRESS"
+  ],
+  "control_not_installed": true
+}

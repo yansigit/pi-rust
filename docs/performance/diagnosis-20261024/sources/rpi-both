@@ -1,0 +1,2 @@
+#!/bin/sh
+exec env RPI_DIAG_NO_UNUSED_CONTEXT_COPY=1 RPI_DIAG_DROP_RPC_PROGRESS=1 /root/rpi-cause-20261024/rpi-controls "$@"

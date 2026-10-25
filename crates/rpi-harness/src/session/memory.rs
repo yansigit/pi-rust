@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
 use crate::error::{SessionError, SessionResult};
-use crate::session::state::SessionState;
+use crate::session::state::{ApplyOutcome, SessionState};
 use crate::session::types::{
     provisioned_into_entry, BranchBounds, Entry, EntryQuery, ForkOptions, IdGenerator, LanePointer,
     LaneRecord, LogItem, LogOptions, OperationStartedRecord, ProvisionedEntry, RecordQuery,
@@ -254,6 +254,10 @@ impl SessionStorage for InMemorySessionStorage {
         self.metadata.clone()
     }
 
+    fn is_ephemeral(&self) -> bool {
+        true
+    }
+
     async fn get_lanes(&self) -> SessionResult<Vec<LanePointer>> {
         Ok(self.inner.read_state(|state| state.get_lanes()))
     }
@@ -313,15 +317,14 @@ impl SessionStorage for InMemorySessionStorage {
             let seq = state.next_sequence();
             let timestamp = self.inner.clock.now_ms();
             let full = provisioned_into_entry(entry, seq, parent_id.clone(), timestamp);
-            state.apply_mutation(SessionMutation::Entry {
+            match state.apply_mutation(SessionMutation::Entry {
                 seq,
                 timestamp,
                 lane: Some(lane.to_string()),
-                entry: full.clone(),
-            })?;
-            match state.get_entry(full.id()) {
-                Some(stamped) => Ok(stamped.clone()),
-                None => Err(SessionError::storage("append_entry did not persist")),
+                entry: full,
+            })? {
+                ApplyOutcome::Entry(stamped) => Ok(stamped),
+                _ => Err(SessionError::storage("append_entry did not persist")),
             }
         })
     }
@@ -347,10 +350,10 @@ impl SessionStorage for InMemorySessionStorage {
             let seq = state.next_sequence();
             let timestamp = self.inner.clock.now_ms();
             let stamped = stamp_record(record, seq, lane.clone(), timestamp);
-            state.apply_mutation(SessionMutation::Record {
-                record: stamped.clone(),
-            })?;
-            Ok(stamped)
+            match state.apply_mutation(SessionMutation::Record { record: stamped })? {
+                ApplyOutcome::Record(stamped) => Ok(stamped),
+                _ => Err(SessionError::storage("append_record did not persist")),
+            }
         })
     }
 

@@ -28,7 +28,7 @@ use rpi_harness::session::types::{EntryOrder, LaneRecord, RecordQuery};
 
 use crate::args::Args;
 use crate::rpc::protocol as rpc_protocol;
-use crate::rpc::writer::{start_rpc_writer, write_line, RpcWriter};
+use crate::rpc::writer::{start_rpc_writer, write_agent_event, write_line, RpcWriter};
 
 /// Extract the concatenated text content from an assistant message. Mirrors the
 /// TS print-mode loop (`for content of assistantMsg.content if type===text`).
@@ -417,7 +417,7 @@ where
                     event = rx.recv() => event,
                 };
                 match received {
-                    Ok(event) => write_line(&out, &agent_event_json(&event)).await,
+                    Ok(event) => write_agent_event(&out, &event).await,
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
                 }
@@ -930,7 +930,7 @@ async fn drain_rpc_events(
 ) {
     loop {
         match events.try_recv() {
-            Ok(event) => write_line(out, &agent_event_json(&event)).await,
+            Ok(event) => write_agent_event(out, &event).await,
             Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
             Err(_) => break,
         }
@@ -1686,23 +1686,32 @@ fn rpc_get_auth_status(
 ) -> serde_json::Value {
     let store = crate::config::read_auth().unwrap_or_default();
     let models = crate::config::load_models_config().unwrap_or_default();
+    let manifests = oauth_snapshot.map_or_else(Vec::new, |snapshot| {
+        snapshot
+            .providers()
+            .iter()
+            .filter_map(|provider| snapshot.provider_manifest(&provider.provider_id).cloned())
+            .collect()
+    });
+    let auth_states = crate::credentials::statuses(&models, &store, &manifests);
     let providers = rpc_auth_provider_ids(model_catalog)
         .into_iter()
         .map(|provider| {
             let credential = store.get(&provider);
-            let source = crate::credentials::resolve(
-                &provider,
-                models.providers.get(&provider),
-                &store,
-                None,
+            let state = auth_states.get(&provider).cloned().unwrap_or(
+                rpi_runtime::credentials::AuthState {
+                    status: rpi_runtime::credentials::AuthStatus::Missing,
+                    source: crate::credentials::CredentialSource::Missing,
+                },
             );
             let oauth = matches!(credential, Some(crate::config::Credential::Oauth { .. }));
             let oauth_available =
                 oauth_snapshot.is_some_and(|snapshot| snapshot.oauth_provider(&provider).is_some());
             serde_json::json!({
                 "provider": provider,
-                "ready": source.source.is_present(),
-                "source": source.source.as_json_str(),
+                "ready": state.is_ready(),
+                "source": state.source.as_json_str(),
+                "status": state.status,
                 "oauth": oauth,
                 "oauthAvailable": oauth_available,
             })
@@ -2163,6 +2172,46 @@ mod tests {
         AssistantMessage, Content, StopReason, TextContent, TextContentType, Usage,
     };
     use rpi_harness::session::types::OperationError;
+
+    #[test]
+    fn rpc_auth_status_shares_header_readiness_and_expired_token_state() {
+        let _guard = crate::config::test_support::env_lock().lock().unwrap();
+        struct RestoreConfig(Option<std::ffi::OsString>);
+        impl Drop for RestoreConfig {
+            fn drop(&mut self) {
+                match self.0.take() {
+                    Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
+                    None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
+                }
+            }
+        }
+        let _restore = RestoreConfig(std::env::var_os(crate::config::CONFIG_DIR_ENV));
+        let directory = tempfile::tempdir().unwrap();
+        std::env::set_var(crate::config::CONFIG_DIR_ENV, directory.path());
+        std::fs::write(directory.path().join("models.json"), serde_json::json!({"providers": {
+            "header-gateway": {"api":"openai-completions", "headers":{"Authorization":"Bearer header-secret"}, "models":[{"id":"model"}]},
+            "expired-account": {"api":"openai-completions", "models":[]}
+        }}).to_string()).unwrap();
+        std::fs::write(directory.path().join("auth.json"), serde_json::json!({
+            "expired-account": {"type":"oauth", "access":"expired-secret", "refresh":"refresh-secret", "expires":1}
+        }).to_string()).unwrap();
+        let status = rpc_get_auth_status(&[], None);
+        let providers = status["providers"].as_array().unwrap();
+        let header = providers
+            .iter()
+            .find(|row| row["provider"] == "header-gateway")
+            .unwrap();
+        assert_eq!(header["ready"], true);
+        assert_eq!(header["source"], "headers");
+        assert_eq!(header["status"], "ready");
+        let expired = providers
+            .iter()
+            .find(|row| row["provider"] == "expired-account")
+            .unwrap();
+        assert_eq!(expired["ready"], false);
+        assert_eq!(expired["status"], "expired");
+        assert!(!status.to_string().contains("secret"));
+    }
 
     #[test]
     fn oauth_display_drops_token_like_fields() {

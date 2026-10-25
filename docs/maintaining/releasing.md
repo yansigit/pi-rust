@@ -5,21 +5,19 @@
 Contributors, including fork contributors, submit code and tests without changing
 versions. After an ordinary PR lands on `main` and all CI checks pass,
 `release-plz` creates or updates a draft Release PR. It prepares the version and
-root changelog, synchronizes the embedded documentation, validates the nine
+root changelog, synchronizes the embedded documentation, validates the core
 crates, and marks the PR ready. The shared workspace version and `rpi` version
-group keep the nine core crates together; examples are excluded.
+group keep the core crates together; examples are excluded.
 
-Automatic releases currently stay on **0.8.x**, as configured by
-`workspace.metadata.release.series` in `Cargo.toml`. After release-plz proposes
-a version, the preparation step keeps it on this series, updates the workspace
-and internal pins, and retargets the new changelog section and PR metadata. The
-publish gate rejects versions outside the series. Change this setting explicitly
-when starting 0.9.x. API compatibility findings remain visible in the Release PR;
-the numbering policy does not disable those checks.
+Automatic releases use the version proposed by release-plz without pinning a
+minor series or rewriting it to a patch release. Versions such as `0.9.0` and
+`1.0.0` may proceed through the same Release PR workflow. The publish gate still
+requires a stable version newer than existing release tags, or an identical-commit
+retry. API compatibility findings remain visible in the Release PR.
 
 Merge that Release PR when ready to ship. After its main-branch CI passes:
 
-1. The existing release helper publishes the nine crates in dependency order.
+1. The existing release helper publishes the core crates in dependency order.
 2. Automation creates `vX.Y.Z` at the tested main commit. Existing tags are never
    moved; retrying the same release commit is supported.
 3. A reusable workflow builds all five platforms, verifies the archives, uploads
@@ -141,7 +139,7 @@ below are available through `task publish` too.
 | `bump` | `Cargo.toml` workspace version + internal pins → `cargo update --workspace` |
 | `changelog` | cuts `## [Unreleased]` into `## [X.Y.Z] - <date>` |
 | `docs` | re-syncs `crates/rpi-cli/embedded-docs` (CI enforces it) |
-| `validate` | `task release:validate` (version consistency across the nine crates) |
+| `validate` | `task release:validate` (version consistency across the core crates) |
 | `commit` | `chore(release): X.Y.Z` |
 | `tag` | `git tag vX.Y.Z` |
 | `push` | pushes the branch + tag → `release-binaries.yml` builds the assets |
@@ -150,7 +148,7 @@ below are available through `task publish` too.
 | `commit-channels` | `chore(release): refresh the install channels and the site for X.Y.Z` |
 | `taps` | pushes the formula/manifest into `homebrew-tap` + `scoop-bucket` |
 | `winget` | opens the `microsoft/winget-pkgs` PR (`scripts/winget-submit.sh`) |
-| `crates` | `task publish:crates RELEASE_VERSION=X.Y.Z` (nine crates, dependency order) |
+| `crates` | `task publish:crates RELEASE_VERSION=X.Y.Z` (core crates, dependency order) |
 | `site` | `task rpi-deploy` |
 
 ## Flags

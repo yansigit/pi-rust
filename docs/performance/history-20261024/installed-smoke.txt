@@ -1,0 +1,6 @@
+ephemeral_retry PASS
+persistent_first PASS
+persistent_resume PASS
+persistent_history_and_jsonl PASS
+native_rpc_unicode_and_state PASS
+installed_release_smoke PASS

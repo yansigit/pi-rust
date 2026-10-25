@@ -64,7 +64,7 @@ use crate::session::jsonl::codec::{
 use crate::session::jsonl::errors::{file_result, invalid_file, JsonlDecodeErrorKind};
 use crate::session::jsonl::types::{JsonlSessionMetadata, JsonlV4Header};
 use crate::session::memory::{stamp_record, Clock};
-use crate::session::state::SessionState;
+use crate::session::state::{ApplyOutcome, SessionState};
 use crate::session::types::{
     provisioned_into_entry, BranchBounds, Entry, EntryQuery, ForkOptions, IdGenerator, LanePointer,
     LaneRecord, LogItem, LogOptions, OperationStartedRecord, ProvisionedEntry, RecordQuery,
@@ -90,6 +90,7 @@ pub struct JsonlSessionStorage {
     /// Not `&self` across await points, so each mutating op holds it for its
     /// full duration.
     tail: Mutex<()>,
+    append: Mutex<Option<Box<dyn rpi_tools::env::AppendFile>>>,
     uncertain: AtomicBool,
 }
 
@@ -126,6 +127,7 @@ impl JsonlSessionStorage {
             clock,
             ids,
             tail: Mutex::new(()),
+            append: Mutex::new(None),
             uncertain: AtomicBool::new(false),
         }
     }
@@ -392,6 +394,27 @@ impl JsonlSessionStorage {
             applied: false,
         };
         let line = encode_mutation(mutation);
+        let mut append = self.append.lock().await;
+        if append.is_none() {
+            *append = file_result(
+                self.fs.open_append_file(&self.metadata.path).await,
+                &format!("Failed to open session {}", self.metadata.path),
+            )?;
+        }
+        if let Some(writer) = append.as_mut() {
+            // The tail lock still orders every append, and the writer flushes
+            // before acknowledgement. A failed handle is discarded for retry.
+            let result = writer.append(line.as_bytes()).await;
+            if result.is_err() {
+                *append = None;
+            }
+            file_result(
+                result,
+                &format!("Failed to append session {}", self.metadata.path),
+            )?;
+            return Ok(pending);
+        }
+        drop(append);
         file_result(
             self.fs
                 .append_file(&self.metadata.path, FileContent::Text(line), None)
@@ -600,16 +623,16 @@ impl SessionStorage for JsonlSessionStorage {
             seq,
             timestamp,
             lane: Some(lane.to_string()),
-            entry: full.clone(),
+            entry: full,
         };
         drop(state);
         let pending = self.append_mutation_line(&mutation).await?;
         let mut state = self.state.lock().await;
-        state.apply_mutation(mutation)?;
+        let outcome = state.apply_mutation(mutation)?;
         pending.applied();
-        match state.get_entry(full.id()) {
-            Some(stamped) => Ok(stamped.clone()),
-            None => Err(SessionError::storage("append_entry did not persist")),
+        match outcome {
+            ApplyOutcome::Entry(stamped) => Ok(stamped),
+            _ => Err(SessionError::storage("append_entry did not persist")),
         }
     }
 
@@ -632,15 +655,16 @@ impl SessionStorage for JsonlSessionStorage {
         let seq = state.next_sequence();
         let timestamp = self.clock.now_ms();
         let stamped = stamp_record(record, seq, lane.clone(), timestamp);
-        let mutation = SessionMutation::Record {
-            record: stamped.clone(),
-        };
+        let mutation = SessionMutation::Record { record: stamped };
         drop(state);
         let pending = self.append_mutation_line(&mutation).await?;
         let mut state = self.state.lock().await;
-        state.apply_mutation(mutation)?;
+        let outcome = state.apply_mutation(mutation)?;
         pending.applied();
-        Ok(stamped)
+        match outcome {
+            ApplyOutcome::Record(stamped) => Ok(stamped),
+            _ => Err(SessionError::storage("append_record did not persist")),
+        }
     }
 
     async fn get_entry(&self, id: &str) -> SessionResult<Option<Entry>> {
@@ -815,6 +839,101 @@ mod tests {
         OperationIntent, OperationStartedRecord, ProvisionedEntry, ProvisionedKind, RecordBase,
     };
 
+    #[tokio::test]
+    async fn append_returns_the_owned_payload_but_keeps_storage_defensive() {
+        let fs: Arc<dyn FileSystem> =
+            Arc::new(rpi_tools::InMemoryExecutionEnv::with_cwd("/".into()));
+        let jsonl = JsonlSessionStorage::create(
+            fs,
+            "/owned.jsonl",
+            header(),
+            Arc::new(FakeClock::new()),
+            Arc::new(CounterIdGenerator::new()),
+        )
+        .await
+        .unwrap();
+        let memory = crate::session::memory::InMemorySessionStorage::new(
+            SessionMetadata {
+                id: "memory".into(),
+                created_at: 0,
+                parent_session_id: None,
+            },
+            Arc::new(FakeClock::new()),
+            Arc::new(CounterIdGenerator::new()),
+        );
+        let storages: Vec<Arc<dyn SessionStorage>> = vec![Arc::new(jsonl), Arc::new(memory)];
+        for storage in storages {
+            let text = "owned append".repeat(4096);
+            let original_pointer = text.as_ptr() as usize;
+            let expected = text.clone();
+            let mut returned = storage
+                .append_entry(
+                    ProvisionedEntry {
+                        id: "entry".into(),
+                        kind: ProvisionedKind::Message {
+                            message: rpi_ai::UserMessage::new(text, 0).into(),
+                            terminate: None,
+                        },
+                    },
+                    "main",
+                )
+                .await
+                .unwrap();
+            let Entry::Message(message) = &mut returned else {
+                panic!("expected message")
+            };
+            let rpi_agent::AgentMessage::User(user) = &mut message.message else {
+                panic!("expected user")
+            };
+            let rpi_ai::UserContent::Text(text) = &mut user.content else {
+                panic!("expected text")
+            };
+            assert_eq!(text.as_ptr() as usize, original_pointer);
+            text.clear();
+            let Entry::Message(stored) = storage.get_entry("entry").await.unwrap().unwrap() else {
+                panic!("expected stored message")
+            };
+            let rpi_agent::AgentMessage::User(user) = stored.message else {
+                panic!("expected stored user")
+            };
+            assert_eq!(user.content, rpi_ai::UserContent::Text(expected));
+
+            let payload = "owned frame".repeat(4096);
+            let original_pointer = payload.as_ptr() as usize;
+            let expected = payload.clone();
+            let mut returned = storage
+                .append_record(LaneRecord::AssistantFrame(
+                    crate::session::types::AssistantFrameRecord {
+                        base: RecordBase {
+                            id: "frame".into(),
+                            seq: 0,
+                            lane: "main".into(),
+                            timestamp: 0,
+                        },
+                        run_id: "run".into(),
+                        stream_index: 0,
+                        op: crate::session::types::AssistantFrameOp::Append,
+                        frame: Some(serde_json::Value::String(payload)),
+                    },
+                ))
+                .await
+                .unwrap();
+            let LaneRecord::AssistantFrame(frame) = &mut returned else {
+                panic!("expected frame")
+            };
+            let Some(serde_json::Value::String(payload)) = &mut frame.frame else {
+                panic!("expected frame payload")
+            };
+            assert_eq!(payload.as_ptr() as usize, original_pointer);
+            payload.clear();
+            let records = storage.find_records(&RecordQuery::default()).await.unwrap();
+            let LaneRecord::AssistantFrame(frame) = &records[0] else {
+                panic!("expected stored frame")
+            };
+            assert_eq!(frame.frame, Some(serde_json::Value::String(expected)));
+        }
+    }
+
     fn user_msg(text: &str) -> rpi_agent::message::AgentMessage {
         rpi_agent::message::AgentMessage::User(rpi_ai::types::UserMessage::new(text, 1))
     }
@@ -828,6 +947,191 @@ mod tests {
             None,
             None,
         )
+    }
+
+    #[tokio::test]
+    async fn reusable_os_append_keeps_each_acknowledged_entry_visible_to_reload() {
+        let temp = tempfile::tempdir().unwrap();
+        let fs: Arc<dyn FileSystem> = Arc::new(rpi_tools::OsExecutionEnv::with_cwd(
+            temp.path().to_path_buf(),
+        ));
+        let clock: Arc<dyn Clock> = Arc::new(FakeClock::new());
+        let ids: Arc<dyn IdGenerator> = Arc::new(CounterIdGenerator::new());
+        let storage = JsonlSessionStorage::create(
+            fs.clone(),
+            "session.jsonl",
+            header(),
+            clock.clone(),
+            ids.clone(),
+        )
+        .await
+        .unwrap();
+        for index in 0..3 {
+            let id = format!("e{index}");
+            storage
+                .append_entry(
+                    ProvisionedEntry {
+                        id: id.clone(),
+                        kind: ProvisionedKind::Message {
+                            message: user_msg("visible 🐈"),
+                            terminate: None,
+                        },
+                    },
+                    "main",
+                )
+                .await
+                .unwrap();
+            let reader =
+                JsonlSessionStorage::load(fs.clone(), "session.jsonl", clock.clone(), ids.clone())
+                    .await
+                    .unwrap();
+            assert!(reader.get_entry(&id).await.unwrap().is_some());
+            assert_eq!(
+                reader
+                    .find_entries(&EntryQuery::default())
+                    .await
+                    .unwrap()
+                    .len(),
+                index + 1
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn cached_append_reopens_after_an_atomic_session_replacement() {
+        let temp = tempfile::tempdir().unwrap();
+        let fs: Arc<dyn FileSystem> = Arc::new(rpi_tools::OsExecutionEnv::with_cwd(
+            temp.path().to_path_buf(),
+        ));
+        let clock: Arc<dyn Clock> = Arc::new(FakeClock::new());
+        let ids: Arc<dyn IdGenerator> = Arc::new(CounterIdGenerator::new());
+        let storage = JsonlSessionStorage::create(
+            fs.clone(),
+            "session.jsonl",
+            header(),
+            clock.clone(),
+            ids.clone(),
+        )
+        .await
+        .unwrap();
+        let provisioned = |id: &str| ProvisionedEntry {
+            id: id.into(),
+            kind: ProvisionedKind::Message {
+                message: user_msg(id),
+                terminate: None,
+            },
+        };
+        storage
+            .append_entry(provisioned("before"), "main")
+            .await
+            .unwrap();
+        let prefix = fs.read_text_file("session.jsonl", None).await.unwrap();
+        fs.write_file("replacement.tmp", FileContent::Text(prefix), None)
+            .await
+            .unwrap();
+        fs.rename_file("replacement.tmp", "session.jsonl", None)
+            .await
+            .unwrap();
+        storage
+            .append_entry(provisioned("after"), "main")
+            .await
+            .unwrap();
+        let reloaded = JsonlSessionStorage::load(fs, "session.jsonl", clock, ids)
+            .await
+            .unwrap();
+        assert!(reloaded.get_entry("after").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn cached_append_reopens_after_a_native_file_replacement() {
+        let temp = tempfile::tempdir().unwrap();
+        let fs: Arc<dyn FileSystem> = Arc::new(rpi_tools::OsExecutionEnv::with_cwd(
+            temp.path().to_path_buf(),
+        ));
+        let clock: Arc<dyn Clock> = Arc::new(FakeClock::new());
+        let ids: Arc<dyn IdGenerator> = Arc::new(CounterIdGenerator::new());
+        let storage = JsonlSessionStorage::create(
+            fs.clone(),
+            "session.jsonl",
+            header(),
+            clock.clone(),
+            ids.clone(),
+        )
+        .await
+        .unwrap();
+        let entry = |id: &str| ProvisionedEntry {
+            id: id.into(),
+            kind: ProvisionedKind::Message {
+                message: user_msg(id),
+                terminate: None,
+            },
+        };
+        storage
+            .append_entry(entry("before-native"), "main")
+            .await
+            .unwrap();
+        let path = temp.path().join("session.jsonl");
+        let replacement = temp.path().join("replacement.tmp");
+        std::fs::write(&replacement, std::fs::read(&path).unwrap()).unwrap();
+        // Deliberately bypass FileSystem: editors, plugins and subprocesses can
+        // replace a path without updating any process-local generation counter.
+        std::fs::rename(&replacement, &path).unwrap();
+        storage
+            .append_entry(entry("after-native"), "main")
+            .await
+            .unwrap();
+        assert!(storage.get_entry("after-native").await.unwrap().is_some());
+        let reloaded = JsonlSessionStorage::load(fs, "session.jsonl", clock, ids)
+            .await
+            .unwrap();
+        assert!(
+            reloaded.get_entry("after-native").await.unwrap().is_some(),
+            "an acknowledged append must reach the current file"
+        );
+    }
+
+    struct RefusingAppend(Arc<std::sync::atomic::AtomicUsize>);
+    impl Drop for RefusingAppend {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    #[async_trait::async_trait]
+    impl rpi_tools::env::AppendFile for RefusingAppend {
+        async fn append(&mut self, _: &[u8]) -> Result<(), rpi_tools::FileError> {
+            Err(rpi_tools::FileError::new(
+                rpi_tools::FileErrorCode::Unknown,
+                "injected append failure",
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn failed_append_does_not_commit_state_and_discards_the_failed_writer() {
+        let fs: Arc<dyn FileSystem> =
+            Arc::new(rpi_tools::InMemoryExecutionEnv::with_cwd("/".into()));
+        let storage = JsonlSessionStorage::create(
+            fs,
+            "/s.jsonl",
+            header(),
+            Arc::new(FakeClock::new()),
+            Arc::new(CounterIdGenerator::new()),
+        )
+        .await
+        .unwrap();
+        let freed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        *storage.append.lock().await = Some(Box::new(RefusingAppend(Arc::clone(&freed))));
+        let entry = ProvisionedEntry {
+            id: "retry".into(),
+            kind: ProvisionedKind::Message {
+                message: user_msg("retry"),
+                terminate: None,
+            },
+        };
+        assert!(storage.append_entry(entry.clone(), "main").await.is_err());
+        assert!(storage.get_entry("retry").await.unwrap().is_none());
+        assert_eq!(freed.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(storage.append_entry(entry, "main").await.unwrap().seq(), 1);
     }
 
     #[tokio::test]

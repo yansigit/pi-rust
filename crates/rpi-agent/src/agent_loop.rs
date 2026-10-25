@@ -98,15 +98,10 @@ async fn run_agent_loop_scoped(
     stream_fn: StreamFn,
 ) -> Result<NewMessages, AgentError> {
     let mut new_messages: Vec<AgentMessage> = prompts.clone();
-    let mut current_context = AgentContext {
-        system_prompt: context.system_prompt.clone(),
-        messages: {
-            let mut v = context.messages.clone();
-            v.extend(prompts);
-            v
-        },
-        tools: context.tools.clone(),
-    };
+    // The caller transferred ownership. Only prompts need a separate copy for
+    // the returned additions; the existing history can move into the loop.
+    let mut current_context = context;
+    current_context.messages.extend(prompts);
 
     emit_event(&emit, AgentEvent::AgentStart).await;
     emit_event(&emit, AgentEvent::TurnStart).await;
@@ -586,7 +581,7 @@ async fn stream_assistant_response(
                             // streaming delta, and the provider already built the
                             // snapshot it hands us.
                             message: Arc::clone(partial),
-                            assistant_message_event: event.clone(),
+                            assistant_message_event: event,
                         },
                     )
                     .await;
@@ -908,6 +903,16 @@ async fn execute_tool_calls_parallel(
     }
 
     let mut entries: Vec<Entry> = Vec::with_capacity(tool_calls.len());
+    // When an after-tool callback is installed, every parallel task observes
+    // the same immutable snapshots. Clone the expensive history once per
+    // batch, then only bump the Arcs for each task; the common no-callback
+    // path still performs no history clone at all.
+    let after_context = config.after_tool_call.as_ref().map(|_| {
+        (
+            Arc::new(current_context.clone()),
+            Arc::new(assistant_message.clone()),
+        )
+    });
 
     for tool_call in tool_calls {
         if let Some(reason) = invalid_tool_call_reason(tool_call) {
@@ -937,8 +942,12 @@ async fn execute_tool_calls_parallel(
                 // The on_update closure captures an `Arc<AtomicBool>` gate so calls
                 // made after `execute` resolves are no-ops (late-update suppression).
                 let tc = tool_call.clone();
-                let am = assistant_message.clone();
-                let ctx = current_context.clone();
+                // The task only needs history for an after-tool callback. Most
+                // runs have no callback, so do not deep-copy the whole branch
+                // merely to finalize an already-owned tool result.
+                let after_context = after_context
+                    .as_ref()
+                    .map(|(ctx, am)| (Arc::clone(ctx), Arc::clone(am)));
                 let cfg = config.clone();
                 let emit2 = Arc::clone(emit);
                 let identity = rpi_ai::identity::operation();
@@ -954,8 +963,21 @@ async fn execute_tool_calls_parallel(
                                 let executed =
                                     execute_prepared_tool_call(&tc, action, &args, &cfg, &emit2)
                                         .await;
-                                finalize_executed_tool_call(&ctx, &am, &tc, &args, executed, &cfg)
-                                    .await
+                                match after_context {
+                                    Some((ctx, am)) => {
+                                        finalize_executed_tool_call(
+                                            &ctx, &am, &tc, &args, executed, &cfg,
+                                        )
+                                        .await
+                                    }
+                                    // No after-tool callback: skip the history
+                                    // references the finalizer would only borrow.
+                                    None => FinalizedToolCall {
+                                        tool_call: tc,
+                                        result: executed.result,
+                                        is_error: executed.is_error,
+                                    },
+                                }
                             },
                         ),
                     ),

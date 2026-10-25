@@ -133,14 +133,20 @@ pub fn assert_json_serializable(value: &Value) -> SessionResult<()> {
 /// `Session<TMetadata>`. Holds shared handles (`Arc`) so it is cheaply
 /// [`Clone`] — a `view` of any lane shares the same storage + id generator.
 pub struct Session {
-    storage: Arc<RwLock<Arc<dyn SessionStorage>>>,
+    binding: Arc<RwLock<SessionBinding>>,
     id_generator: Arc<dyn IdGenerator>,
+}
+
+#[derive(Clone)]
+struct SessionBinding {
+    storage: Arc<dyn SessionStorage>,
+    volatile_progress: Option<crate::frame_progress::SharedVolatileProgress>,
 }
 
 impl Clone for Session {
     fn clone(&self) -> Self {
         Self {
-            storage: Arc::clone(&self.storage),
+            binding: Arc::clone(&self.binding),
             id_generator: Arc::clone(&self.id_generator),
         }
     }
@@ -154,27 +160,70 @@ impl Session {
         id_generator: Option<Arc<dyn IdGenerator>>,
     ) -> Self {
         Self {
-            storage: Arc::new(RwLock::new(storage)),
+            binding: Arc::new(RwLock::new(SessionBinding {
+                storage,
+                volatile_progress: None,
+            })),
             id_generator: id_generator.unwrap_or_else(|| Arc::new(DefaultIdGenerator::new())),
         }
     }
 
     /// Atomically swap the backing storage (TUI `/session` hot-switch). The
-    /// facade is a thin `Arc` pair, so every existing `Session` clone — the
+    /// facade shares its binding, so every existing `Session` clone — the
     /// harness's field, lane handles, the config snapshot — observes the new
     /// storage immediately; no harness rebuild, no field restructure. The
-    /// caller is responsible for aborting any in-flight run first. Mirrors the
+    /// Raw storage replacement clears volatile recovery; harness session switches
+    /// adopt the target's recovery state instead. The caller is responsible for
+    /// aborting any in-flight run first. Mirrors the
     /// TS `SessionManager.rebind` intent (swap the durable backing without
     /// rebuilding the harness).
     pub fn set_storage(&self, storage: Arc<dyn SessionStorage>) {
-        *self.storage.write().unwrap() = storage;
+        *self.binding.write().unwrap() = SessionBinding {
+            storage,
+            volatile_progress: None,
+        };
+    }
+
+    /// Pin both storage and recovery state while a harness validates a target.
+    /// Keep the harness's generator, as on the existing session-switch path.
+    pub(crate) fn pin(&self, id_generator: Arc<dyn IdGenerator>) -> Self {
+        let binding = self.binding.read().unwrap().clone();
+        Self {
+            binding: Arc::new(RwLock::new(binding)),
+            id_generator,
+        }
+    }
+
+    /// Publish the prepared target without changing the shared facade handles.
+    /// The target's cache is adopted; the old session's cache is not carried over.
+    pub(crate) fn rebind_to(&self, target: &Self) {
+        let binding = target.binding.read().unwrap().clone();
+        *self.binding.write().unwrap() = binding;
+    }
+
+    /// Keep recovery progress as typed frames in memory, without JSON records.
+    /// Use only for a session that does not need cross-process crash recovery.
+    /// Cloned handles share progress; rebinding storage resets this mode.
+    pub fn with_volatile_progress(self) -> Self {
+        self.binding
+            .write()
+            .unwrap()
+            .volatile_progress
+            .get_or_insert_with(|| Arc::new(std::sync::Mutex::new(Default::default())));
+        self
+    }
+
+    pub(crate) fn volatile_progress(
+        &self,
+    ) -> Option<crate::frame_progress::SharedVolatileProgress> {
+        self.binding.read().unwrap().volatile_progress.clone()
     }
 
     /// A cheap owned handle to the backing storage. Releases the read lock
     /// immediately, so the returned `Arc` is safe to hold across awaits (the
     /// lock guard itself is not `Send`).
     fn storage_arc(&self) -> Arc<dyn SessionStorage> {
-        self.storage.read().unwrap().clone()
+        Arc::clone(&self.binding.read().unwrap().storage)
     }
 
     /// The shared id generator. Mirrors TS `readonly idGenerator`.

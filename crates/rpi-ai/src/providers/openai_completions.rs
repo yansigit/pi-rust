@@ -88,6 +88,50 @@ impl OpenAiCompletionsProvider {
     }
 }
 
+struct PreparedRequest {
+    headers: BTreeMap<String, String>,
+    body: Value,
+}
+
+fn prepare_request<F>(
+    model: &Model,
+    ctx: &Context,
+    opts: &SimpleStreamOptions,
+    provider_key: &Option<String>,
+    allow_env_api_key: bool,
+    require_auth: bool,
+    build_body: F,
+) -> Result<PreparedRequest, String>
+where
+    F: FnOnce(&Model, &Context, &SimpleStreamOptions) -> Value,
+{
+    let api_key = resolve_api_key(provider_key, opts, allow_env_api_key);
+    let mut headers = BTreeMap::new();
+    for extra in [model.headers.as_ref(), opts.headers.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        for (name, value) in extra {
+            crate::provider::set_http_header(&mut headers, name, Some(value));
+        }
+    }
+    apply_api_key(&mut headers, api_key);
+    // Identify rpi on provider requests (native `getPiUserAgent`), unless the
+    // caller/model already set a User-Agent.
+    crate::http::ensure_user_agent(&mut headers);
+    if require_auth && !has_auth_header(&headers) {
+        return Err(format!("No API key for provider: {}", model.provider));
+    }
+
+    // Do not build the wire body until the original auth/header checks pass.
+    // The resulting Value is owned, so the spawned request need not retain the
+    // caller's Context or any of its history.
+    Ok(PreparedRequest {
+        headers,
+        body: build_body(model, ctx, opts),
+    })
+}
+
 #[async_trait]
 impl Provider for OpenAiCompletionsProvider {
     fn id(&self) -> &str {
@@ -110,23 +154,24 @@ impl Provider for OpenAiCompletionsProvider {
         let provider_key = self.api_key.clone();
         let allow_env_api_key = self.allow_env_api_key;
         let require_auth = self.require_auth;
+        // Prepare headers while the caller's Context is borrowed. This keeps
+        // the original auth check ahead of the potentially expensive body
+        // conversion; only an owned successful preparation crosses the spawn.
+        let preparation = prepare_request(
+            model,
+            ctx,
+            opts,
+            &provider_key,
+            allow_env_api_key,
+            require_auth,
+            build_request,
+        );
         let model = model.clone();
-        let ctx = Arc::new(ctx.clone());
         let mut opts = opts.clone();
         opts.signal = producer.cancellation_token();
 
         tokio::spawn(async move {
-            run_stream(
-                &mut producer,
-                http,
-                provider_key,
-                allow_env_api_key,
-                require_auth,
-                &model,
-                &ctx,
-                &opts,
-            )
-            .await;
+            run_stream(&mut producer, http, &model, preparation, &opts).await;
         });
 
         stream
@@ -136,65 +181,51 @@ impl Provider for OpenAiCompletionsProvider {
 async fn run_stream(
     producer: &mut AssistantMessageEventStreamProducer,
     http: reqwest::Client,
-    provider_key: Option<String>,
-    allow_env_api_key: bool,
-    require_auth: bool,
     model: &Model,
-    ctx: &Context,
+    preparation: Result<PreparedRequest, String>,
     opts: &SimpleStreamOptions,
 ) {
     let mut state = StreamState::new(model);
-    let api_key = resolve_api_key(&provider_key, opts, allow_env_api_key);
-
-    let mut headers = BTreeMap::new();
-    for extra in [model.headers.as_ref(), opts.headers.as_ref()]
-        .into_iter()
-        .flatten()
-    {
-        for (name, value) in extra {
-            crate::provider::set_http_header(&mut headers, name, Some(value));
+    let PreparedRequest { headers, body } = match preparation {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            state.error(producer, error, false).await;
+            return;
         }
-    }
-    apply_api_key(&mut headers, api_key);
-    // Identify rpi on provider requests (native `getPiUserAgent`), unless the
-    // caller/model already set a User-Agent.
-    crate::http::ensure_user_agent(&mut headers);
-    if require_auth && !has_auth_header(&headers) {
-        state
-            .error(
-                producer,
-                format!("No API key for provider: {}", model.provider),
-                false,
-            )
-            .await;
-        return;
-    }
+    };
 
-    let body = build_request(model, ctx, opts);
     let url = chat_completions_url(&model.base_url);
     // A silent/stalled gateway must not leave the harness in Working forever.
     // Callers can override this through SimpleStreamOptions when needed.
     let timeout = opts.request_timeout();
     let signal = opts.signal.clone();
     let response_observer = opts.response_observer.clone();
+    let mut request = http.post(&url).timeout(timeout);
+    for (name, value) in &headers {
+        request = request.header(name, value);
+    }
+    let request = match super::request::PreparedJsonRequest::new(request, &body) {
+        Ok(request) => request,
+        Err(error) => {
+            state
+                .error(
+                    producer,
+                    format!("failed to encode request: {error}"),
+                    false,
+                )
+                .await;
+            return;
+        }
+    };
+    drop(body);
     let response = retry_provider_request(
         move || {
-            let http = http.clone();
-            let url = url.clone();
-            let body = body.clone();
-            let headers = headers.clone();
+            let request = request.clone();
             let signal = signal.clone();
             let response_observer = response_observer.clone();
             async move {
-                let mut request = http.post(&url).timeout(timeout);
-                for (name, value) in headers {
-                    request = request.header(name, value);
-                }
                 let response = tokio::select! {
-                    result = request.json(&body).send() => result.map_err(|error| AiError::Http {
-                        status: None,
-                        message: format!("http transport error: {error}"),
-                    })?,
+                    result = request.send() => result?,
                     _ = signal.cancelled() => return Err(AiError::Abort {
                         message: "Request aborted".into(),
                     }),
@@ -1540,6 +1571,100 @@ mod tests {
         model.max_tokens = 1024;
         model.reasoning = true;
         model
+    }
+
+    #[tokio::test]
+    async fn prepared_auth_failure_skips_body_and_keeps_terminal_error() {
+        let model = model();
+        let opts = SimpleStreamOptions::default();
+        let prepared = prepare_request(
+            &model,
+            &Context::default(),
+            &opts,
+            &None,
+            false,
+            true,
+            |_, _, _| panic!("missing credentials must not build the request"),
+        );
+        assert!(matches!(&prepared, Err(message) if message == "No API key for provider: gateway"));
+        let (mut producer, stream) = create_assistant_message_event_stream();
+        run_stream(
+            &mut producer,
+            reqwest::Client::new(),
+            &model,
+            prepared,
+            &opts,
+        )
+        .await;
+        drop(producer);
+        let message = stream.result().await.unwrap();
+        assert_eq!(message.stop_reason, StopReason::Error);
+        assert_eq!(
+            message.error_message.as_deref(),
+            Some("No API key for provider: gateway")
+        );
+    }
+
+    #[test]
+    fn prepared_request_preserves_header_auth_and_overrides() {
+        let mut model = model();
+        model.headers = Some(BTreeMap::from([
+            ("Authorization".into(), "Bearer model-key".into()),
+            ("User-Agent".into(), "fixture-agent".into()),
+        ]));
+        let opts = SimpleStreamOptions {
+            headers: Some(BTreeMap::from([(
+                "authorization".into(),
+                "Bearer caller-key".into(),
+            )])),
+            ..Default::default()
+        };
+        let prepared = prepare_request(
+            &model,
+            &Context::default(),
+            &opts,
+            &None,
+            false,
+            true,
+            build_request,
+        )
+        .unwrap();
+        assert_eq!(
+            prepared.headers.get("authorization").map(String::as_str),
+            Some("Bearer caller-key")
+        );
+        assert_eq!(
+            prepared
+                .headers
+                .keys()
+                .filter(|name| name.eq_ignore_ascii_case("authorization"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            prepared.headers.get("User-Agent").map(String::as_str),
+            Some("fixture-agent")
+        );
+        assert_eq!(prepared.body["model"], "gpt-test");
+    }
+
+    #[test]
+    fn prepared_unauthenticated_body_owns_the_original_context_snapshot() {
+        let model = model();
+        let opts = SimpleStreamOptions::default();
+        let mut context = Context::new(vec![Message::User(UserMessage::new(
+            "original history ".repeat(4096),
+            0,
+        ))]);
+        context.system_prompt = Some("original system".into());
+        let expected = build_request(&model, &context, &opts);
+        let prepared =
+            prepare_request(&model, &context, &opts, &None, false, false, build_request).unwrap();
+        context.messages.clear();
+        context.system_prompt = Some("replacement system".into());
+        drop(context);
+        assert_eq!(prepared.body, expected);
+        assert!(!has_auth_header(&prepared.headers));
     }
 
     #[test]

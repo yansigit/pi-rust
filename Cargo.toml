@@ -7,6 +7,7 @@ members = [
     "crates/rpi-tools",
     "crates/rpi-harness",
     "crates/rpi-cli",
+    "crates/rpi-runtime",
     "crates/rpi-tui",
     "crates/rpi-plugin-sdk",
     "crates/rpi-extensions",
@@ -29,12 +30,8 @@ rust-version = "1.78"
 license = "MIT"
 repository = "https://github.com/bigfish1913/pi-rust"
 homepage = "https://rpi.laofu.online/"
-version = "0.8.4"
+version = "0.9.2"
 authors = ["BigFish <fuwei201473@gmail.com>"]
-
-[workspace.metadata.release]
-# Automatic releases stay on this series until a maintainer changes it.
-series = "0.8"
 
 [workspace.dependencies]
 # Async runtime
@@ -66,6 +63,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 base64 = "0.22"
 png = "0.18"
+ciborium = "0.2"
 tempfile = "3"
 regex = "1"
 semver = "1"
@@ -74,16 +72,18 @@ dirs = "5"
 rpassword = "7"
 
 # rpi internal crates (package names and directories both use the `rpi-` prefix).
-rpi-telemetry = { path = "crates/rpi-telemetry", version = "0.8.4" }
-rpi-ai = { path = "crates/rpi-ai", version = "0.8.4" }
-rpi-agent = { path = "crates/rpi-agent", version = "0.8.4" }
-rpi-tools = { path = "crates/rpi-tools", version = "0.8.4" }
-rpi-harness = { path = "crates/rpi-harness", version = "0.8.4" }
+rpi-telemetry = { path = "crates/rpi-telemetry", version = "0.9.2" }
+rpi-ai = { path = "crates/rpi-ai", version = "0.9.2" }
+rpi-agent = { path = "crates/rpi-agent", version = "0.9.2" }
+rpi-tools = { path = "crates/rpi-tools", version = "0.9.2" }
+rpi-harness = { path = "crates/rpi-harness", version = "0.9.2" }
 
-rpi-tui = { path = "crates/rpi-tui", version = "0.8.4" }
+rpi-runtime = { path = "crates/rpi-runtime", version = "0.9.2" }
 
-rpi-plugin-sdk = { path = "crates/rpi-plugin-sdk", version = "0.8.4" }
-rpi-extensions = { path = "crates/rpi-extensions", version = "0.8.4" }
+rpi-tui = { path = "crates/rpi-tui", version = "0.9.2" }
+
+rpi-plugin-sdk = { path = "crates/rpi-plugin-sdk", version = "0.9.2" }
+rpi-extensions = { path = "crates/rpi-extensions", version = "0.9.2" }
 
 [profile.release]
 lto = "thin"

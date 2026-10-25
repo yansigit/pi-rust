@@ -86,6 +86,49 @@ impl OpenAiResponsesProvider {
         }
     }
 }
+struct PreparedRequest {
+    headers: std::collections::BTreeMap<String, String>,
+    body: Value,
+    custom_tool_properties: HashMap<String, String>,
+}
+
+fn prepare_request<F>(
+    model: &Model,
+    ctx: &Context,
+    opts: &SimpleStreamOptions,
+    provider_key: &Option<String>,
+    allow_env_api_key: bool,
+    build_body: F,
+) -> Result<PreparedRequest, String>
+where
+    F: FnOnce(&Model, &Context, &SimpleStreamOptions) -> Value,
+{
+    let mut headers = std::collections::BTreeMap::new();
+    for extra in [model.headers.as_ref(), opts.headers.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        for (name, value) in extra {
+            crate::provider::set_http_header(&mut headers, name, Some(value));
+        }
+    }
+    let key = resolve_api_key(provider_key, opts, allow_env_api_key);
+    apply_api_key(&mut headers, key);
+    if !headers.keys().any(|name| {
+        name.eq_ignore_ascii_case("authorization") || name.eq_ignore_ascii_case("x-api-key")
+    }) {
+        return Err("No API key".to_string());
+    }
+
+    // Keep the original auth/header ordering: only after it succeeds do we
+    // convert history and retain the minimal tool metadata needed by SSE.
+    Ok(PreparedRequest {
+        headers,
+        body: build_body(model, ctx, opts),
+        custom_tool_properties: grammar_tool_properties(model, &ctx.tools),
+    })
+}
+
 #[async_trait]
 impl Provider for OpenAiResponsesProvider {
     fn id(&self) -> &str {
@@ -105,21 +148,15 @@ impl Provider for OpenAiResponsesProvider {
         let http = self.http.clone();
         let key = self.api_key.clone();
         let allow_env_api_key = self.allow_env_api_key;
+        // Prepare headers while the caller's Context is borrowed. The helper
+        // returns an error result for the producer task, so auth failure still
+        // follows the original terminal Error event path without a dummy body.
+        let preparation = prepare_request(model, ctx, opts, &key, allow_env_api_key, build_request);
         let model = model.clone();
-        let ctx = Arc::new(ctx.clone());
         let mut opts = opts.clone();
         opts.signal = producer.cancellation_token();
         tokio::spawn(async move {
-            run_stream(
-                &mut producer,
-                http,
-                key,
-                allow_env_api_key,
-                &model,
-                &ctx,
-                &opts,
-            )
-            .await;
+            run_stream(&mut producer, http, &model, preparation, &opts).await;
         });
         stream
     }
@@ -200,16 +237,7 @@ impl Default for ResponsesStreamState {
 }
 
 impl ResponsesStreamState {
-    fn with_tools(tools: &[Tool], supports_grammar_tools: bool) -> Self {
-        let custom_tool_properties = tools
-            .iter()
-            .filter_map(|tool| {
-                supports_grammar_tools
-                    .then(|| grammar_tool_input_property(tool))
-                    .flatten()
-                    .map(|property| (tool.name.clone(), property))
-            })
-            .collect();
+    fn with_tools(custom_tool_properties: HashMap<String, String>) -> Self {
         Self {
             custom_tool_properties,
             ..Self::default()
@@ -1178,10 +1206,8 @@ fn apply_api_key(
 async fn run_stream(
     p: &mut AssistantMessageEventStreamProducer,
     http: reqwest::Client,
-    provider_key: Option<String>,
-    allow_env_api_key: bool,
     model: &Model,
-    ctx: &Context,
+    preparation: Result<PreparedRequest, String>,
     opts: &SimpleStreamOptions,
 ) {
     let mut out = AssistantMessage::empty(
@@ -1190,32 +1216,41 @@ async fn run_stream(
         model.id.clone(),
         now_ms(),
     );
-    let mut headers = std::collections::BTreeMap::new();
-    for extra in [model.headers.as_ref(), opts.headers.as_ref()]
-        .into_iter()
-        .flatten()
-    {
-        for (k, v) in extra {
-            crate::provider::set_http_header(&mut headers, k, Some(v));
+    let PreparedRequest {
+        headers,
+        body,
+        custom_tool_properties,
+    } = match preparation {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            emit_error(p, &mut out, error, false).await;
+            return;
         }
-    }
-    let key = resolve_api_key(&provider_key, opts, allow_env_api_key);
-    apply_api_key(&mut headers, key);
-    if !headers
-        .keys()
-        .any(|k| k.eq_ignore_ascii_case("authorization") || k.eq_ignore_ascii_case("x-api-key"))
-    {
-        emit_error(p, &mut out, "No API key", false).await;
-        return;
-    }
-    let body = build_request(model, ctx, opts);
+    };
     let url = responses_url(&model.base_url);
     let timeout = opts.request_timeout();
     let signal = opts.signal.clone();
     let response_observer = opts.response_observer.clone();
-    let response = retry_provider_request(move || { let http=http.clone(); let url=url.clone(); let body=body.clone(); let headers=headers.clone(); let signal=signal.clone(); let response_observer=response_observer.clone(); async move {
-        let mut req=http.post(&url).json(&body).timeout(timeout); for (k,v) in headers { req=req.header(k,v); }
-        let response = tokio::select! { r=req.send()=>r.map_err(|e| AiError::Http{status:None,message:e.to_string()})?, _=signal.cancelled()=>return Err(AiError::Abort{message:"Request aborted".into()})};
+    let mut builder = http.post(&url).timeout(timeout);
+    for (name, value) in headers {
+        builder = builder.header(name, value);
+    }
+    let request = match super::request::PreparedJsonRequest::new(builder, &body) {
+        Ok(request) => request,
+        Err(error) => {
+            emit_error(
+                p,
+                &mut out,
+                format!("failed to encode request: {error}"),
+                false,
+            )
+            .await;
+            return;
+        }
+    };
+    drop(body);
+    let response = retry_provider_request(move || { let request=request.clone(); let signal=signal.clone(); let response_observer=response_observer.clone(); async move {
+        let response = tokio::select! { r=request.send()=>r?, _=signal.cancelled()=>return Err(AiError::Abort{message:"Request aborted".into()})};
         crate::http::observe_response(&response_observer, &response, &signal).await;
         if response.status().is_success() { Ok(response) } else { let status=response.status().as_u16(); let msg=tokio::select! { biased; _=signal.cancelled()=>return Err(AiError::Abort{message:"Request aborted".into()}), message=response.text()=>message.unwrap_or_default() }; Err(AiError::Http{status:Some(status),message:msg}) }
     }}, opts.max_retries, opts.max_retry_delay, &opts.signal).await;
@@ -1228,8 +1263,7 @@ async fn run_stream(
     };
     let mut events = SseEventStream::new(response, opts.signal.clone())
         .with_idle_timeout(opts.stream_idle_timeout());
-    let mut state =
-        ResponsesStreamState::with_tools(&ctx.tools, supports_openai_grammar_tools(model));
+    let mut state = ResponsesStreamState::with_tools(custom_tool_properties);
     // The stream contract exposes a pending assistant message immediately after
     // the HTTP response is accepted, before the first output item arrives.
     p.push(AssistantMessageEvent::Start {
@@ -2506,6 +2540,114 @@ mod tests {
         model
     }
 
+    #[tokio::test]
+    async fn prepared_auth_failure_skips_body_and_keeps_terminal_error() {
+        let model = model();
+        let opts = SimpleStreamOptions::default();
+        let prepared = prepare_request(
+            &model,
+            &Context::default(),
+            &opts,
+            &None,
+            false,
+            |_, _, _| panic!("missing credentials must not build the request"),
+        );
+        assert!(matches!(&prepared, Err(message) if message == "No API key"));
+        let (mut producer, stream) = create_assistant_message_event_stream();
+        run_stream(
+            &mut producer,
+            reqwest::Client::new(),
+            &model,
+            prepared,
+            &opts,
+        )
+        .await;
+        drop(producer);
+        let message = stream.result().await.unwrap();
+        assert_eq!(message.stop_reason, StopReason::Error);
+        assert_eq!(message.error_message.as_deref(), Some("No API key"));
+    }
+
+    #[test]
+    fn prepared_request_preserves_header_auth_and_overrides() {
+        let mut model = model();
+        model.headers = Some(BTreeMap::from([(
+            "Authorization".into(),
+            "Bearer model-key".into(),
+        )]));
+        let opts = SimpleStreamOptions {
+            headers: Some(BTreeMap::from([
+                ("authorization".into(), "Bearer caller-key".into()),
+                ("X-Api-Key".into(), "fixture-key".into()),
+            ])),
+            ..Default::default()
+        };
+        let prepared = prepare_request(
+            &model,
+            &Context::default(),
+            &opts,
+            &None,
+            false,
+            build_request,
+        )
+        .unwrap();
+        assert_eq!(
+            prepared.headers.get("authorization").map(String::as_str),
+            Some("Bearer caller-key")
+        );
+        assert_eq!(
+            prepared
+                .headers
+                .keys()
+                .filter(|name| name.eq_ignore_ascii_case("authorization"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            prepared.headers.get("X-Api-Key").map(String::as_str),
+            Some("fixture-key")
+        );
+        assert_eq!(prepared.body["model"], "gpt-test");
+    }
+
+    #[test]
+    fn prepared_body_and_grammar_mapping_own_the_original_context_snapshot() {
+        for enabled in [false, true] {
+            let model = if enabled { grammar_model() } else { model() };
+            let opts = SimpleStreamOptions::default();
+            let mut context = Context::new(vec![Message::User(crate::types::UserMessage::new(
+                "original history ".repeat(4096),
+                0,
+            ))]);
+            context.tools.push(grammar_tool());
+            let expected = build_request(&model, &context, &opts);
+            let prepared = prepare_request(
+                &model,
+                &context,
+                &opts,
+                &Some("fixture-key".into()),
+                false,
+                build_request,
+            )
+            .unwrap();
+            context.messages.clear();
+            context.tools[0].name = "replacement".into();
+            context.tools[0].parameters = Schema::new(
+                json!({"type":"object","properties":{"other":{"type":"string"}},"required":["other"]}),
+            );
+            drop(context);
+            assert_eq!(prepared.body, expected);
+            if enabled {
+                assert_eq!(
+                    prepared.custom_tool_properties,
+                    HashMap::from([("run_grammar".into(), "payload".into())])
+                );
+            } else {
+                assert!(prepared.custom_tool_properties.is_empty());
+            }
+        }
+    }
+
     /// Regression: `strict: true` used to be advertised alongside the raw
     /// `schemars` schema, which has no `additionalProperties: false`. OpenAI
     /// rejected that with
@@ -2757,7 +2899,8 @@ mod tests {
     async fn custom_tool_stream_wraps_and_escapes_raw_input_once() {
         let tool = grammar_tool();
         let (mut producer, stream) = create_assistant_message_event_stream();
-        let mut state = ResponsesStreamState::with_tools(&[tool], true);
+        let mut state =
+            ResponsesStreamState::with_tools(grammar_tool_properties(&grammar_model(), &[tool]));
         let mut output = AssistantMessage::empty(Api::OpenaiResponses, "openai", "gpt-test", 1);
         state
             .add_item(

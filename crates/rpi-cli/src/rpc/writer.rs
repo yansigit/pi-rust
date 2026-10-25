@@ -35,3 +35,9 @@ pub(crate) async fn write_line(out: &RpcWriter, value: &serde_json::Value) {
     line.push(b'\n');
     let _ = out.0.send(line).await;
 }
+
+pub(crate) async fn write_agent_event(out: &RpcWriter, event: &rpi_agent::events::AgentEvent) {
+    let mut line = super::events::encode(event).unwrap_or_else(|_| b"null".to_vec());
+    line.push(b'\n');
+    let _ = out.0.send(line).await;
+}

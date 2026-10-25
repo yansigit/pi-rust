@@ -40,8 +40,28 @@ impl OwnedString {
     }
 
     pub fn to_string_lossy(&self) -> String {
-        // SAFETY: construction established unique ownership of the live buffer.
-        unsafe { self.raw.to_string_lossy() }
+        self.as_str_lossy().into_owned()
+    }
+
+    /// Read the buffer without copying valid UTF-8. Invalid UTF-8 is replaced,
+    /// matching [`Self::to_string_lossy`]. The view cannot outlive its owner.
+    ///
+    /// ```compile_fail
+    /// use rpi_plugin_sdk::callbacks::OwnedString;
+    /// let text = {
+    ///     let owner = OwnedString::from_string("text".into());
+    ///     owner.as_str_lossy()
+    /// };
+    /// println!("{text}");
+    /// ```
+    pub fn as_str_lossy(&self) -> std::borrow::Cow<'_, str> {
+        if self.raw.len == 0 || self.raw.ptr.is_null() {
+            return std::borrow::Cow::Borrowed("");
+        }
+        // SAFETY: construction established exclusive ownership of a live buffer.
+        // This borrow keeps the owner (and its producer-side deallocator) alive.
+        let bytes = unsafe { std::slice::from_raw_parts(self.raw.ptr.cast::<u8>(), self.raw.len) };
+        String::from_utf8_lossy(bytes)
     }
 
     /// Transfer ownership back across the ABI, without freeing the buffer.
@@ -357,6 +377,41 @@ mod tests {
         assert!(
             refusing_execute(id, StbString::from_string("{}".into()), Some(counted_free)).is_null()
         );
+        assert_eq!(OWNER_FREES.with(std::cell::Cell::get), 2);
+    }
+
+    #[test]
+    fn string_views_borrow_valid_utf8_and_keep_lossy_fallback_and_cleanup() {
+        OWNER_FREES.with(|count| count.set(0));
+        let raw = StbString::from_string("hello 🐈".into());
+        let pointer = raw.ptr.cast::<u8>();
+        // SAFETY: each fresh allocation is transferred to exactly one owner.
+        let owner = unsafe { OwnedString::from_raw(raw, Some(counted_free)) };
+        let view = owner.as_str_lossy();
+        assert!(matches!(view, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(view.as_ptr(), pointer);
+        assert_eq!(view, "hello 🐈");
+        assert_eq!(OWNER_FREES.with(std::cell::Cell::get), 0);
+        drop(view);
+        drop(owner);
+        assert_eq!(OWNER_FREES.with(std::cell::Cell::get), 1);
+
+        let raw = StbString::from_vec(vec![b'a', 0xff, b'b']);
+        // SAFETY: invalid UTF-8 is allowed by the adopted buffer's read contract.
+        let owner = unsafe { OwnedString::from_raw(raw, Some(counted_free)) };
+        assert!(matches!(owner.as_str_lossy(), std::borrow::Cow::Owned(_)));
+        assert_eq!(owner.as_str_lossy(), "a\u{fffd}b");
+        assert_eq!(owner.to_string_lossy(), "a\u{fffd}b");
+        drop(owner);
+        assert_eq!(OWNER_FREES.with(std::cell::Cell::get), 2);
+
+        // SAFETY: null/zero is the ABI's valid empty buffer.
+        let empty = unsafe { OwnedString::from_raw(StbString::empty(), Some(counted_free)) };
+        assert!(matches!(
+            empty.as_str_lossy(),
+            std::borrow::Cow::Borrowed("")
+        ));
+        drop(empty);
         assert_eq!(OWNER_FREES.with(std::cell::Cell::get), 2);
     }
 

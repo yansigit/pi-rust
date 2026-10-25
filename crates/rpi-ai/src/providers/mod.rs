@@ -16,6 +16,9 @@ pub mod openai_completions;
 #[cfg(feature = "providers")]
 pub mod openai_responses;
 
+#[cfg(feature = "providers")]
+mod request;
+
 // ---------------------------------------------------------------------------
 // Streaming delta batching (shared policy)
 // ---------------------------------------------------------------------------

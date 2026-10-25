@@ -448,13 +448,21 @@ pub(super) async fn navigate(
     match &end {
         TreeNavigationEnd::Completed { editor_text } => {
             state.chat_container.clear();
-            add_welcome_message(&state.chat_container);
+            state.reset_session_state();
+            let (tools, skills, context_files) = current_capabilities(harness, lane).await;
+            add_welcome_message_with_capabilities(
+                &state.chat_container,
+                &tools,
+                &skills,
+                &context_files,
+            );
             render_session_history(
                 harness,
                 &state.chat_container,
                 state.markdown_transformer(),
                 Some(state.extension_session.clone()),
                 state.images_visible(),
+                Some(&state.footer),
             )
             .await;
             if let Some(text) = editor_text_to_apply(editor_text.as_deref(), &editor.get_text()) {

@@ -1,6 +1,6 @@
 # 架构概览
 
-rpi 是 Rust 原生 Agent SDK 与终端应用。当前 workspace 包含九个产品 crate；CLI 组合底层能力，嵌入式应用可按需使用 SDK。
+rpi 是 Rust 原生 Agent SDK 与终端应用。当前 workspace 包含十个产品 crate；CLI 组合底层能力，嵌入式应用可按需使用 SDK。
 
 ## 功能分层
 
@@ -8,6 +8,7 @@ rpi 是 Rust 原生 Agent SDK 与终端应用。当前 workspace 包含九个产
 | --- | --- |
 | `rpi-telemetry` | 遥测接口与 span/event 合约 |
 | `rpi-ai` | 模型与消息类型、Provider、流式响应、协议适配及 faux Provider |
+| `rpi-runtime` | 可嵌入的模型目录、配置与凭据解析、认证状态、模型/thinking 选择和私有执行绑定 |
 | `rpi-agent` | Agent Loop、工具调用、事件、队列、取消与轮次回调 |
 | `rpi-tools` | 内置工具与 ExecutionEnv 执行环境抽象 |
 | `rpi-harness` | 会话树、JSONL 持久化、上下文压缩、恢复、skills 与模板 |
@@ -56,6 +57,7 @@ Provider 是 LLM 协议边界。上层处理统一消息和事件，具体 HTTP/
 ## 按功能继续阅读
 
 - [Agent 项目结构](../agent/project-structure.md)
+- [可嵌入运行时与选择器拆分](reusable-runtime.md)
 - [Agent Loop 与流式消息链路](../agent/loop-walkthrough.md)
 - [上下文压缩](../agent/context-compaction.md)
 - [扩展开发与 ABI 生命周期](../extensions/authoring.md)

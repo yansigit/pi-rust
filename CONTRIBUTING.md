@@ -76,6 +76,7 @@ crate name; the directory name is not part of the public API.
 | ---------------------------------- | ---------------- |
 | `crates/rpi-telemetry`              | `rpi-telemetry`  |
 | `crates/rpi-ai`                     | `rpi-ai`         |
+| `crates/rpi-runtime`                | `rpi-runtime`    |
 | `crates/rpi-agent`                  | `rpi-agent`      |
 | `crates/rpi-tools`                  | `rpi-tools`      |
 | `crates/rpi-harness`                | `rpi-harness`    |
@@ -154,7 +155,7 @@ Releases are cut by a maintainer, not by contributors:
 1. `CHANGELOG.md` is updated and the version is bumped in the workspace
    `Cargo.toml`.
 2. `task publish` derives the next version, bumps/tags/pushes it and runs the
-   whole channel + crates.io pipeline; `task publish:crates` publishes the nine
+   whole channel + crates.io pipeline; `task publish:crates` publishes the workspace
    crates in dependency order without touching git.
 3. `git tag vX.Y.Z` is pushed and a matching GitHub Release is created; CI
    publishes automatically on pushes to `main` once the version bump lands.

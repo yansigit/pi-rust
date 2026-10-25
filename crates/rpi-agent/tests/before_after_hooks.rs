@@ -133,6 +133,89 @@ fn turn_start_count(events: &[AgentEvent]) -> usize {
         .count()
 }
 
+#[tokio::test]
+async fn parallel_tools_preserve_history_and_after_hook_overrides() {
+    let history = user_message("retained history ".repeat(4096));
+    for with_hook in [false, true] {
+        let (tool, executed) = EchoTool::new_recording();
+        let mut context = context_with_tools(vec![Arc::new(tool)]);
+        context.messages.push(history.clone());
+        context.system_prompt = "keep the system prompt".into();
+        let observed = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed_contexts = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut config = base_config();
+        config.tool_execution = ToolExecutionMode::Parallel;
+        if with_hook {
+            let expected_history = history.clone();
+            let observed = observed.clone();
+            let observed_contexts = observed_contexts.clone();
+            config.after_tool_call = Some(Arc::new(move |ctx, _| {
+                assert_eq!(ctx.context.messages[0], expected_history);
+                assert_eq!(ctx.context.system_prompt, "keep the system prompt");
+                assert_eq!(ctx.context.tools.len(), 1);
+                assert!(
+                    matches!(ctx.context.messages.last(), Some(rpi_agent::AgentMessage::Assistant(a)) if **a == *ctx.assistant_message)
+                );
+                observed_contexts
+                    .lock()
+                    .unwrap()
+                    .push(ctx.context.messages.as_ptr() as usize);
+                observed.lock().unwrap().push(ctx.tool_call.id.clone());
+                Box::pin(async {
+                    Some(AfterToolCallResult {
+                        details: Some(serde_json::json!({"after": true})),
+                        ..Default::default()
+                    })
+                })
+            }));
+        }
+        let stream = common::mock_stream_fn(vec![
+            assistant_tool_calls(
+                vec![
+                    ("a", "echo", serde_json::json!({"value": "one"})),
+                    ("b", "echo", serde_json::json!({"value": "two"})),
+                ],
+                StopReason::ToolUse,
+            ),
+            assistant_text("done", StopReason::Stop),
+        ]);
+        let (_, messages) =
+            run_and_collect(vec![user_message("run both")], context, config, stream).await;
+        let results: Vec<_> = messages
+            .iter()
+            .filter_map(|message| match message {
+                rpi_agent::AgentMessage::ToolResult(result) => Some(result),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            results
+                .iter()
+                .map(|r| r.tool_call_id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a", "b"]
+        );
+        assert!(results.iter().all(|r| !r.is_error));
+        assert_eq!(executed.lock().unwrap().len(), 2);
+        assert_eq!(
+            observed.lock().unwrap().len(),
+            if with_hook { 2 } else { 0 }
+        );
+        if with_hook {
+            let contexts = observed_contexts.lock().unwrap();
+            assert_eq!(contexts.len(), 2);
+            assert_eq!(contexts[0], contexts[1]);
+        }
+        for result in results {
+            if with_hook {
+                assert_eq!(result.details, Some(serde_json::json!({"after": true})));
+            } else {
+                assert!(result.details.as_ref().unwrap().get("value").is_some());
+            }
+        }
+    }
+}
+
 // ----------------------------------------------------------------------------
 // after_tool_call usage override
 // ----------------------------------------------------------------------------

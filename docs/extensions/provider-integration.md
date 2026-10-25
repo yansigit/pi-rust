@@ -193,6 +193,9 @@ rpi auth check --provider vendor-example --extension /path/to/provider.dll --jso
   `register_provider`。使用 SDK 的结构体大小与能力检测，不直接假定尾部字段存在。
 - 请求为 `{model, context, options}` JSON。增量在生成期间立即通过 `emit` 提交；不能先
   缓冲完整响应再切片伪造流式。事件粒度不保证等于 token 或 HTTP chunk。
+- 宿主可以合并已经入队、属于同一内容块的相邻纯文本或 thinking 增量，单批最多 4 KiB；
+  单个超大增量原样传递。合并不等待新数据，完整快照、元数据、未知字段、工具调用及块切换
+  都是边界。消费者应按序累积 delta，不依赖一次 `emit` 对应一个宿主事件。
 - 支持文本、thinking、toolcall 的 start / delta / end 及 usage；`contentIndex` 和工具
   `id` / `name` / `arguments` 必须一致。工具参数可能跨多帧，不能逐帧当作完整 JSON。
 - 同步 request fn 返回时，`out` 提供完整 `AssistantMessage`，成功、失败和取消都必须有
@@ -207,7 +210,9 @@ rpi auth check --provider vendor-example --extension /path/to/provider.dll --jso
   不留下可能在 DLL 卸载后运行的线程或任务。宿主保持 DLL 引用直到仍在执行的请求返回。
 
 原生扩展拥有当前进程权限，私有绑定负责请求路由与凭据隔离，不提供恶意代码沙箱。
-当前流式通道没有有界背压保证；不要将其描述成已经实现完整流量控制。
+宿主桥接和类型化事件队列都有事件数与载荷预算，单个超大事件可独占预算；这些预算不限制
+进程总内存、生产者状态或消费者持有的快照。旧插件内部的生成队列仍需重新编译后才能获得
+新版 SDK 的异步背压能力。
 
 ## 7. 重载与兼容
 

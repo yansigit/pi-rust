@@ -233,22 +233,10 @@ pub struct Args {
 
 /// The canonical valid `--thinking` level strings, in level order. Mirrors TS
 /// `VALID_THINKING_LEVELS`.
-pub const VALID_THINKING_LEVELS: &[&str] =
-    &["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+pub use rpi_runtime::thinking::VALID_THINKING_LEVELS;
 
 /// Parse a thinking-level string. Mirrors TS `isValidThinkingLevel`.
-pub fn parse_thinking_level(s: &str) -> Option<ThinkingLevel> {
-    Some(match s {
-        "off" => ThinkingLevel::Off,
-        "minimal" => ThinkingLevel::Minimal,
-        "low" => ThinkingLevel::Low,
-        "medium" => ThinkingLevel::Medium,
-        "high" => ThinkingLevel::High,
-        "xhigh" => ThinkingLevel::Xhigh,
-        "max" => ThinkingLevel::Max,
-        _ => return None,
-    })
-}
+pub use rpi_runtime::thinking::parse_thinking_level;
 
 /// `@file`-argument helper mirroring the TS parser: a leading `@` marks a file
 /// attachment (the `@` is stripped).

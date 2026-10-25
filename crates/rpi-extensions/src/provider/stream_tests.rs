@@ -341,6 +341,63 @@ fn null_snapshot_is_malformed_and_absent_snapshot_uses_the_delta() {
     assert_eq!(mapper.accumulated().content, vec![Content::text("xx")]);
 }
 
+#[tokio::test]
+async fn batched_and_unbatched_mappers_agree_after_every_input_prefix() {
+    let mut usage = rpi_ai::Usage::zero();
+    usage.input = 3;
+    let authoritative = snapshot(serde_json::json!({"type":"text","text":"replacement 🐈"}));
+    let chunks = vec![
+        serde_json::json!({"type":"start"}),
+        serde_json::json!({"type":"text_start","contentIndex":0}),
+        serde_json::json!({"type":"text_delta","contentIndex":0,"delta":"hello"}),
+        serde_json::json!({"type":"text_delta","contentIndex":0,"delta":" 🐈"}),
+        serde_json::json!({"type":"text_delta","contentIndex":0,"delta":""}),
+        serde_json::json!({"type":"usage","usage":usage}),
+        serde_json::json!({"type":"text_delta","contentIndex":0,"delta":"!"}),
+        serde_json::json!({"type":"text_delta","contentIndex":0,"delta":"?"}),
+        serde_json::json!({"type":"text_delta","contentIndex":0,"delta":"ignored","partial":authoritative}),
+        serde_json::json!({"type":"text_delta","contentIndex":0,"delta":" tail"}),
+        serde_json::json!({"type":"text_end","contentIndex":0}),
+        serde_json::json!({"type":"thinking_start","contentIndex":1}),
+        serde_json::json!({"type":"thinking_delta","contentIndex":1,"delta":"reason"}),
+        serde_json::json!({"type":"thinking_delta","contentIndex":1,"delta":"ing"}),
+        serde_json::json!({"type":"thinking_end","contentIndex":1,"redacted":false}),
+        serde_json::json!({"type":"toolcall_start","contentIndex":2,"id":"c1","name":"echo"}),
+        serde_json::json!({"type":"toolcall_delta","contentIndex":2,"delta":"{\"text\":"}),
+        serde_json::json!({"type":"toolcall_delta","contentIndex":2,"delta":"\"hi\"}"}),
+        serde_json::json!({"type":"toolcall_end","contentIndex":2}),
+    ];
+    fn apply(mapper: &mut StreamMapper, chunk: serde_json::Value) {
+        mapper.apply(chunk);
+        while let Some(deferred) = mapper.take_deferred() {
+            mapper.apply(deferred);
+        }
+    }
+    for prefix in 0..=chunks.len() {
+        let mut original = StreamMapper::new(Api::Faux, "probe".into(), "m".into());
+        let mut batched = StreamMapper::new(Api::Faux, "probe".into(), "m".into());
+        let (tx, mut rx) = queue::channel(32, 65536, Arc::new(ProviderControlState::default()));
+        for chunk in &chunks[..prefix] {
+            apply(&mut original, chunk.clone());
+            tx.send(chunk.clone(), chunk.to_string().len()).unwrap();
+        }
+        drop(tx);
+        while let Some(chunk) = rx.recv().await {
+            apply(&mut batched, chunk);
+        }
+        assert_eq!(
+            batched.accumulated(),
+            original.accumulated(),
+            "prefix {prefix}"
+        );
+        assert_eq!(
+            batched.aborted_message(),
+            original.aborted_message(),
+            "cancel prefix {prefix}"
+        );
+    }
+}
+
 #[derive(Default)]
 struct Burst {
     calls: std::sync::atomic::AtomicUsize,

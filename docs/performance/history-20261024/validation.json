@@ -1,0 +1,40 @@
+{
+  "comparison.json": {
+    "total_processes": 72,
+    "formal_samples": 56,
+    "errors": [],
+    "request_bytes": {
+      "on/read/request_bytes": 2800700,
+      "on/echo/request_bytes": 8533561,
+      "off/read/request_bytes": 2800700,
+      "off/echo/request_bytes": 8533561
+    },
+    "checks": [
+      "tool outputs and request count",
+      "short-prompt count",
+      "Rust request-byte count unchanged",
+      "Rust durable record type/count unchanged",
+      "Rust tool-stage RPC event counts unchanged",
+      "source and driver hashes"
+    ]
+  },
+  "large-output.json": {
+    "total_processes": 16,
+    "formal_samples": 12,
+    "errors": [],
+    "request_bytes": {
+      "on/read/request_bytes": 5934940,
+      "on/echo/request_bytes": 23457361,
+      "off/read/request_bytes": 5934940,
+      "off/echo/request_bytes": 23457361
+    },
+    "checks": [
+      "tool outputs and request count",
+      "short-prompt count",
+      "Rust request-byte count unchanged",
+      "Rust durable record type/count unchanged",
+      "Rust tool-stage RPC event counts unchanged",
+      "source and driver hashes"
+    ]
+  }
+}

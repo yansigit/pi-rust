@@ -1,0 +1,41 @@
+--- a/crates/rpi-agent/src/agent_loop.rs
++++ b/crates/rpi-agent/src/agent_loop.rs
+@@ -756,14 +756,21 @@
+                 // The on_update closure captures an `Arc<AtomicBool>` gate so calls
+                 // made after `execute` resolves are no-ops (late-update suppression).
+                 let tc = tool_call.clone();
+-                let am = assistant_message.clone();
+-                let ctx = current_context.clone();
++                // Diagnostic control only: no callback can observe these copies.
++                let skip_unused_copy = config.after_tool_call.is_none()
++                    && std::env::var_os("RPI_DIAG_NO_UNUSED_CONTEXT_COPY").is_some();
++                let am = (!skip_unused_copy).then(|| assistant_message.clone());
++                let ctx = (!skip_unused_copy).then(|| current_context.clone());
+                 let cfg = config.clone();
+                 let emit2 = Arc::clone(emit);
+                 let handle = tokio::spawn(async move {
+                     let executed =
+                         execute_prepared_tool_call(&tc, &tool, &args, &cfg, &emit2).await;
+-                    finalize_executed_tool_call(&ctx, &am, &tc, &args, executed, &cfg).await
++                    if let (Some(ctx), Some(am)) = (ctx, am) {
++                        finalize_executed_tool_call(&ctx, &am, &tc, &args, executed, &cfg).await
++                    } else {
++                        FinalizedToolCall { tool_call: tc, result: executed.result, is_error: executed.is_error }
++                    }
+                 });
+                 entries.push(Entry::Running(handle));
+             }
+--- a/crates/rpi-cli/src/rpc/writer.rs
++++ b/crates/rpi-cli/src/rpc/writer.rs
+@@ -37,6 +37,11 @@
+ }
+ 
+ pub(crate) async fn write_agent_event(out: &RpcWriter, event: &rpi_agent::events::AgentEvent) {
++    // Diagnostic only: intentionally suppress progress, keep terminal and replies.
++    if std::env::var_os("RPI_DIAG_DROP_RPC_PROGRESS").is_some()
++        && !matches!(event, rpi_agent::events::AgentEvent::AgentEnd { .. }) {
++        return;
++    }
+     let mut line = super::events::encode(event).unwrap_or_else(|_| b"null".to_vec());
+     line.push(b'\n');
+     let _ = out.0.send(line).await;

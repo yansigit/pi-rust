@@ -5,11 +5,51 @@ All notable changes to the `rpi-*` crate family are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The nine published crates share one workspace version and are released together
+The rpi-* crates share one workspace version and are released together
 in dependency order. `git tag vX.Y.Z` marks the commit that a release was cut
 from; the matching [GitHub Release](../../releases) carries the same notes.
 
 ## [Unreleased]
+
+## [0.9.2](https://github.com/bigfish1913/pi-rust/compare/v0.9.1...v0.9.2) - 2026-10-25
+
+### Fixed
+
+- *(cli)* restore the session's model and footer usage on switch ([#104](https://github.com/bigfish1913/pi-rust/pull/104))
+
+## [0.9.1](https://github.com/bigfish1913/pi-rust/compare/v0.9.0...v0.9.1) - 2026-10-25
+
+### Fixed
+
+- *(cli)* stop buffering IME commits as pastes on Windows ([#91](https://github.com/bigfish1913/pi-rust/pull/91))
+
+## [0.9.0](https://github.com/bigfish1913/pi-rust/compare/v0.8.5...v0.9.0) - 2026-10-25
+
+### Added
+
+- *(runtime)* extract reusable runtime and optimize execution
+- add optional binary serialization benchmark
+- add zero-copy archived payloads
+
+### Fixed
+
+- *(release)* sync workspace lock and embedded docs
+- *(cli)* keep temporary model switches out of settings.json
+
+### Other
+
+- Merge origin/main into feature-0.9.0
+- Merge branch 'main' into fix/model-switch-not-persisted
+- Merge remote-tracking branch 'origin/main' into feature-0.9.0
+- reduce repeated context and message copies
+- remove zero-copy from plugin sdk
+- compare zero-copy with json and cbor
+
+## [0.8.5](https://github.com/bigfish1913/pi-rust/compare/v0.8.4...v0.8.5) - 2026-10-24
+
+### Fixed
+
+- *(cli)* rebuild the banner and start a real session on /new ([#98](https://github.com/bigfish1913/pi-rust/pull/98))
 
 ## [0.8.4](https://github.com/bigfish1913/pi-rust/compare/v0.8.3...v0.8.4) - 2026-10-23
 

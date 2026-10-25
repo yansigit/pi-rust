@@ -74,22 +74,26 @@ impl std::fmt::Debug for SessionContextBuildOptions {
 /// after it; if no compaction, keep all entries. Mirrors
 /// `defaultContextEntryTransform`.
 pub fn default_context_entry_transform(path_entries: &[Entry]) -> Vec<Entry> {
-    let mut compaction_index = None;
-    for (i, entry) in path_entries.iter().enumerate().rev() {
-        if matches!(entry, Entry::Compaction(_)) {
-            compaction_index = Some(i);
-            break;
-        }
+    default_context_entries(path_entries).to_vec()
+}
+
+fn default_context_entries(path_entries: &[Entry]) -> &[Entry] {
+    let start = path_entries
+        .iter()
+        .rposition(|entry| matches!(entry, Entry::Compaction(_)))
+        .unwrap_or(0);
+    &path_entries[start..]
+}
+
+fn context_entries<'a>(
+    path_entries: &'a [Entry],
+    options: &SessionContextBuildOptions,
+) -> std::borrow::Cow<'a, [Entry]> {
+    let mut entries = std::borrow::Cow::Borrowed(default_context_entries(path_entries));
+    for transform in &options.entry_transforms {
+        entries = std::borrow::Cow::Owned(transform(&entries));
     }
-    match compaction_index {
-        None => path_entries.to_vec(),
-        Some(i) => {
-            let mut out = Vec::with_capacity(path_entries.len() - i);
-            out.push(path_entries[i].clone());
-            out.extend(path_entries[i + 1..].iter().cloned());
-            out
-        }
-    }
+    entries
 }
 
 /// `buildContextEntries` — apply the default transform, then each caller
@@ -98,11 +102,7 @@ pub fn build_context_entries(
     path_entries: &[Entry],
     options: &SessionContextBuildOptions,
 ) -> Vec<Entry> {
-    let mut entries = default_context_entry_transform(path_entries);
-    for transform in &options.entry_transforms {
-        entries = transform(&entries);
-    }
-    entries
+    context_entries(path_entries, options).into_owned()
 }
 
 /// `sessionEntryToContextMessages` — project one entry to context messages.
@@ -229,25 +229,34 @@ pub fn project_context_messages(
 /// entries) to capture the latest `thinking_level`/`model`/`active_tool_names`.
 /// Mirrors TS `deriveSessionContextState`.
 pub fn derive_session_context_state(path_entries: &[Entry]) -> SessionContext {
-    let mut thinking_level = "off".to_string();
+    let mut thinking_level = None;
     let mut model: Option<(String, String)> = None;
     let mut active_tool_names: Option<Vec<String>> = None;
-    for entry in path_entries {
+    for entry in path_entries.iter().rev() {
         match entry {
-            Entry::ThinkingLevel(t) => thinking_level = t.thinking_level.clone(),
-            Entry::ModelChange(m) => model = Some((m.provider.clone(), m.model_id.clone())),
-            Entry::Message(m) => {
+            Entry::ThinkingLevel(t) if thinking_level.is_none() => {
+                thinking_level = Some(t.thinking_level.clone());
+            }
+            Entry::ModelChange(m) if model.is_none() => {
+                model = Some((m.provider.clone(), m.model_id.clone()));
+            }
+            Entry::Message(m) if model.is_none() => {
                 if let AgentMessage::Assistant(a) = &m.message {
                     model = Some((a.provider.as_str().to_string(), a.model.clone()));
                 }
             }
-            Entry::ActiveTools(a) => active_tool_names = Some(a.active_tool_names.clone()),
+            Entry::ActiveTools(a) if active_tool_names.is_none() => {
+                active_tool_names = Some(a.active_tool_names.clone());
+            }
             _ => {}
+        }
+        if thinking_level.is_some() && model.is_some() && active_tool_names.is_some() {
+            break;
         }
     }
     SessionContext {
         messages: Vec::new(),
-        thinking_level,
+        thinking_level: thinking_level.unwrap_or_else(|| "off".to_string()),
         model,
         active_tool_names,
     }
@@ -402,6 +411,56 @@ mod tests {
             custom_type: custom_type.into(),
             data: Some(serde_json::Value::String(data.into())),
         })
+    }
+
+    #[test]
+    fn latest_state_wins_across_compaction_assistants_and_empty_tool_selection() {
+        use crate::session::types::{ActiveToolsEntry, EntryBase};
+        let active = |id: &str, parent: &str, tools: Vec<String>, seq| {
+            Entry::ActiveTools(ActiveToolsEntry {
+                base: EntryBase {
+                    entry_type: "active_tools_change".into(),
+                    id: id.into(),
+                    seq,
+                    parent_id: Some(parent.into()),
+                    timestamp: seq as i64,
+                },
+                active_tool_names: tools,
+            })
+        };
+        let mut entries = vec![
+            model_change("model", "root", "old", "old-model", 1),
+            thinking_level("thinking", "model", "high", 2),
+            active("tools", "thinking", vec!["read".into()], 3),
+            compaction_entry(
+                "compact",
+                "tools",
+                "summary",
+                vec![assistant("retained")],
+                4,
+            ),
+        ];
+        let old = derive_session_context_state(&entries);
+        assert_eq!(old.model, Some(("old".into(), "old-model".into())));
+        assert_eq!(old.thinking_level, "high");
+        assert_eq!(old.active_tool_names, Some(vec!["read".into()]));
+        entries.extend([
+            msg_entry_p("answer", "compact", assistant("latest"), 5),
+            active("empty-tools", "answer", vec![], 6),
+            thinking_level("off", "empty-tools", "off", 7),
+        ]);
+        let latest = derive_session_context_state(&entries);
+        assert_eq!(
+            latest.model,
+            Some(("anthropic".into(), "claude-sonnet-4-5".into()))
+        );
+        assert_eq!(latest.thinking_level, "off");
+        assert_eq!(latest.active_tool_names, Some(vec![]));
+        entries.push(model_change("switch", "off", "new", "new-model", 8));
+        assert_eq!(
+            derive_session_context_state(&entries).model,
+            Some(("new".into(), "new-model".into()))
+        );
     }
 
     #[test]

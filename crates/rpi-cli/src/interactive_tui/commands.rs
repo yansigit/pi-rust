@@ -27,7 +27,7 @@ impl SlashCommand for ClearChatCommand {
         "/clear"
     }
     fn description(&self) -> &'static str {
-        "Clear the display (keep the session)"
+        "Start a new session (the previous one stays saved)"
     }
     fn execute(&self, ctx: &CommandContext, _args: &str) {
         let _ = ctx.tx.send(TuiMessage::ClearChat);

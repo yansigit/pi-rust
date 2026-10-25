@@ -35,19 +35,28 @@ use crate::session::types::{
     SessionMutation, SessionStats,
 };
 
+mod snapshot;
+
+#[derive(Debug, Clone)]
+enum StoredLogItem {
+    Entry(usize),
+    Record(usize),
+    Other(Box<LogItem>),
+}
+
 /// The in-memory mutation reducer. Mirrors TS `SessionState`. Owns the
 /// append-only entry/record logs, the lane→leaf map, open operations per lane,
 /// global name/labels facts, and running stats.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct SessionState {
     sequence: u64,
     used_ids: std::collections::HashSet<String>,
     entries: Vec<Entry>,
-    entries_by_id: HashMap<String, Entry>,
+    entries_by_id: HashMap<String, usize>,
     records: Vec<LaneRecord>,
     open_operations_by_lane: HashMap<String, BTreeMap<u64, OperationStartedRecord>>,
     lanes: BTreeMap<String, Option<String>>,
-    log: Vec<LogItem>,
+    log: Vec<StoredLogItem>,
     stats: SessionStats,
     name: Option<String>,
     labels: HashMap<String, String>,
@@ -94,9 +103,12 @@ impl SessionState {
             .iter()
             .rev()
             .find_map(|item| match item {
-                LogItem::Lane {
-                    seq, lane: known, ..
-                } if known == lane => Some(*seq),
+                StoredLogItem::Other(other) => match other.as_ref() {
+                    LogItem::Lane {
+                        seq, lane: known, ..
+                    } if known == lane => Some(*seq),
+                    _ => None,
+                },
                 _ => None,
             })
             .unwrap_or(0)
@@ -210,6 +222,7 @@ impl SessionState {
         let target = self.entries_by_id.get(&edit.target_id).ok_or_else(|| {
             SessionError::invalid_entry(format!("Entry {} not found", edit.target_id))
         })?;
+        let target = &self.entries[*target];
         let mut cursor = parent.as_deref();
         let mut found = false;
         while let Some(id) = cursor {
@@ -217,7 +230,11 @@ impl SessionState {
                 found = true;
                 break;
             }
-            cursor = self.entries_by_id.get(id).and_then(Entry::parent_id);
+            cursor = self
+                .entries_by_id
+                .get(id)
+                .map(|index| &self.entries[*index])
+                .and_then(Entry::parent_id);
         }
         if !found {
             return Err(SessionError::invalid_entry(format!(
@@ -418,18 +435,15 @@ impl SessionState {
                 let is_message = matches!(entry, Entry::Message(_));
                 self.sequence = seq;
                 self.used_ids.insert(entry.id().to_string());
-                self.entries.push(entry.clone());
                 self.entries_by_id
-                    .insert(entry.id().to_string(), entry.clone());
+                    .insert(entry.id().to_string(), self.entries.len());
                 if let Some(lane_name) = lane.as_deref() {
                     if let Some(slot) = self.lanes.get_mut(lane_name) {
                         *slot = Some(entry.id().to_string());
                     }
                 }
-                self.log.push(LogItem::Entry {
-                    seq,
-                    entry: entry.clone(),
-                });
+                self.log.push(StoredLogItem::Entry(self.entries.len()));
+                self.entries.push(entry.clone());
                 if is_message {
                     self.stats.message_count += 1;
                 }
@@ -471,11 +485,8 @@ impl SessionState {
                     self.stats.total_tokens += usage_rec.usage.total_tokens;
                     self.stats.cost_total += usage_rec.usage.cost.total;
                 }
+                self.log.push(StoredLogItem::Record(self.records.len()));
                 self.records.push(record.clone());
-                self.log.push(LogItem::Record {
-                    seq,
-                    record: record.clone(),
-                });
                 Ok(ApplyOutcome::Record(record))
             }
             SessionMutation::Lane { seq, lane, leaf_id } => {
@@ -488,13 +499,21 @@ impl SessionState {
                 }
                 self.sequence = seq;
                 self.lanes.insert(lane.clone(), leaf_id.clone());
-                self.log.push(LogItem::Lane { seq, lane, leaf_id });
+                self.log.push(StoredLogItem::Other(Box::new(LogItem::Lane {
+                    seq,
+                    lane,
+                    leaf_id,
+                })));
                 Ok(ApplyOutcome::Lane)
             }
             SessionMutation::FactName { seq, name } => {
                 self.sequence = seq;
                 self.name = name.clone();
-                self.log.push(LogItem::FactName { seq, name });
+                self.log
+                    .push(StoredLogItem::Other(Box::new(LogItem::FactName {
+                        seq,
+                        name,
+                    })));
                 Ok(ApplyOutcome::Fact)
             }
             SessionMutation::FactLabel {
@@ -516,18 +535,21 @@ impl SessionState {
                         self.labels.remove(&target_id);
                     }
                 }
-                self.log.push(LogItem::FactLabel {
-                    seq,
-                    target_id,
-                    label,
-                });
+                self.log
+                    .push(StoredLogItem::Other(Box::new(LogItem::FactLabel {
+                        seq,
+                        target_id,
+                        label,
+                    })));
                 Ok(ApplyOutcome::Fact)
             }
         }
     }
 
     pub fn get_entry(&self, id: &str) -> Option<&Entry> {
-        self.entries_by_id.get(id)
+        self.entries_by_id
+            .get(id)
+            .map(|index| &self.entries[*index])
     }
 
     pub fn find_entries(&self, query: &EntryQuery) -> SessionResult<Vec<Entry>> {
@@ -560,7 +582,7 @@ impl SessionState {
     ) -> SessionResult<Vec<Entry>> {
         validate_limit(query.limit)?;
         let order = query.order.unwrap_or_default();
-        let path = self.walk_to_root_owned(Some(start), bounds)?;
+        let path = self.walk_to_root(Some(start), bounds)?;
         let mut results = Vec::new();
         match order {
             EntryOrder::OldestFirst => {
@@ -570,8 +592,8 @@ impl SessionState {
                             .stop_at_type
                             .map(|t| t == entry.entry_type())
                             .unwrap_or(false);
-                    if self.matches_entry_query(&entry, query) {
-                        results.push(entry);
+                    if self.matches_entry_query(entry, query) {
+                        results.push(entry.clone());
                     }
                     if reached_bound || query.limit.map(|l| results.len() >= l).unwrap_or(false) {
                         break;
@@ -580,8 +602,8 @@ impl SessionState {
             }
             EntryOrder::NewestFirst => {
                 for entry in path {
-                    if self.matches_entry_query(&entry, query) {
-                        results.push(entry);
+                    if self.matches_entry_query(entry, query) {
+                        results.push(entry.clone());
                     }
                     if query.limit.map(|l| results.len() >= l).unwrap_or(false) {
                         break;
@@ -635,12 +657,27 @@ impl SessionState {
         validate_limit(options.limit)?;
         let mut results = Vec::new();
         for item in &self.log {
+            let seq = match item {
+                StoredLogItem::Entry(index) => self.entries[*index].seq(),
+                StoredLogItem::Record(index) => self.records[*index].seq(),
+                StoredLogItem::Other(item) => item.seq(),
+            };
             if let Some(after) = options.after_seq {
-                if item.seq() <= after {
+                if seq <= after {
                     continue;
                 }
             }
-            results.push(item.clone());
+            results.push(match item {
+                StoredLogItem::Entry(index) => LogItem::Entry {
+                    seq,
+                    entry: self.entries[*index].clone(),
+                },
+                StoredLogItem::Record(index) => LogItem::Record {
+                    seq,
+                    record: self.records[*index].clone(),
+                },
+                StoredLogItem::Other(item) => (**item).clone(),
+            });
             if let Some(limit) = options.limit {
                 if results.len() >= limit {
                     break;
@@ -770,38 +807,35 @@ impl SessionState {
 
     // ---- private helpers ----
 
-    fn walk_to_root_owned(
+    fn walk_to_root(
         &self,
         start: Option<&str>,
         bounds: &BranchBounds,
-    ) -> SessionResult<Vec<Entry>> {
+    ) -> SessionResult<Vec<&Entry>> {
         let mut path = Vec::new();
-        let mut next_id = start.map(|s| s.to_string());
+        let mut next_id = start;
         let mut visited = std::collections::HashSet::new();
         while let Some(id) = next_id.take() {
             let current = self
-                .entries_by_id
-                .get(&id)
-                .ok_or_else(|| SessionError::not_found(format!("Entry not found: {id}")))?
-                .clone();
-            if visited.contains(&current.id().to_string()) {
+                .get_entry(id)
+                .ok_or_else(|| SessionError::not_found(format!("Entry not found: {id}")))?;
+            if !visited.insert(current.id()) {
                 return Err(SessionError::invalid_entry(format!(
                     "Session branch contains a cycle at {}",
                     current.id()
                 )));
             }
-            visited.insert(current.id().to_string());
             let reached = bounds.stop_at_id.as_deref() == Some(current.id())
                 || bounds
                     .stop_at_type
                     .map(|t| t == current.entry_type())
                     .unwrap_or(false)
                 || current.parent_id().is_none();
-            path.push(current.clone());
+            path.push(current);
             if reached {
                 break;
             }
-            next_id = current.parent_id().map(|s| s.to_string());
+            next_id = current.parent_id();
         }
         Ok(path)
     }

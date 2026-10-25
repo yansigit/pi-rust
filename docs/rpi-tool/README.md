@@ -187,29 +187,31 @@ provider — the full version is in [`examples/minimal/src/main.rs`](examples/mi
 
 ## Crates
 
-Nine crates, one version, published together. Dependency direction is one-way
+Ten workspace crates, one shared version. Dependency direction is one-way
 and enforced in review:
 
 ```
 rpi-telemetry → rpi-ai → rpi-agent → rpi-tools → rpi-harness
 ```
 
-Four crates sit outside that chain:
+Five crates sit outside that chain:
 
 - `rpi-tui` depends on no other `rpi-*` crate.
+- `rpi-runtime` provides embeddable model catalogs, provider-scoped credentials and execution bindings on top of `rpi-ai`.
 - `rpi-plugin-sdk` is a leaf too (it has no `rpi-*` deps), but it is not only
   the host's plugin contract: `rpi-tools` also reads its env-var names, so the
   host and its plugins cannot disagree about the strings they exchange across
   the ABI. That edge is names-only — nothing is linked or called.
 - `rpi-extensions` is `rpi-plugin-sdk` plus `rpi-ai`/`rpi-agent`, since it hosts
   plugins that run tools.
-- `rpi-cli` depends on all eight of the others, which is how the `rpi` binary
+- `rpi-cli` depends on all nine of the others, which is how the `rpi` binary
 gets the TUI, the harness and the plugin loader at once.
 
 | Crate | What it is |
 | ----- | ---------- |
 | [`rpi-telemetry`](https://crates.io/crates/rpi-telemetry) | Span/event contracts with a no-op default — instrumentation is opt-in, and pulls in no tracing or OpenTelemetry backend |
 | [`rpi-ai`](https://crates.io/crates/rpi-ai) | Provider-agnostic message, streaming and tool-schema types; Anthropic + OpenAI-compatible + `faux` providers |
+| `rpi-runtime` | Embeddable model catalog, credential resolution, model selection and private execution bindings (not yet published) |
 | [`rpi-agent`](https://crates.io/crates/rpi-agent) | The agent loop: `AgentTool`, events, hooks, queues, cancellation |
 | [`rpi-tools`](https://crates.io/crates/rpi-tools) | `read`/`write`/`edit`/`bash` (+ `grep`, `find`, `ls`, `powershell`) and the `ExecutionEnv` seam |
 | [`rpi-harness`](https://crates.io/crates/rpi-harness) | Session tree, JSONL persistence, compaction, crash recovery, the run loop |
@@ -376,7 +378,7 @@ machine. See [`docs/remote/user-guide.md`](docs/remote/user-guide.md).
 
 | | |
 | --- | --- |
-| Current release | **[0.8.4](https://github.com/bigfish1913/pi-rust/releases)** (nine crates, published together) |
+| Current release | **[0.9.2](https://github.com/bigfish1913/pi-rust/releases)** (nine crates, published together) |
 | Stability | `rpi-ai`, `rpi-agent`, `rpi-tools`, `rpi-harness`, `rpi-plugin-sdk` are the intended stable surface |
 | MSRV | 1.78 |
 | Platforms | Linux, macOS, Windows (CI runs the suite on Linux) |

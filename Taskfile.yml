@@ -10,10 +10,11 @@
 # `cargo publish`. Keep this file as the ergonomic entry point so the
 # dependency order is encoded once and `cargo test` stays the pre-flight.
 #
-# Dependency order (v0.1.4+): telemetry → ai → agent → plugin-sdk →
-# extensions → tools → harness → tui → cli. plugin-sdk is a zero-dep leaf
-# and extensions depends on plugin-sdk + ai + agent, so both land before
-# tools/harness (which are independent of them but published in family order).
+# Dependency order (v0.1.4+): telemetry → ai → runtime → agent →
+# plugin-sdk → extensions → tools → harness → tui → cli. plugin-sdk is a
+# zero-dep leaf and extensions depends on plugin-sdk + ai + agent, so both land
+# before tools/harness (which are independent of them but published in family
+# order).
 #
 # Usage:
 #   task              # list targets
@@ -125,7 +126,7 @@ tasks:
       - bash scripts/refresh-channels.sh "{{.RELEASE_VERSION}}"
 
   release:validate:
-    desc: Require a clean tree and one consistent version across the nine release crates
+    desc: Require a clean tree and one consistent version across the workspace release crates
     requires:
       vars: [RELEASE_VERSION]
     deps:

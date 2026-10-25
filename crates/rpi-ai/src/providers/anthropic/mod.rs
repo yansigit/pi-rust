@@ -29,9 +29,8 @@ use crate::model::{Model, StreamingProtocolCompat};
 use crate::provider::{CacheRetention, Provider, SimpleStreamOptions};
 use crate::types::{AssistantMessageEvent, Content, Context, DoneReason, StopReason, Usage};
 use async_trait::async_trait;
-use std::sync::Arc;
 
-use crate::providers::anthropic::build_params::build_params;
+use crate::providers::anthropic::build_params::{build_params, BuiltParams};
 use crate::providers::anthropic::cost::calculate_cost;
 use crate::providers::anthropic::mapper::{emit_terminal_error, run_mapper, MapperState};
 use crate::providers::anthropic::models::anthropic_models;
@@ -138,32 +137,20 @@ impl Provider for AnthropicProvider {
         ctx: &Context,
         opts: &SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        // `stream_simple` returns synchronously: create the stream, spawn the
-        // producer task, hand back the consumer. Failures surface as `Error`
-        // events on the stream, never as panics (plan §5.11). Mirrors the TS
-        // `stream` IIFE pattern.
+        // Prepare owned wire parameters from the borrowed context before the
+        // background task starts. It needs the request, not a second deep copy
+        // of the entire history. Failures still surface as stream Error events.
         let (mut prod, stream) =
             create_assistant_message_event_stream_with_cancellation(&opts.signal);
 
         let http = self.http.clone();
-        let provider_key = self.api_key.clone();
-        let allow_env_api_key = self.allow_env_api_key;
+        let params = prepare_params(model, ctx, opts, &self.api_key, self.allow_env_api_key);
         let model = model.clone();
-        let ctx = Arc::new(ctx.clone());
         let mut opts = opts.clone();
         opts.signal = prod.cancellation_token();
 
         tokio::spawn(async move {
-            run_anthropic_stream(
-                &mut prod,
-                http,
-                provider_key,
-                allow_env_api_key,
-                &model,
-                &ctx,
-                &opts,
-            )
-            .await;
+            run_anthropic_stream(&mut prod, http, &model, params, &opts).await;
             // `prod` drops here, closing the mpsc sender so the consumer's
             // `next()` returns `None` after the terminal event.
         });
@@ -188,24 +175,20 @@ impl Provider for AnthropicProvider {
 /// this function and lets `build_params` read `SimpleStreamOptions` directly
 /// (the adaptive-vs-budget thinking decision lives there), so there is no
 /// intermediate options shape.
-async fn run_anthropic_stream(
-    prod: &mut AssistantMessageEventStreamProducer,
-    http: reqwest::Client,
-    provider_key: Option<String>,
-    allow_env_api_key: bool,
+struct PreparedParams {
+    built: BuiltParams,
+    api_key_for_header: Option<String>,
+}
+
+fn prepare_params(
     model: &Model,
     ctx: &Context,
     opts: &SimpleStreamOptions,
-) {
-    let mut state = MapperState::new(
-        model.api.clone(),
-        model.provider.clone(),
-        model.id.clone(),
-        now_ms(),
-    );
-
+    provider_key: &Option<String>,
+    allow_env_api_key: bool,
+) -> Result<PreparedParams, String> {
     // ---- resolve auth (assertRequestAuth) ----
-    let resolved_key = resolve_api_key(&provider_key, opts, allow_env_api_key);
+    let resolved_key = resolve_api_key(provider_key, opts, allow_env_api_key);
     // TS `assertRequestAuth(model.provider, options?.apiKey, options?.headers)`
     // checks `options.headers` alone — but upstream the model-resolution layer
     // has *already merged* `model.headers` into `options.headers` (models.ts
@@ -221,33 +204,41 @@ async fn run_anthropic_stream(
         (None, true) => None, // headers carry auth; do not send x-api-key.
         (None, false) => {
             // Mirrors `assertRequestAuth`'s `throw new Error("No API key for…")`.
-            let msg = format!("No API key for provider: {}", model.provider);
-            emit_terminal_error(prod, &mut state, msg, false).await;
-            return;
+            return Err(format!("No API key for provider: {}", model.provider));
         }
     };
 
     // ---- build params (is_oauth = false in v1) ----
-    let built = build_params(model, ctx, false, opts);
-    let mut body = match serde_json::to_value(&built.request) {
-        Ok(v) => v,
-        Err(e) => {
-            emit_terminal_error(
-                prod,
-                &mut state,
-                format!("failed to serialize request body: {e}"),
-                false,
-            )
-            .await;
+    Ok(PreparedParams {
+        built: build_params(model, ctx, false, opts),
+        api_key_for_header,
+    })
+}
+
+async fn run_anthropic_stream(
+    prod: &mut AssistantMessageEventStreamProducer,
+    http: reqwest::Client,
+    model: &Model,
+    params: Result<PreparedParams, String>,
+    opts: &SimpleStreamOptions,
+) {
+    let mut state = MapperState::new(
+        model.api.clone(),
+        model.provider.clone(),
+        model.id.clone(),
+        now_ms(),
+    );
+    let PreparedParams {
+        built,
+        api_key_for_header,
+    } = match params {
+        Ok(params) => params,
+        Err(error) => {
+            emit_terminal_error(prod, &mut state, error, false).await;
             return;
         }
     };
     let non_stream = std::env::var("RPI_ANTHROPIC_NON_STREAM").ok().as_deref() == Some("1");
-    if non_stream {
-        body["stream"] = serde_json::Value::Bool(false);
-        strip_cache_control(&mut body);
-        simplify_non_stream_request(&mut body);
-    }
 
     // ---- assemble headers (createClient, API-key arm) ----
     let headers = assemble_headers(
@@ -261,6 +252,40 @@ async fn run_anthropic_stream(
     let timeout = opts.request_timeout();
     let signal = opts.signal.clone();
     let response_observer = opts.response_observer.clone();
+    let mut builder = http.post(&url).timeout(timeout);
+    for (name, value) in headers {
+        builder = builder.header(name, value);
+    }
+    // Normal streaming requests serialize the typed request directly. Only the
+    // compatibility mode needs a mutable JSON tree before the single encoding.
+    let prepared = if non_stream {
+        serde_json::to_value(&built.request)
+            .map_err(|error| error.to_string())
+            .and_then(|mut body| {
+                body["stream"] = serde_json::Value::Bool(false);
+                strip_cache_control(&mut body);
+                simplify_non_stream_request(&mut body);
+                super::request::PreparedJsonRequest::new(builder, &body)
+                    .map_err(|error| error.to_string())
+            })
+    } else {
+        super::request::PreparedJsonRequest::new(builder, &built.request)
+            .map_err(|error| error.to_string())
+    };
+    drop(built);
+    let request = match prepared {
+        Ok(request) => request,
+        Err(error) => {
+            emit_terminal_error(
+                prod,
+                &mut state,
+                format!("failed to serialize request body: {error}"),
+                false,
+            )
+            .await;
+            return;
+        }
+    };
 
     // ---- POST with retry (retryProviderRequest) ----
     // The TS hands the SDK `.create({...params, stream:true}, {signal, timeout,
@@ -271,23 +296,12 @@ async fn run_anthropic_stream(
     // around the send — the in-flight reqwest future is dropped on abort.
     let response_result = retry_provider_request(
         move || {
-            let http = http.clone();
-            let body = body.clone();
-            let url = url.clone();
-            let headers = headers.clone();
+            let request = request.clone();
             let signal = signal.clone();
             let response_observer = response_observer.clone();
             async move {
-                let mut req = http.post(&url).timeout(timeout);
-                for (k, v) in &headers {
-                    req = req.header(k.as_str(), v.as_str());
-                }
-                let send_fut = req.json(&body).send();
                 let resp = tokio::select! {
-                    r = send_fut => r.map_err(|e| AiError::Http {
-                        status: None,
-                        message: format!("http transport error: {e}"),
-                    })?,
+                    r = request.send() => r?,
                     _ = signal.cancelled() => return Err(AiError::Abort {
                         message: "Request aborted".to_string(),
                     }),

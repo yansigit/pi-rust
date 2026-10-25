@@ -459,10 +459,9 @@ async fn loads_real_cdylib_and_drives_echo_tool() {
     // (a) The stub registered a second, **streaming** provider
     //     (`stub-streaming-provider`) whose record carries a `stream_fn`.
     // (b) Driving `stream_simple` against a model routed to it must yield the
-    //     plugin's chunks as **separate, ordered events** — thinking and text
-    //     deltas before the terminal `Done` — not one buffered chunk. That is the
-    //     whole point of the feature: the consumer renders while the plugin is
-    //     still producing.
+    //     plugin's thinking and text before terminal `Done`, preserving block
+    //     order and every character. Already-queued adjacent deltas may share an
+    //     event; a lone available delta must still render during generation.
     // (c) The per-chunk callback is only reachable if the host handed the plugin
     //     a live bridge pointer, and every chunk the plugin produced must be
     //     reclaimed by the plugin's own `free_string` (a wrong deallocator would
@@ -495,13 +494,14 @@ async fn loads_real_cdylib_and_drives_echo_tool() {
     let mut stream = streaming_provider.stream_simple(&model, &ctx, &opts).await;
 
     let mut tags: Vec<&'static str> = Vec::new();
-    let mut deltas: Vec<String> = Vec::new();
+    let mut thinking = String::new();
+    let mut text = String::new();
     let mut terminal_reason = None;
     while let Some(event) = stream.next().await {
         tags.push(event.type_tag());
         match &event {
-            rpi_ai::AssistantMessageEvent::ThinkingDelta { delta, .. }
-            | rpi_ai::AssistantMessageEvent::TextDelta { delta, .. } => deltas.push(delta.clone()),
+            rpi_ai::AssistantMessageEvent::ThinkingDelta { delta, .. } => thinking.push_str(delta),
+            rpi_ai::AssistantMessageEvent::TextDelta { delta, .. } => text.push_str(delta),
             rpi_ai::AssistantMessageEvent::Done { reason, .. } => {
                 terminal_reason = Some(*reason);
             }
@@ -521,9 +521,28 @@ async fn loads_real_cdylib_and_drives_echo_tool() {
     );
     assert_eq!(tags.last().copied(), Some("done"), "got {tags:?}");
     assert_eq!(
-        deltas,
-        vec!["weighing", " options", "from-stub", "-stream"],
-        "every plugin chunk arrives as its own ordered event: got {tags:?}"
+        thinking, "weighing options",
+        "thinking text is lossless: got {tags:?}"
+    );
+    assert_eq!(
+        text, "from-stub-stream",
+        "response text is lossless: got {tags:?}"
+    );
+    let structure: Vec<_> = tags
+        .iter()
+        .copied()
+        .filter(|tag| !matches!(*tag, "thinking_delta" | "text_delta"))
+        .collect();
+    assert_eq!(
+        structure,
+        [
+            "start",
+            "thinking_start",
+            "thinking_end",
+            "text_start",
+            "text_end",
+            "done"
+        ]
     );
     // Order matters: the thinking deltas precede the text deltas, and no delta
     // arrives after the terminal event.

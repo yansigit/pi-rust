@@ -247,6 +247,60 @@ fn is_same_model(msg: &AssistantMessage, model: &Model) -> bool {
     msg.provider == model.provider && msg.api == model.api && msg.model == model.id
 }
 
+/// Common histories already satisfy the transform contract. Inspect them by
+/// reference and retain the full normalizer for migrations and interrupted runs.
+fn request_messages<'a>(messages: &'a [Message], model: &Model) -> std::borrow::Cow<'a, [Message]> {
+    let supports_images = model.input.contains(&InputModality::Image);
+    let mut pending = std::collections::HashSet::new();
+    let canonical = messages.iter().all(|message| match message {
+        Message::User(user) => {
+            pending.is_empty()
+                && (supports_images
+                    || !matches!(&user.content, crate::types::UserContent::Blocks(blocks)
+                        if blocks.iter().any(|block| matches!(block, Content::Image(_)))))
+        }
+        Message::ToolResult(result) => {
+            pending.remove(result.tool_call_id.as_str());
+            supports_images
+                || !result
+                    .content
+                    .iter()
+                    .any(|block| matches!(block, Content::Image(_)))
+        }
+        Message::Assistant(assistant) => {
+            if !pending.is_empty()
+                || !is_same_model(assistant, model)
+                || matches!(
+                    assistant.stop_reason,
+                    crate::types::StopReason::Error | crate::types::StopReason::Aborted
+                )
+            {
+                return false;
+            }
+            assistant.content.iter().all(|block| match block {
+                Content::Thinking(thinking) => {
+                    thinking.redacted
+                        || !thinking.thinking.trim().is_empty()
+                        || thinking
+                            .thinking_signature
+                            .as_deref()
+                            .is_some_and(|signature| !signature.trim().is_empty())
+                }
+                Content::ToolCall(call) => {
+                    pending.insert(call.id.as_str());
+                    true
+                }
+                _ => true,
+            })
+        }
+    }) && pending.is_empty();
+    if canonical {
+        std::borrow::Cow::Borrowed(messages)
+    } else {
+        std::borrow::Cow::Owned(transform_messages(messages, model))
+    }
+}
+
 /// Walk a `Context`'s messages and apply, in order, the transform-messages
 /// pipeline: unsupported-image downgrade, assistant thinking-block
 /// (redacted/empty/cross-model) handling, tool-call-id normalization with
@@ -1264,7 +1318,7 @@ pub fn build_params(
     let cache_control_opt = get_cache_control(model, opts.cache_retention);
     let cache_ref = cache_control_opt.cache_control.as_ref();
 
-    let transformed = transform_messages(&ctx.messages, model);
+    let transformed = request_messages(&ctx.messages, model);
     let placement = split_deferred_tools(
         &transformed,
         &ctx.tools,
@@ -1498,6 +1552,106 @@ mod tests {
         m.cost = ModelCost::default();
         m.compat = Some(StreamingProtocolCompat::AnthropicMessages(compat));
         m
+    }
+
+    #[test]
+    fn canonical_tool_history_is_borrowed_without_changing_the_normalized_messages() {
+        let model = model_with_compat(Default::default());
+        let mut assistant =
+            AssistantMessage::empty(model.api.clone(), &model.provider, &model.id, 0);
+        assistant.content = vec![
+            Content::thinking("reasoning"),
+            Content::tool_call("call", "echo", json!({"text":"hello"})),
+        ];
+        let result = ToolResultMessage {
+            role: crate::types::ToolResultRole,
+            tool_call_id: "call".into(),
+            tool_name: "echo".into(),
+            content: vec![Content::text("hello")],
+            details: None,
+            structured_content: None,
+            usage: None,
+            added_tool_names: vec![],
+            is_error: false,
+            timestamp: 0,
+        };
+        let messages = vec![
+            UserMessage::new("prompt", 0).into(),
+            Message::Assistant(Box::new(assistant)),
+            Message::ToolResult(Box::new(result)),
+        ];
+        let borrowed = request_messages(&messages, &model);
+        assert!(matches!(borrowed, std::borrow::Cow::Borrowed(_)));
+        assert_eq!(borrowed.as_ref(), transform_messages(&messages, &model));
+        for end in 0..=messages.len() {
+            assert_eq!(
+                request_messages(&messages[..end], &model).as_ref(),
+                transform_messages(&messages[..end], &model)
+            );
+        }
+    }
+
+    #[test]
+    fn borrowed_request_history_matches_normalizer_on_migrations_images_and_incomplete_tools() {
+        for same_model in [false, true] {
+            for stop in [StopReason::Stop, StopReason::Error, StopReason::Aborted] {
+                for thinking in ["", "reasoning"] {
+                    for result_id in [None, Some("call|needs-normalizing"), Some("different")] {
+                        for supports_images in [false, true] {
+                            let mut model = model_with_compat(Default::default());
+                            if !supports_images {
+                                model.input = vec![InputModality::Text];
+                            }
+                            let mut assistant = AssistantMessage::empty(
+                                model.api.clone(),
+                                &model.provider,
+                                &model.id,
+                                0,
+                            );
+                            if !same_model {
+                                assistant.model = "other".into();
+                            }
+                            assistant.stop_reason = stop;
+                            assistant.content = vec![
+                                Content::thinking(thinking),
+                                Content::tool_call("call|needs-normalizing", "echo", json!({})),
+                            ];
+                            let image = Content::Image(ImageContent {
+                                kind: Default::default(),
+                                data: "AA==".into(),
+                                mime_type: "image/png".into(),
+                            });
+                            let mut messages = vec![
+                                Message::User(UserMessage {
+                                    role: crate::types::UserRole,
+                                    content: crate::types::UserContent::Blocks(vec![image.clone()]),
+                                    timestamp: 0,
+                                }),
+                                Message::Assistant(Box::new(assistant)),
+                            ];
+                            if let Some(id) = result_id {
+                                messages.push(Message::ToolResult(Box::new(ToolResultMessage {
+                                    role: crate::types::ToolResultRole,
+                                    tool_call_id: id.into(),
+                                    tool_name: "echo".into(),
+                                    content: vec![image],
+                                    details: None,
+                                    structured_content: None,
+                                    usage: None,
+                                    added_tool_names: vec![],
+                                    is_error: false,
+                                    timestamp: 0,
+                                })));
+                            }
+                            messages.push(UserMessage::new("next", 0).into());
+                            for end in 0..=messages.len() {
+                                assert_eq!(request_messages(&messages[..end], &model).as_ref(), transform_messages(&messages[..end], &model), "same={same_model}, stop={stop:?}, thinking={thinking:?}, result={result_id:?}, images={supports_images}, end={end}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

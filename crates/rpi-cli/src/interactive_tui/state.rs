@@ -553,22 +553,145 @@ pub(super) const PASTE_PROBE: std::time::Duration = std::time::Duration::from_mi
 /// cannot deliver two keypresses this fast, so anything tighter is paste.
 pub(super) const PASTE_BURST_GAP: std::time::Duration = std::time::Duration::from_millis(20);
 
-/// Windows crossterm reads console KEY_EVENTs, not bracketed-paste payloads.
-/// Buffer a rapid text run before handing it to the editor as one paste.
-/// A lone typed character is released promptly; a confirmed run may pause
-/// briefly while the terminal feeds the rest of the clipboard.
+/// Text volume worth folding into a `[paste #n …]` marker, and worth the
+/// native console drain that slurps the rest of a clipboard payload in one
+/// syscall.
+pub(super) const PASTE_RUN_MIN_CHARS: usize = 128;
+
+/// How long a flushed *small* run stays available as evidence that a
+/// trailing Enter belongs to it.
+///
+/// The console can deliver one clipboard payload in several batches, so the
+/// batch holding the final newline may arrive after the text batch was already
+/// handed to the editor. Small runs keep this short: a coalesced IME commit
+/// (two characters in one queued batch) sets `collected` too, and its evidence
+/// must be gone well before a user's next deliberate Enter (~200 ms away).
+pub(super) const PASTE_CARRY_GAP: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// How long a *mature* paste — one that reached the fold threshold — stays
+/// available as evidence. A large clipboard payload is delivered in many
+/// batches, so the batch holding the final newline can trail the text batches
+/// by hundreds of milliseconds.
+pub(super) const PASTE_MATURE_CARRY_GAP: std::time::Duration =
+    std::time::Duration::from_millis(500);
+
+/// Paste evidence kept after a run was flushed to the editor.
+///
+/// The console can hand one clipboard payload over in several batches, each of
+/// which takes the empty-queue flush path, so one paste's batches must
+/// **accumulate** (`text`): corroborating only the last batch would lose the
+/// earlier ones and the clipboard prefix would never match. But two *separate*
+/// pastes inside the window must not be glued, so the most recent batch is also
+/// kept alone (`last`): the corroborated text is each candidate in turn, and
+/// whichever matches the clipboard wins.
+///
+/// Each variant carries its **own** lifetime: a batch that reached the fold
+/// threshold on its own keeps the long window, one that only adds a few
+/// characters to an old accumulated paste keeps the short one. Maturity is
+/// decided per variant so an older large paste cannot promote a new short
+/// input (a coalesced IME commit) to the 500 ms window.
+///
+/// One more fact separates IME from paste where even the queue probe cannot:
+/// **shape**. A coalesced IME commit is queued behind itself, so the probe
+/// marks it `collected` exactly like a paste's first batch — but it is one
+/// batch, it is short, and it never contains a newline. A lone short batch is
+/// therefore not trusted for the whole short carry window: it corroborates
+/// only while an Enter could still be trailing its own batch at machine
+/// speed (`PASTE_BURST_GAP`, far below any human key-to-key delay), and only
+/// through the variant it actually shaped. Batch order inside one clipboard
+/// payload is preserved but not atomic — the payload's own newline can be the
+/// next console batch while the rest of the payload is still in transit, so
+/// order alone cannot retire a lone short tail, and a clipboard prefix match
+/// beyond machine speed is coincidence, not evidence.
+pub(super) struct PasteTail {
+    /// All batches flushed within the carry window, concatenated.
+    pub(super) text: String,
+    /// The most recent batch alone.
+    pub(super) last: String,
+    /// Whether the accumulated text reached the fold threshold: the
+    /// accumulated variant gets the longer carry window.
+    pub(super) mature: bool,
+    /// Whether the most recent batch alone reached the fold threshold: the
+    /// `last` variant gets its own, independently computed window.
+    pub(super) last_mature: bool,
+    /// Whether the accumulated text is newline-less and short as a whole —
+    /// the shape of one coalesced IME commit, or of several concatenated
+    /// ones. A real paste accumulating past one batch either carries an
+    /// interior newline in a batch or reaches the fold threshold; IME
+    /// commits never contain a newline.
+    pub(super) lone_short: bool,
+    /// Whether the most recent batch is newline-less and short on its own,
+    /// independent of what was carried: a carried history must not re-enable
+    /// a lone short `last` candidate.
+    pub(super) last_single_batch: bool,
+    pub(super) at: std::time::Instant,
+}
+
+/// Windows crossterm reads console KEY_EVENTs, not bracketed-paste payloads, so
+/// a clipboard paste arrives as ordinary `KeyCode::Char` events.
+///
+/// The caller decides paste-vs-typing with a **queue probe**, not a timer: the
+/// console hands a whole clipboard payload over already queued, so input still
+/// waiting behind the current key means paste, and an empty queue means this is
+/// typing that must reach the editor at once. Deciding on elapsed time instead
+/// is what made typing feel laggy — an IME committing a word delivers its
+/// characters with no gap at all, so every committed word sat in this buffer
+/// until the `burst` timeout expired.
 #[derive(Default)]
 pub(super) struct WindowsPasteRun {
     pub(super) text: String,
     pub(super) last_at: Option<std::time::Instant>,
     pub(super) burst: bool,
+    /// Set once the console proved this run is a paste: real input was still
+    /// queued behind one of its characters.
+    ///
+    /// This — not elapsed time, and not run length — is what separates a
+    /// clipboard payload from an IME commit. A committed word arrives with an
+    /// empty queue, so it never gets this flag, never leaves a [`PasteTail`]
+    /// behind, and can never absorb the Enter that submits it.
+    pub(super) collected: bool,
+    /// The most recent batch of this run already handed to the editor, kept
+    /// while a trailing newline could still belong to it.
+    pub(super) tail: Option<PasteTail>,
 }
 
 impl WindowsPasteRun {
-    pub(super) fn grace(&self) -> std::time::Duration {
-        std::time::Duration::from_millis(if self.burst { 120 } else { 15 })
+    /// Whether anything is buffered, i.e. the current run is being treated as a
+    /// paste.
+    pub(super) fn is_buffering(&self) -> bool {
+        !self.text.is_empty()
     }
 
+    /// Whether the run is long enough to be worth folding into a `[paste #n]`
+    /// marker instead of inserting verbatim.
+    ///
+    /// Size — not elapsed time — is what separates a clipboard paste from an
+    /// IME commit: `我们` arrives back-to-back exactly like a two-character
+    /// paste, so only a run past this threshold is treated as pasted content.
+    pub(super) fn is_paste_candidate(&self) -> bool {
+        self.burst && self.text.chars().count() >= PASTE_RUN_MIN_CHARS
+    }
+
+    /// Whether the per-character queue probe still has to run.
+    ///
+    /// An established paste is drained straight out of the console instead:
+    /// probing first would stash the next event, and that stash is exactly what
+    /// made the native batch read unreachable.
+    pub(super) fn probe_needed(&self) -> bool {
+        !self.is_paste_candidate()
+    }
+
+    /// Record that the console proved this run is a paste, because real input
+    /// was still queued behind one of its characters.
+    ///
+    /// Callers set this from the queue-probe path and from the native batch
+    /// drain. The typing path — where the queue was empty — deliberately never
+    /// sets it.
+    pub(super) fn mark_collected(&mut self) {
+        self.collected = true;
+    }
+
+    /// Buffer one character of a paste run.
     pub(super) fn feed(&mut self, ch: char, now: std::time::Instant) {
         if self
             .last_at
@@ -582,46 +705,215 @@ impl WindowsPasteRun {
 
     #[cfg(windows)]
     pub(super) fn read_queued_text(&mut self) {
-        // A few queued characters could be ordinary typing. Only take the
-        // native fast path once the existing heuristic confirms a longer run.
-        if self.burst && self.text.len() >= 64 {
+        // Drain the rest of a confirmed paste straight out of the console: the
+        // round trip per record is what makes a large paste slow to appear.
+        if self.is_paste_candidate() {
             if let Ok(text) = rpi_tui::windows_paste::read_text_batch() {
                 if !text.is_empty() {
                     self.text.push_str(&text);
                     self.last_at = Some(std::time::Instant::now());
+                    self.mark_collected();
                 }
             }
         }
     }
 
-    pub(super) fn flush(&mut self, editor: &Editor) {
+    /// Whether an Enter arriving now could still belong to a paste: a tail
+    /// variant was flushed recently, or text is being collected right now.
+    ///
+    /// Cheap pre-check for the caller, which would otherwise clone the tail on
+    /// every Enter just to learn that there is nothing to corroborate.
+    pub(super) fn has_paste_evidence(&self, now: std::time::Instant) -> bool {
+        self.tail.as_ref().is_some_and(|tail| {
+            Self::variant_fresh(tail, tail.mature, now)
+                || Self::variant_fresh(tail, tail.last_mature, now)
+        }) || (self.burst && !self.text.is_empty())
+    }
+
+    /// Whether one tail variant is still inside the carry window its own
+    /// maturity earned.
+    ///
+    /// Both variants share the flush instant; only the window differs, and it
+    /// is decided per variant: a short batch flushed on top of an old large
+    /// paste must not inherit the large paste's 500 ms window.
+    fn variant_fresh(tail: &PasteTail, mature: bool, now: std::time::Instant) -> bool {
+        let gap = if mature {
+            PASTE_MATURE_CARRY_GAP
+        } else {
+            PASTE_CARRY_GAP
+        };
+        now.duration_since(tail.at) <= gap
+    }
+
+    /// Texts a trailing newline could still belong to, longest first.
+    ///
+    /// Empty means nothing here was a paste, so an Enter cannot be pasted
+    /// content. The candidates depend on what the run is doing:
+    ///
+    /// - **Still buffering** (live text): continuations — each *fresh* carried
+    ///   variant joined with the live text, then the live text alone (the head
+    ///   of a *new* paste). The carry **by itself is deliberately absent**: once
+    ///   the user edits on top of a completed paste, the live text continues
+    ///   neither carried variant, and an old prefix match must not override
+    ///   those edits by swallowing the Enter that submits them.
+    /// - **Idle** (nothing buffered): a trailing batch may still arrive, so
+    ///   each fresh carried variant corroborates on its own — whole, then the
+    ///   most recent batch alone (the head of a new paste). Each variant only
+    ///   outlives the window its own length earned.
+    /// - **No carry**: a live run corroborates when the console proved it is a
+    ///   paste (`collected`) or its text already contains a newline. Queue
+    ///   occupancy alone cannot separate a paste's first line from a coalesced
+    ///   IME commit, but it does not have to: the last character of an IME
+    ///   batch always finds an empty queue behind it, so the batch flushes
+    ///   *before* its submitting Enter is classified — a live `collected` run
+    ///   at Enter time means real input was queued behind that very character,
+    ///   which an IME commit never produces. The newline gate covers the
+    ///   console-batch boundary where the paste's first line ends before any
+    ///   newline has been accepted into the run.
+    ///
+    /// Returning the candidates separately — rather than one glued string —
+    /// is what keeps one paste's continuation apart from two pastes'
+    /// boundary: the caller matches each against the clipboard and any match
+    /// wins.
+    pub(super) fn paste_tail_texts(&self, now: std::time::Instant) -> Vec<String> {
+        let live = self.text.as_str();
+        let Some(tail) = self.tail.as_ref() else {
+            if self.collected || live.contains('\n') {
+                return vec![live.to_string()];
+            }
+            return Vec::new();
+        };
+        if live.is_empty() {
+            let mut candidates = Vec::new();
+            // Each variant is gated by the shape *it* has, and a lone short
+            // newline-less variant corroborates only while an Enter could
+            // still be trailing its batch at machine speed. The payload's own
+            // newline may trail at machine speed — the first-newline batch
+            // boundary — but a human's Enter (IME confirm, then Enter: two
+            // actions) never does, so beyond `PASTE_BURST_GAP` the shape is
+            // an IME commit and a clipboard prefix match is coincidence. A
+            // carried history must not re-enable a lone short `last`
+            // candidate: `last_single_batch` is computed from the batch
+            // alone, independent of the carry.
+            let lone_short_expired = |shape: bool, mature: bool| {
+                shape && !mature && now.duration_since(tail.at) > PASTE_BURST_GAP
+            };
+            if Self::variant_fresh(tail, tail.mature, now)
+                && !lone_short_expired(tail.lone_short, tail.mature)
+            {
+                candidates.push(tail.text.clone());
+            }
+            if tail.last != tail.text
+                && Self::variant_fresh(tail, tail.last_mature, now)
+                && !lone_short_expired(tail.last_single_batch, tail.last_mature)
+            {
+                candidates.push(tail.last.clone());
+            }
+            return candidates;
+        }
+        let mut candidates = Vec::new();
+        if Self::variant_fresh(tail, tail.mature, now) {
+            candidates.push(format!("{}{live}", tail.text));
+        }
+        if Self::variant_fresh(tail, tail.last_mature, now) && tail.last != tail.text {
+            candidates.push(format!("{}{live}", tail.last));
+        }
+        candidates.push(live.to_string());
+        candidates
+    }
+
+    /// Hand the buffered run to the editor.
+    ///
+    /// Only a run the console proved is a paste keeps its text as a
+    /// [`PasteTail`], so a trailing newline delivered in a later batch is still
+    /// attributed to that paste instead of submitting the prompt. A short IME
+    /// commit is a burst too — its characters arrive with no gap at all — but
+    /// it was collected from an empty queue, so it leaves no tail and its Enter
+    /// still submits.
+    pub(super) fn flush(&mut self, editor: &Editor, now: std::time::Instant) {
         if !self.text.is_empty() {
             editor.handle_paste(&self.text);
+            if self.burst && self.collected {
+                // Accumulate, never replace: batches of *one* payload all take
+                // this path, so dropping the earlier ones would make the
+                // clipboard prefix unmatchable. The boundary between two
+                // independent pastes is not decided here — the candidate list
+                // keeps the last batch alone for exactly that case.
+                let batch = std::mem::take(&mut self.text);
+                let carried = self
+                    .tail
+                    .as_ref()
+                    .filter(|tail| Self::variant_fresh(tail, tail.mature, now))
+                    .map(|tail| tail.text.clone())
+                    .unwrap_or_default();
+                let text = format!("{carried}{batch}");
+                let mature = text.chars().count() >= PASTE_RUN_MIN_CHARS;
+                self.tail = Some(PasteTail {
+                    last_mature: batch.chars().count() >= PASTE_RUN_MIN_CHARS,
+                    lone_short: !text.contains('\n') && !mature,
+                    last_single_batch: !batch.contains('\n')
+                        && batch.chars().count() < PASTE_RUN_MIN_CHARS,
+                    text,
+                    last: batch,
+                    mature,
+                    at: now,
+                });
+            } else {
+                self.tail = None;
+            }
         }
-        *self = Self::default();
+        self.text.clear();
+        self.burst = false;
+        self.collected = false;
+        self.last_at = None;
     }
 }
 
 /// Never turn a lone Enter into a newline. A queued next key proves this is
 /// an interior pasted newline. At the end of a paste, require clipboard
 /// corroboration before consuming Enter; otherwise preserve submit.
+///
+/// Corroboration tries the candidates from [`WindowsPasteRun::paste_tail_texts`]
+/// in turn: while the run is still buffering, continuations of the carried
+/// paste joined with the live text, or the live text alone (the head of a new
+/// paste); while it is idle, the carried window itself. When live edits match
+/// no candidate, the carried paste has already been completed and consumed,
+/// so the Enter submits instead of inserting another newline.
 pub(super) fn windows_enter_in_paste(
     run: &WindowsPasteRun,
     more_queued: bool,
     clipboard: Option<&str>,
+    now: std::time::Instant,
 ) -> bool {
     if more_queued {
         return true;
     }
-    if run.text.is_empty() {
+    let candidates = run.paste_tail_texts(now);
+    if candidates.is_empty() {
         return false;
     }
-    run.burst
-        && clipboard.is_some_and(|text| {
-            let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
-            let prefix = format!("{}\n", run.text);
-            normalized.starts_with(&prefix) && normalized.matches('\n').count() >= 10
-        })
+    clipboard.is_some_and(|clipboard| {
+        let normalized = clipboard.replace("\r\n", "\n").replace('\r', "\n");
+        normalized.matches('\n').count() >= 10
+            && candidates.iter().any(|pasted| {
+                let prefix = format!("{pasted}\n");
+                normalized.starts_with(&prefix)
+            })
+    })
+}
+
+/// Whether the key loop should drain the console natively instead of probing
+/// per character.
+///
+/// Reaching this needs an established paste plus no extension holding raw key
+/// ownership. The caller evaluates it *before* any probe, so the drain cannot be
+/// pre-empted by a stashed event.
+#[cfg(any(windows, test))]
+pub(super) fn should_drain_queued_text(
+    run: &WindowsPasteRun,
+    extension_claimed_keys_empty: bool,
+) -> bool {
+    run.is_paste_candidate() && extension_claimed_keys_empty
 }
 
 /// Whether a bare Enter is pasted content (insert a newline) rather than a
@@ -1269,6 +1561,21 @@ impl TuiState {
             .load(std::sync::atomic::Ordering::Acquire)
             != 0
             && !self.selector_open()
+    }
+
+    /// Drop the state that belongs to the session being left behind.
+    ///
+    /// The transcript container is cleared by the caller (it also rebuilds the
+    /// welcome header). This method covers the state that lives outside that
+    /// container: the footer's accumulated usage/context badge, the `/copy`
+    /// cache, and the tool/bash component maps keyed by `tool_call_id`.
+    pub(super) fn reset_session_state(&self) {
+        self.footer.reset_session_counters();
+        *self.last_assistant_text.lock().unwrap() = String::new();
+        self.current_assistant.lock().unwrap().take();
+        self.tool_components.lock().unwrap().clear();
+        self.bash_components.lock().unwrap().clear();
+        self.pending_bash_messages.lock().unwrap().clear();
     }
 
     pub(super) fn set_hide_thinking(&self, hide: bool) {

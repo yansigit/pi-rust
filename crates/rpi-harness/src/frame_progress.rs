@@ -54,6 +54,17 @@ pub const ASSISTANT_FRAME_RECORD_TYPE: &str = "assistant_frame";
 pub const INTERRUPTED_NOTICE: &str = "Assistant request was interrupted. The preceding content is \
 the latest committed partial; newer live output may be missing and the external outcome is unknown.";
 
+#[derive(Clone, Default)]
+pub(crate) struct VolatileStream {
+    frames: Vec<AssistantMessageFrame>,
+    committed_entries: Vec<String>,
+}
+#[derive(Default)]
+pub(crate) struct VolatileProgress {
+    runs: BTreeMap<String, BTreeMap<usize, VolatileStream>>,
+}
+pub(crate) type SharedVolatileProgress = Arc<Mutex<VolatileProgress>>;
+
 /// Turn a replayed partial into the interrupted message rpi records.
 ///
 /// Mirrors `interruptedAssistantMessage`: `stopReason: error` plus the notice,
@@ -168,6 +179,42 @@ pub(crate) async fn replay_run_frames(
     session: &Session,
     run_id: &str,
 ) -> HarnessResult<Vec<AssistantMessage>> {
+    if let Some(progress) = session.volatile_progress() {
+        // Copy only on recovery. The streaming path moves typed frames into the
+        // cache, retaining the same encoder/reducer semantics as durable mode.
+        let streams = progress
+            .lock()
+            .unwrap()
+            .runs
+            .get(run_id)
+            .cloned()
+            .unwrap_or_default();
+        let mut replayed = Vec::new();
+        for stream in streams.into_values() {
+            let mut committed = false;
+            for entry_id in &stream.committed_entries {
+                if session
+                    .get_entry(entry_id)
+                    .await
+                    .map_err(|error| HarnessError::io(error.to_string()))?
+                    .is_some()
+                {
+                    committed = true;
+                    break;
+                }
+            }
+            if !committed {
+                match reduce_frames(&stream.frames) {
+                    Ok(Some(partial)) => replayed.push(partial),
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!(%error, "discarding an unreadable in-memory assistant frame stream")
+                    }
+                }
+            }
+        }
+        return Ok(replayed);
+    }
     let records = session
         .find_records(&RecordQuery {
             record_type: Some(ASSISTANT_FRAME_RECORD_TYPE),
@@ -266,6 +313,19 @@ pub(crate) async fn bind_stream_entry(
     stream_index: usize,
     entry_id: &str,
 ) -> HarnessResult<()> {
+    if let Some(progress) = session.volatile_progress() {
+        progress
+            .lock()
+            .unwrap()
+            .runs
+            .entry(run_id.to_owned())
+            .or_default()
+            .entry(stream_index)
+            .or_default()
+            .committed_entries
+            .push(entry_id.to_owned());
+        return Ok(());
+    }
     session
         .append_record(LaneRecord::AssistantFrame(AssistantFrameRecord {
             base: RecordBase {
@@ -316,6 +376,7 @@ struct RecorderShared {
     lane: String,
     run_id: String,
     state: Mutex<RecorderState>,
+    volatile: Option<SharedVolatileProgress>,
 }
 
 struct RecorderState {
@@ -397,12 +458,14 @@ impl FrameRecordingEmitter {
         lane: impl Into<String>,
         run_id: impl Into<String>,
     ) -> Self {
+        let volatile = session.volatile_progress();
         Self {
             inner,
             shared: Arc::new(RecorderShared {
                 session,
                 lane: lane.into(),
                 run_id: run_id.into(),
+                volatile,
                 state: Mutex::new(RecorderState {
                     next_index: 0,
                     current: None,
@@ -418,6 +481,10 @@ impl FrameRecordingEmitter {
 
     /// Retire this run's frames — called once its messages are persisted.
     pub async fn clear(&self) -> HarnessResult<()> {
+        if let Some(progress) = &self.shared.volatile {
+            progress.lock().unwrap().runs.remove(&self.shared.run_id);
+            return Ok(());
+        }
         self.shared
             .append_frame_record(0, AssistantFrameOp::ClearRun, None)
             .await
@@ -428,6 +495,12 @@ impl FrameRecordingEmitter {
     /// Without this, salvage would replay it again on a crash and duplicate the
     /// message: the run-wide `ClearRun` marker only arrives at the end of the run.
     pub async fn clear_stream(&self, stream_index: usize) -> HarnessResult<()> {
+        if let Some(progress) = &self.shared.volatile {
+            if let Some(run) = progress.lock().unwrap().runs.get_mut(&self.shared.run_id) {
+                run.remove(&stream_index);
+            }
+            return Ok(());
+        }
         self.shared
             .append_frame_record(stream_index, AssistantFrameOp::ClearStream, None)
             .await
@@ -439,6 +512,19 @@ impl FrameRecordingEmitter {
         let Some((index, frame)) = shared.take_frame(event) else {
             return;
         };
+        if let Some(progress) = &shared.volatile {
+            progress
+                .lock()
+                .unwrap()
+                .runs
+                .entry(shared.run_id.clone())
+                .or_default()
+                .entry(index)
+                .or_default()
+                .frames
+                .push(frame);
+            return;
+        }
         let value = match serde_json::to_value(&frame) {
             Ok(value) => value,
             Err(error) => {
@@ -476,32 +562,30 @@ impl FrameRecordingEmitter {
     fn emit_inner(&self, event: AgentEvent, prepared: bool) -> BoxFuture<'static, ()> {
         let inner = Arc::clone(&self.inner);
         let shared = Arc::clone(&self.shared);
-        // Extract the frame source before moving `event` into the future.
-        // `emit` is awaited by the loop in event order, so the append happens
-        // before the event is forwarded and frames can never be reordered.
-        let to_record: Option<AssistantMessageEvent> = match &event {
-            AgentEvent::MessageStart {
-                message: AgentMessage::Assistant(assistant),
-            } => Some(AssistantMessageEvent::Start {
-                partial: Arc::new((**assistant).clone()),
-            }),
-            AgentEvent::MessageUpdate {
-                assistant_message_event,
-                ..
-            } => Some(assistant_message_event.clone()),
-            // The settled message is persisted by the harness; stop recording
-            // this stream. Its frames are retired once the run commits.
-            AgentEvent::MessageEnd {
-                message: AgentMessage::Assistant(_),
-            } => {
-                shared.state.lock().unwrap().current = None;
-                None
-            }
-            _ => None,
-        };
         Box::pin(async move {
-            if let Some(event) = to_record {
-                FrameRecordingEmitter::record(&shared, &event).await;
+            // Borrow from the owned event while recording, then forward it.
+            // This avoids cloning every delta string into a temporary event.
+            match &event {
+                AgentEvent::MessageStart {
+                    message: AgentMessage::Assistant(assistant),
+                } => {
+                    let start = AssistantMessageEvent::Start {
+                        partial: Arc::new((**assistant).clone()),
+                    };
+                    FrameRecordingEmitter::record(&shared, &start).await;
+                }
+                AgentEvent::MessageUpdate {
+                    assistant_message_event,
+                    ..
+                } => {
+                    FrameRecordingEmitter::record(&shared, assistant_message_event).await;
+                }
+                AgentEvent::MessageEnd {
+                    message: AgentMessage::Assistant(_),
+                } => {
+                    shared.state.lock().unwrap().current = None;
+                }
+                _ => {}
             }
             if prepared {
                 inner.emit_prepared(event).await;
@@ -509,5 +593,232 @@ impl FrameRecordingEmitter {
                 inner.emit(event).await;
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod volatile_tests {
+    use super::*;
+    use crate::session::memory::{CounterIdGenerator, FakeClock, InMemorySessionStorage};
+    use crate::session::types::{ProvisionedEntry, ProvisionedKind, SessionMetadata};
+    use rpi_agent::CollectorEmitter;
+    use rpi_ai::{Api, Content};
+
+    fn session(volatile: bool) -> Session {
+        let session = Session::new(
+            Arc::new(InMemorySessionStorage::new(
+                SessionMetadata {
+                    id: "memory".into(),
+                    created_at: 0,
+                    parent_session_id: None,
+                },
+                Arc::new(FakeClock::new()),
+                Arc::new(CounterIdGenerator::new()),
+            )),
+            None,
+        );
+        if volatile {
+            session.with_volatile_progress()
+        } else {
+            session
+        }
+    }
+    fn events() -> Vec<AgentEvent> {
+        let mut message = AssistantMessage::empty(Api::Faux, "faux", "m", 42);
+        let mut events = vec![AgentEvent::MessageStart {
+            message: message.clone().into(),
+        }];
+        // Start snapshots may already cover a delta not yet observed by the
+        // encoder. Both modes must retain the encoder's catch-up semantics.
+        message.content.push(Content::text("ahead"));
+        let partial = Arc::new(message.clone());
+        events.push(AgentEvent::MessageUpdate {
+            message: Arc::clone(&partial),
+            assistant_message_event: AssistantMessageEvent::TextStart {
+                content_index: 0,
+                partial,
+            },
+        });
+        for delta in ["ahead", " 🐈", "", "!"] {
+            if delta != "ahead" {
+                if let Content::Text(text) = &mut message.content[0] {
+                    text.text.push_str(delta);
+                }
+            }
+            let partial = Arc::new(message.clone());
+            events.push(AgentEvent::MessageUpdate {
+                message: Arc::clone(&partial),
+                assistant_message_event: AssistantMessageEvent::TextDelta {
+                    content_index: 0,
+                    delta: delta.into(),
+                    partial,
+                },
+            });
+        }
+        events
+    }
+    #[tokio::test]
+    async fn volatile_recovery_matches_durable_prefixes_without_json_records() {
+        let events = events();
+        for prefix in 0..=events.len() {
+            let durable = session(false);
+            let volatile = session(true);
+            for session in [&durable, &volatile] {
+                let recorder = FrameRecordingEmitter::new(
+                    Arc::new(CollectorEmitter::default()),
+                    session.clone(),
+                    "main",
+                    "run",
+                );
+                for event in &events[..prefix] {
+                    recorder.emit(event.clone()).await;
+                }
+            }
+            assert_eq!(
+                salvage_run_frames(&volatile, "run").await.unwrap(),
+                salvage_run_frames(&durable, "run").await.unwrap(),
+                "prefix {prefix}"
+            );
+            assert!(volatile
+                .find_records(&RecordQuery {
+                    record_type: Some(ASSISTANT_FRAME_RECORD_TYPE),
+                    ..Default::default()
+                })
+                .await
+                .unwrap()
+                .is_empty());
+        }
+    }
+    #[tokio::test]
+    async fn volatile_bindings_clear_and_storage_switch_preserve_commit_boundaries() {
+        for volatile in [false, true] {
+            let session = session(volatile);
+            let recorder = FrameRecordingEmitter::new(
+                Arc::new(CollectorEmitter::default()),
+                session.clone(),
+                "main",
+                "run",
+            );
+            for event in events() {
+                recorder.emit(event).await;
+            }
+            assert_eq!(replay_run_frames(&session, "run").await.unwrap().len(), 1);
+            bind_stream_entry(&session, "main", "run", 0, "settled")
+                .await
+                .unwrap();
+            assert_eq!(
+                replay_run_frames(&session, "run").await.unwrap().len(),
+                1,
+                "a binding alone must not hide progress"
+            );
+            session
+                .storage()
+                .append_entry(
+                    ProvisionedEntry {
+                        id: "settled".into(),
+                        kind: ProvisionedKind::Message {
+                            message: rpi_ai::UserMessage::new("committed", 42).into(),
+                            terminate: None,
+                        },
+                    },
+                    "main",
+                )
+                .await
+                .unwrap();
+            assert!(replay_run_frames(&session, "run").await.unwrap().is_empty());
+            recorder.clear_stream(0).await.unwrap();
+            recorder.clear().await.unwrap();
+            assert!(replay_run_frames(&session, "run").await.unwrap().is_empty());
+            if volatile {
+                assert!(session
+                    .volatile_progress()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .runs
+                    .is_empty());
+                let other = self::session(false);
+                session.set_storage(other.storage());
+                assert!(session.volatile_progress().is_none());
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn harness_switch_adopts_the_target_recovery_cache_and_existing_views() {
+        use crate::agent_harness::AgentHarness;
+        use crate::types::AgentHarnessOptions;
+        for target_volatile in [false, true] {
+            let source = session(true);
+            let harness = AgentHarness::create(AgentHarnessOptions {
+                session: source,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+            let existing_view = harness.session().clone();
+            let old = FrameRecordingEmitter::new(
+                Arc::new(CollectorEmitter::default()),
+                existing_view.clone(),
+                "main",
+                "old-run",
+            );
+            for event in events() {
+                old.emit(event).await;
+            }
+            let target = session(target_volatile);
+            let recorder = FrameRecordingEmitter::new(
+                Arc::new(CollectorEmitter::default()),
+                target.clone(),
+                "main",
+                "target-run",
+            );
+            for event in events() {
+                recorder.emit(event).await;
+            }
+            bind_stream_entry(&target, "main", "target-run", 0, "target-entry")
+                .await
+                .unwrap();
+            let expected = salvage_run_frames(&target, "target-run").await.unwrap();
+            assert_eq!(expected.len(), 1);
+            harness.set_session(target.clone()).await.unwrap();
+            assert_eq!(
+                salvage_run_frames(harness.session(), "target-run")
+                    .await
+                    .unwrap(),
+                expected
+            );
+            assert_eq!(
+                salvage_run_frames(&existing_view, "target-run")
+                    .await
+                    .unwrap(),
+                expected
+            );
+            assert!(salvage_run_frames(harness.session(), "old-run")
+                .await
+                .unwrap()
+                .is_empty());
+            target
+                .storage()
+                .append_entry(
+                    ProvisionedEntry {
+                        id: "target-entry".into(),
+                        kind: ProvisionedKind::Message {
+                            message: rpi_ai::UserMessage::new("committed", 42).into(),
+                            terminate: None,
+                        },
+                    },
+                    "main",
+                )
+                .await
+                .unwrap();
+            assert!(
+                salvage_run_frames(harness.session(), "target-run")
+                    .await
+                    .unwrap()
+                    .is_empty(),
+                "the target's entry binding must survive the switch"
+            );
+        }
     }
 }

@@ -608,8 +608,7 @@ pub(super) fn provider_selector_items(
     let catalog = crate::provider::catalog_with_manifests(manifests).unwrap_or_default();
     let models_cfg = crate::config::load_models_config().unwrap_or_default();
     let auth = crate::config::read_auth().unwrap_or_default();
-    let execution_catalog =
-        crate::provider::execution_catalog_with_manifests(manifests).unwrap_or_default();
+    let auth_states = crate::credentials::statuses(&models_cfg, &auth, manifests);
 
     let mut providers: Vec<(String, usize)> = Vec::new();
     for model in &catalog {
@@ -631,20 +630,10 @@ pub(super) fn provider_selector_items(
             };
             let manifest = manifests.iter().find(|manifest| manifest.id == id);
             let (origin, protocol) = provider_origin_protocol(&id, &models_cfg, manifest);
-            let credential =
-                crate::credentials::resolve(&id, models_cfg.providers.get(&id), &auth, manifest);
-            let key_status = match credential.source {
-                crate::credentials::CredentialSource::Anonymous => "无需 key",
-                crate::credentials::CredentialSource::Missing => {
-                    if execution_catalog.iter().any(|model| {
-                        model.provider == id
-                            && crate::credentials::has_header_auth(model.headers.as_ref())
-                    }) {
-                        "已配置认证头"
-                    } else {
-                        "未配置 key"
-                    }
-                }
+            let key_status = match auth_states.get(&id).map(|state| &state.source) {
+                Some(crate::credentials::CredentialSource::Anonymous) => "无需 key",
+                Some(crate::credentials::CredentialSource::Headers) => "已配置认证头",
+                Some(crate::credentials::CredentialSource::Missing) | None => "未配置 key",
                 _ => "已配置 key",
             };
             let description =

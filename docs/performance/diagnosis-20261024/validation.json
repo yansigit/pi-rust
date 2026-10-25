@@ -1,0 +1,56 @@
+{
+  "large-repeat": {
+    "total_processes": 52,
+    "formal_samples": 44,
+    "errors": [],
+    "classification": "untraced release comparison"
+  },
+  "controls-small": {
+    "total_processes": 72,
+    "formal_samples": 56,
+    "errors": [],
+    "classification": "instrumented diagnostic"
+  },
+  "controls-large": {
+    "total_processes": 36,
+    "formal_samples": 28,
+    "errors": [],
+    "classification": "instrumented diagnostic"
+  },
+  "fixed-small": {
+    "total_processes": 54,
+    "formal_samples": 42,
+    "errors": [],
+    "classification": "untraced release comparison"
+  },
+  "fixed-large": {
+    "total_processes": 36,
+    "formal_samples": 28,
+    "errors": [],
+    "classification": "untraced release comparison"
+  },
+  "cpu-off": {
+    "total_processes": 1,
+    "formal_samples": 1,
+    "errors": [],
+    "classification": "instrumented diagnostic"
+  },
+  "cpu-on": {
+    "total_processes": 1,
+    "formal_samples": 1,
+    "errors": [],
+    "classification": "instrumented diagnostic"
+  },
+  "syscalls-rpi-on": {
+    "total_processes": 1,
+    "formal_samples": 1,
+    "errors": [],
+    "classification": "instrumented diagnostic"
+  },
+  "syscalls-bolt-on": {
+    "total_processes": 1,
+    "formal_samples": 1,
+    "errors": [],
+    "classification": "instrumented diagnostic"
+  }
+}

@@ -66,6 +66,8 @@ use core::ffi::c_char;
 use core::ffi::c_void;
 use core::ptr;
 
+#[cfg(feature = "binary")]
+pub mod binary;
 pub mod callbacks;
 #[cfg(feature = "json")]
 pub mod dialogs;

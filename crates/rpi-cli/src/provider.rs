@@ -98,6 +98,35 @@ pub(crate) fn native_auth_bindings(
     Ok(factories.with_native_auth_config(&config).auth)
 }
 
+/// Host value source for the embeddable runtime: process environment plus the
+/// CLI's cached command resolution for `!command` values in `models.json`.
+pub(crate) struct CliValues;
+impl rpi_runtime::ValueSource for CliValues {
+    fn env(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+    fn command(&self, command: &str, cached: bool) -> Option<String> {
+        if cached {
+            config::resolve_command(command)
+        } else {
+            config::resolve_command_uncached(command)
+        }
+    }
+}
+
+/// Project a native extension's provider manifest onto the runtime's
+/// declaration type (catalog discovery without loading the implementation).
+pub(crate) fn declaration(
+    manifest: &rpi_extensions::ProviderManifest,
+) -> rpi_runtime::ProviderDeclaration {
+    rpi_runtime::ProviderDeclaration {
+        id: manifest.id.clone(),
+        models: manifest.models.clone(),
+        api_key_env: manifest.api_key_env.clone(),
+        requires_auth: manifest.requires_auth,
+    }
+}
+
 use crate::args::parse_thinking_level;
 #[cfg(test)]
 use crate::config::Credential;
@@ -886,12 +915,14 @@ pub fn catalog_with_diagnostics(
 }
 
 /// Internal configuration view used only to evaluate header-based auth policy.
+#[cfg(test)]
 pub(crate) fn execution_catalog_with_manifests(
     manifests: &[rpi_extensions::ProviderManifest],
 ) -> Result<Vec<Model>, config::ConfigError> {
     execution_catalog_with_diagnostics(manifests).map(|(models, _)| models)
 }
 
+#[cfg(test)]
 fn execution_catalog_with_diagnostics(
     manifests: &[rpi_extensions::ProviderManifest],
 ) -> Result<(Vec<Model>, Vec<String>), config::ConfigError> {

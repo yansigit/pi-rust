@@ -64,6 +64,8 @@ struct ShellConfig {
     transport: CommandTransport,
 }
 
+mod append;
+
 /// Environment variables the **host** sets for its own runtime plumbing, which
 /// must not be handed to a shell it spawns.
 ///
@@ -449,6 +451,14 @@ impl FileSystem for OsExecutionEnv {
             )
         })?
         .map_err(|error| io_to_file_error(error, Some(&error_path)))
+    }
+
+    async fn open_append_file(
+        &self,
+        path: &str,
+    ) -> Result<Option<Box<dyn crate::env::AppendFile>>, FileError> {
+        let path = Self::resolve_path(&self.cwd, path);
+        Ok(Some(Box::new(append::OsAppendFile::open(path).await?)))
     }
 
     fn cwd(&self) -> &Path {

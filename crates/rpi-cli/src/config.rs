@@ -35,10 +35,20 @@ use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use rpi_ai::{Api, InputModality, Model, ModelCost, StreamingProtocolCompat, ThinkingLevelMap};
-
+use rpi_ai::Model;
+#[cfg(test)]
+use rpi_ai::{Api, ModelCost, StreamingProtocolCompat};
 pub mod auth_store;
 pub(crate) mod native_values;
+// Parity's native-auth value resolution parses the same `$VAR`/`${VAR}`
+// templates the shared resolver does, so reuse the runtime parser instead of a
+// second copy.
+pub use rpi_runtime::config::{
+    default_anthropic_base_url, model_compat_warnings, provider_is_anthropic_compatible,
+    provider_is_openai_completions, provider_is_openai_responses, AuthStore, ConfigError,
+    Credential, ModelDefinition, ModelsConfig, ProviderConfig, ANTHROPIC_DEFAULT_BASE_URL,
+};
+pub(crate) use rpi_runtime::values::{parse_template, TemplatePart};
 
 /// The config directory name under the home dir.
 pub const CONFIG_DIR_NAME: &str = ".rpi";
@@ -49,39 +59,7 @@ pub const CONFIG_DIR_ENV: &str = "RPI_CODING_AGENT_DIR";
 
 /// The provider id under which `rpi auth login` stores the Anthropic key.
 /// Mirrors upstream's fixed `anthropic` provider id.
-pub const DEFAULT_PROVIDER_ID: &str = "anthropic";
-
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
-/// A config-layer error (path resolution, IO, JSON). Surfaced to the user by
-/// the `auth` subcommand / `provider::resolve`.
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    #[error("could not resolve home directory (set {env} to override)")]
-    NoHomeDir { env: &'static str },
-    #[error("config dir override {env}={val:?} is not an absolute path")]
-    RelativeOverride { env: &'static str, val: String },
-    #[error("could not read {path}: {source}")]
-    Read {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("could not write {path}: {source}")]
-    Write {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("invalid JSON in {path}: {source}")]
-    Json {
-        path: PathBuf,
-        #[source]
-        source: serde_json::Error,
-    },
-}
+pub use rpi_runtime::config::DEFAULT_PROVIDER_ID;
 
 // ---------------------------------------------------------------------------
 // Path resolution
@@ -230,34 +208,6 @@ fn migrate_legacy_layout_in(root: &Path, agent: &Path) -> Result<usize, ConfigEr
 // auth.json — Credential store
 // ---------------------------------------------------------------------------
 
-/// A stored credential. Mirrors the TS `Credential` union
-/// (`packages/ai/src/auth/types.ts`). OAuth credentials are provider-scoped
-/// and must never be logged or exposed to the agent transcript.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
-#[serde(rename_all = "snake_case", tag = "type")]
-pub enum Credential {
-    /// An API key, optionally sourced from an env var map. v1 stores only the
-    /// literal `key` (the `env` field is kept for upstream-shape compatibility).
-    ApiKey {
-        key: Option<String>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        env: Option<BTreeMap<String, String>>,
-    },
-    /// OAuth tokens (access + refresh + expiry).
-    Oauth {
-        access: String,
-        #[serde(default)]
-        refresh: String,
-        /// Unix epoch seconds. `0` means no known expiry.
-        #[serde(default)]
-        expires: i64,
-    },
-}
-
-/// The auth store: `providerId -> Credential`. Mirrors upstream
-/// `Record<providerId, Credential>`.
-pub type AuthStore = BTreeMap<String, Credential>;
-
 /// Read the auth store. Missing file ⇒ empty store (not an error). Malformed
 /// JSON ⇒ `ConfigError::Json` (we do not silently swallow a corrupt auth file).
 pub fn read_auth() -> Result<AuthStore, ConfigError> {
@@ -327,71 +277,6 @@ pub fn delete_credential(provider_id: &str) -> Result<bool, ConfigError> {
 // models.json — provider/model catalog
 // ---------------------------------------------------------------------------
 
-/// The `models.json` document. Mirrors TS `{ providers: Record<id, ProviderConfig> }`
-/// (`core/model-config.ts` `ModelsConfigSchema`).
-#[derive(serde::Serialize, serde::Deserialize, Default, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelsConfig {
-    #[serde(default, skip_serializing_if = "indexmap::IndexMap::is_empty")]
-    // Provider entries are walked in declaration order, so declaration order
-    // participates in the final available-model fallback.
-    pub providers: indexmap::IndexMap<String, ProviderConfig>,
-}
-
-/// A provider entry in `models.json`. The fields mirror the TS `ProviderConfig`
-/// one-for-one; v1 honors `base_url`/`api_key`/`headers`/`auth_header`/`models`,
-/// and **ignores** `api` values other than `anthropic-messages` (documented).
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderConfig {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub api: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub headers: Option<BTreeMap<String, String>>,
-    /// `true` ⇒ wrap `api_key` as `Authorization: Bearer <key>` (mirrors
-    /// upstream `provider-composer.ts` `authHeader`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auth_header: Option<bool>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub models: Vec<ModelDefinition>,
-}
-
-/// One model under a provider. `id` is required (mirrors TS `ModelDefinition`).
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelDefinition {
-    pub id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reasoning: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub thinking_level_map: Option<ThinkingLevelMap>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub context_window: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<u64>,
-    /// USD per million tokens, including optional long-context pricing tiers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cost: Option<ModelCost>,
-    /// Free-form modality strings ("text"/"image"); unknown values fall back
-    /// to text-only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub headers: Option<BTreeMap<String, String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compat: Option<serde_json::Value>,
-}
-
 /// Load `~/.rpi/models.json`. Missing file ⇒ empty config (no error).
 pub fn load_models_config() -> Result<ModelsConfig, ConfigError> {
     let path = models_path()?;
@@ -405,76 +290,6 @@ pub fn load_models_config() -> Result<ModelsConfig, ConfigError> {
 
 /// Diagnose unsupported compat keys and malformed values without rejecting
 /// unrelated providers.
-pub fn model_compat_warnings(config: &ModelsConfig) -> Vec<String> {
-    let mut warnings = Vec::new();
-    for (provider, cfg) in &config.providers {
-        let defaults = match cfg.api.as_deref() {
-            Some("openai-completions") => {
-                serde_json::to_value(rpi_ai::model::OpenaiCompletionsCompat::default())
-                    .expect("compat defaults serialize")
-            }
-            Some("openai-responses") => {
-                serde_json::to_value(rpi_ai::model::OpenaiResponsesCompat::default())
-                    .expect("compat defaults serialize")
-            }
-            _ => continue,
-        };
-        for model in &cfg.models {
-            let Some(value) = &model.compat else { continue };
-            let context = format!("provider {provider:?}, model {:?}, compat", model.id);
-            if let Some(fields) = value.as_object() {
-                if provider_is_openai_completions(cfg) {
-                    if let (Some(native), Some(alias)) = (
-                        fields.get("requiresReasoningContent"),
-                        fields.get("requiresReasoningContentOnAssistantMessages"),
-                    ) {
-                        if native != alias {
-                            warnings.push(format!("{context}: conflicting reasoning-content flags; requiresReasoningContent takes precedence"));
-                        }
-                    }
-                }
-                for key in fields.keys() {
-                    let alias = provider_is_openai_completions(cfg)
-                        && key == "requiresReasoningContentOnAssistantMessages";
-                    if defaults.get(key).is_none() && !alias {
-                        warnings.push(format!("{context}: unknown field {key:?}; ignored"));
-                    }
-                }
-            }
-            let parsed = if provider_is_openai_completions(cfg) {
-                serde_json::from_value::<rpi_ai::model::OpenaiCompletionsCompat>(
-                    normalize_completions_compat(value.clone()),
-                )
-                .map(|_| ())
-            } else {
-                serde_json::from_value::<rpi_ai::model::OpenaiResponsesCompat>(value.clone())
-                    .map(|_| ())
-            };
-            if let Err(error) = parsed {
-                // Serde's full error may echo a malformed value, including a
-                // credential accidentally pasted into a boolean field.
-                let error = error.to_string();
-                let expected = error
-                    .rsplit_once(", expected ")
-                    .map_or("a valid compat object", |(_, expected)| expected);
-                warnings.push(format!(
-                    "{context}: invalid configuration; expected {expected}; compat ignored"
-                ));
-            }
-        }
-    }
-    warnings
-}
-
-fn normalize_completions_compat(mut value: serde_json::Value) -> serde_json::Value {
-    if let Some(fields) = value.as_object_mut() {
-        if let Some(alias) = fields.remove("requiresReasoningContentOnAssistantMessages") {
-            fields.entry("requiresReasoningContent").or_insert(alias);
-        }
-    }
-    value
-}
-
 /// Atomically write the whole `~/.rpi/models.json` (used by the interactive
 /// provider form). Note: unlike [`crate::settings::save_settings`], this
 /// serializes the modeled config directly, so hand-written comments and unknown
@@ -641,10 +456,12 @@ pub fn resolve_config_value(
     config: &str,
     env_overlay: Option<&BTreeMap<String, String>>,
 ) -> Option<String> {
-    if let Some(cmd) = config.strip_prefix('!') {
-        return resolve_command(cmd);
-    }
-    resolve_template(config, env_overlay)
+    rpi_runtime::values::resolve_config_value(
+        config,
+        env_overlay,
+        &crate::provider::CliValues,
+        true,
+    )
 }
 
 /// Like [`resolve_config_value`] but **uncached** — mirrors pi's
@@ -654,10 +471,12 @@ pub fn resolve_config_value_uncached(
     config: &str,
     env_overlay: Option<&BTreeMap<String, String>>,
 ) -> Option<String> {
-    if let Some(cmd) = config.strip_prefix('!') {
-        return resolve_command_uncached(cmd);
-    }
-    resolve_template(config, env_overlay)
+    rpi_runtime::values::resolve_config_value(
+        config,
+        env_overlay,
+        &crate::provider::CliValues,
+        false,
+    )
 }
 
 /// Resolve every header value via [`resolve_config_value_uncached`]; drop
@@ -667,149 +486,13 @@ pub fn resolve_headers(
     headers: &BTreeMap<String, String>,
     env_overlay: Option<&BTreeMap<String, String>>,
 ) -> BTreeMap<String, String> {
-    let mut out = BTreeMap::new();
-    for (k, v) in headers {
-        if let Some(resolved) = resolve_config_value_uncached(v, env_overlay) {
-            out.insert(k.clone(), resolved);
-        }
-    }
-    out
-}
-
-/// Env lookup: `env_overlay` (if present) wins over the process env, matching
-/// pi's `resolveEnvConfigValue` (which checks `env?.[name]` before `process.env`).
-fn env_lookup(name: &str, env_overlay: Option<&BTreeMap<String, String>>) -> Option<String> {
-    if let Some(overlay) = env_overlay {
-        if let Some(v) = overlay.get(name) {
-            return Some(v.clone());
-        }
-    }
-    std::env::var(name).ok()
-}
-
-/// A parsed template part — literal text or an env-var reference.
-enum TemplatePart {
-    Literal(String),
-    Env(String),
-}
-
-/// Parse a `$VAR`/`${VAR}` template (mirrors pi `parseConfigValueTemplate`).
-/// `$$`→`$` and `$!`→`!` are escapes; `${NAME}` requires `NAME` to match
-/// `^[A-Za-z_][A-Za-z0-9_]*$` else the raw slice is kept literal; `$NAME` takes
-/// the longest `[A-Za-z_][A-Za-z0-9_]*` prefix as the name.
-fn parse_template(config: &str) -> Vec<TemplatePart> {
-    let mut parts: Vec<TemplatePart> = Vec::new();
-    let bytes = config.as_bytes();
-    let mut i = 0usize;
-    while i < bytes.len() {
-        // Find the next `$`.
-        match config[i..].find('$') {
-            None => {
-                push_literal(&mut parts, &config[i..]);
-                break;
-            }
-            Some(offset) => {
-                let dollar = i + offset;
-                push_literal(&mut parts, &config[i..dollar]);
-                let after = dollar + 1;
-                let next = bytes.get(after).copied();
-                if next == Some(b'$') || next == Some(b'!') {
-                    push_literal(&mut parts, &config[after..after + 1]);
-                    i = after + 1;
-                    continue;
-                }
-                if next == Some(b'{') {
-                    // ${NAME}
-                    if let Some(end_rel) = config[after + 1..].find('}') {
-                        let end = after + 1 + end_rel;
-                        let name = &config[after + 1..end];
-                        if is_env_name(name) {
-                            parts.push(TemplatePart::Env(name.to_string()));
-                        } else {
-                            // Not a valid name — keep the raw `${…}` literal.
-                            push_literal(&mut parts, &config[dollar..=end]);
-                        }
-                        i = end + 1;
-                        continue;
-                    }
-                    // No closing `}` — literal `$`.
-                    push_literal(&mut parts, "$");
-                    i = after;
-                    continue;
-                }
-                // $NAME (greedy prefix). Bare `$` with no name char follows.
-                if let Some(name) = env_name_prefix(&config[after..]) {
-                    parts.push(TemplatePart::Env(name.to_string()));
-                    i = after + name.len();
-                } else {
-                    push_literal(&mut parts, "$");
-                    i = after;
-                }
-            }
-        }
-    }
-    parts
-}
-
-fn push_literal(parts: &mut Vec<TemplatePart>, value: &str) {
-    if value.is_empty() {
-        return;
-    }
-    if let Some(TemplatePart::Literal(s)) = parts.last_mut() {
-        s.push_str(value);
-    } else {
-        parts.push(TemplatePart::Literal(value.to_string()));
-    }
-}
-
-fn is_env_name(s: &str) -> bool {
-    let mut chars = s.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
-        _ => return false,
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-/// The longest `[A-Za-z_][A-Za-z0-9_]*` prefix of `s` (mirrors the TS
-/// `ENV_VAR_NAME_PREFIX_RE` match), or `None` when `s` doesn't start with one.
-fn env_name_prefix(s: &str) -> Option<&str> {
-    let mut chars = s.char_indices();
-    match chars.next() {
-        Some((_, c)) if c.is_ascii_alphabetic() || c == '_' => {}
-        _ => return None,
-    }
-    let end = chars
-        .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_'))
-        .map(|(idx, _)| idx)
-        .unwrap_or(s.len());
-    Some(&s[..end])
-}
-
-/// Resolve a parsed template: any referenced env var that is unset ⇒ the whole
-/// value is `None` (pi semantics). Literal-only templates pass through as-is.
-fn resolve_template(
-    config: &str,
-    env_overlay: Option<&BTreeMap<String, String>>,
-) -> Option<String> {
-    let parts = parse_template(config);
-    let mut out = String::with_capacity(config.len());
-    for part in parts {
-        match part {
-            TemplatePart::Literal(s) => out.push_str(&s),
-            TemplatePart::Env(name) => {
-                let v = env_lookup(&name, env_overlay)?;
-                out.push_str(&v)
-            }
-        }
-    }
-    Some(out)
+    rpi_runtime::values::resolve_headers(headers, env_overlay, &crate::provider::CliValues)
 }
 
 /// Run `cmd` (without the leading `!`), returning trimmed stdout. Cached per
 /// process (mirrors pi `executeCommand`). 10s timeout; non-zero exit / missing
 /// shell ⇒ `None`.
-fn resolve_command(cmd: &str) -> Option<String> {
+pub(crate) fn resolve_command(cmd: &str) -> Option<String> {
     let key = format!("!{cmd}");
     if let Some(v) = command_cache().lock().ok()?.get(&key) {
         return v.clone();
@@ -848,7 +531,7 @@ fn spawn_shell_command(cmd: &str) -> Option<std::process::Output> {
 }
 
 /// Uncached `!command` execution (mirrors pi `executeCommandUncached`).
-fn resolve_command_uncached(cmd: &str) -> Option<String> {
+pub(crate) fn resolve_command_uncached(cmd: &str) -> Option<String> {
     let output = spawn_shell_command(cmd)?;
     if !output.status.success() {
         return None;
@@ -866,22 +549,6 @@ fn resolve_command_uncached(cmd: &str) -> Option<String> {
 /// for forward-compat but flagged ignored-in-v1 in the docs. Public so
 /// [`crate::provider`] can scan models.json providers for an `authHeader:true`
 /// gateway bearer source.
-pub fn provider_is_anthropic_compatible(cfg: &ProviderConfig) -> bool {
-    match cfg.api.as_deref() {
-        None | Some("") | Some("anthropic-messages") => true,
-        _ => false,
-    }
-}
-
-/// Whether a configured provider uses the OpenAI Chat Completions protocol.
-pub fn provider_is_openai_completions(cfg: &ProviderConfig) -> bool {
-    matches!(cfg.api.as_deref(), Some("openai-completions"))
-}
-
-pub fn provider_is_openai_responses(cfg: &ProviderConfig) -> bool {
-    matches!(cfg.api.as_deref(), Some("openai-responses"))
-}
-
 /// Resolve an OpenAI-compatible provider key from its explicit config or a
 /// known provider's canonical environment variable. Arbitrary custom provider
 /// ids must declare `apiKey: "$ENV"`: deriving an env name by normalizing the
@@ -910,129 +577,6 @@ fn native_provider_api_key_env_var(provider_id: &str) -> Option<&'static str> {
 /// Convert a `(provider_id, ProviderConfig)` pair into a list of library
 /// [`Model`]s. Provider-level `base_url`/`headers`/`auth_header` fold into each
 /// model. Returns `None` for protocols that do not have a runtime provider.
-pub fn provider_to_models(provider_id: &str, cfg: &ProviderConfig) -> Option<Vec<Model>> {
-    let api = if provider_is_anthropic_compatible(cfg) {
-        Api::AnthropicMessages
-    } else if provider_is_openai_completions(cfg) {
-        Api::OpenaiCompletions
-    } else if provider_is_openai_responses(cfg) {
-        Api::OpenaiResponses
-    } else {
-        return None;
-    };
-    let provider_base = cfg.base_url.clone().unwrap_or_else(|| match api {
-        Api::OpenaiCompletions | Api::OpenaiResponses => "https://api.openai.com".to_string(),
-        _ => default_anthropic_base_url(),
-    });
-    let mut merged: Vec<Model> = Vec::with_capacity(cfg.models.len());
-    for def in &cfg.models {
-        let base_url = def
-            .base_url
-            .clone()
-            .unwrap_or_else(|| provider_base.clone());
-        let name = def.name.clone().unwrap_or_else(|| def.id.clone());
-        let mut m = Model::new(
-            def.id.clone(),
-            name,
-            api.clone(),
-            provider_id.to_string(),
-            base_url,
-        );
-        m.reasoning = def.reasoning.unwrap_or(false);
-        m.thinking_level_map = def.thinking_level_map.clone();
-        // Pi's generic custom-model composer supplies these defaults only
-        // when the models.json fields are absent. Explicit values (including
-        // zero) remain untouched; model overrides are applied downstream.
-        m.context_window = def.context_window.unwrap_or(128_000);
-        m.max_tokens = def.max_tokens.unwrap_or(16_384);
-        if let Some(cost) = &def.cost {
-            m.cost = cost.clone();
-            m.cost_configured = true;
-        }
-        m.input = parse_input_modalities(def.input.as_deref());
-        // Merge: model-level headers, then provider-level headers (provider wins
-        // on conflict — it's the more specific-to-this-endpoint declaration).
-        // Values are resolved via `resolve_headers` (`$ENV`/`!command` expansion,
-        // mirroring pi's `resolveHeadersOrThrow`) so a copied pi models.json
-        // referencing env vars / commands resolves the same way. Models.json
-        // providers have no credential env overlay (only auth.json keys do), so
-        // the expansion is env-only here.
-        // Credential-derived headers are NOT synthesized in the catalog —
-        // [`crate::provider::resolve`] applies it centrally so it can skip it
-        // when a higher-priority x-api-key source (`--api-key` / auth.json /
-        // `ANTHROPIC_API_KEY`) wins. Folding it here unconditionally would put a
-        // Bearer on the model even on the x-api-key path. See
-        // `models_json_bearer_token` + the fold loop in `resolve`.
-        let mut headers: BTreeMap<String, String> = BTreeMap::new();
-        if let Some(h) = def.headers.clone() {
-            for (k, v) in resolve_headers(&h, None) {
-                headers.insert(k, v);
-            }
-        }
-        if let Some(h) = cfg.headers.clone() {
-            for (k, v) in resolve_headers(&h, None) {
-                headers.insert(k, v);
-            }
-        }
-        if matches!(api, Api::OpenaiCompletions | Api::OpenaiResponses) {
-            if let Some(value) = def.compat.clone() {
-                if matches!(api, Api::OpenaiResponses) {
-                    if let Ok(compat) = serde_json::from_value(value) {
-                        m.compat = Some(StreamingProtocolCompat::OpenaiResponses(compat));
-                    }
-                } else if let Ok(compat) =
-                    serde_json::from_value(normalize_completions_compat(value))
-                {
-                    m.compat = Some(StreamingProtocolCompat::OpenaiCompletions(compat));
-                }
-            }
-        }
-        if !headers.is_empty() {
-            m.headers = Some(headers);
-        }
-        merged.push(m);
-    }
-    Some(merged)
-}
-
-/// Parse `["text","image"]`-style modality strings into [`InputModality`]s;
-/// unknown values drop to text-only. `None` ⇒ text (the [`Model::new`] default).
-fn parse_input_modalities(input: Option<&[String]>) -> Vec<InputModality> {
-    match input {
-        None => vec![InputModality::Text],
-        Some(list) if list.is_empty() => vec![InputModality::Text],
-        Some(list) => list
-            .iter()
-            .filter_map(|s| match s.to_ascii_lowercase().as_str() {
-                "text" => Some(InputModality::Text),
-                "image" => Some(InputModality::Image),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .pipe(|v| {
-                if v.is_empty() {
-                    vec![InputModality::Text]
-                } else {
-                    v
-                }
-            }),
-    }
-}
-
-/// The first-party Anthropic endpoint — used as the fallback `base_url` when a
-/// models.json provider omits it. Kept here (not imported from `rpi_ai`) so the
-/// config layer never depends on the provider's private `models` module.
-/// Public so [`crate::provider::resolve`] can tell a gateway model (whose
-/// `base_url` differs from this) from a built-in Anthropic model.
-pub const ANTHROPIC_DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
-
-/// Same value as [`ANTHROPIC_DEFAULT_BASE_URL`], as an owned `String` for the
-/// `unwrap_or_else` ergonomic used by [`provider_to_models`] and
-/// [`crate::provider::models_json_provider_auth`].
-pub fn default_anthropic_base_url() -> String {
-    ANTHROPIC_DEFAULT_BASE_URL.to_string()
-}
-
 // ---------------------------------------------------------------------------
 // Internals: dir ensure, atomic write, chmod
 // ---------------------------------------------------------------------------
@@ -1108,15 +652,6 @@ fn set_owner_only(_path: &Path) {
         let _ = std::fs::set_permissions(_path, std::fs::Permissions::from_mode(0o600));
     }
 }
-
-// A tiny `.pipe`-shim so the `parse_input_modalities` chain reads top-to-bottom
-// without pulling itertools. Kept private to this module.
-trait Pipe: Sized {
-    fn pipe<R>(self, f: impl FnOnce(Self) -> R) -> R {
-        f(self)
-    }
-}
-impl<T> Pipe for T {}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1977,4 +1512,9 @@ mod tests {
             None => std::env::remove_var(name),
         }
     }
+}
+
+/// Convert host configuration with the same rules as the embeddable runtime.
+pub fn provider_to_models(provider_id: &str, cfg: &ProviderConfig) -> Option<Vec<Model>> {
+    rpi_runtime::config::provider_to_models(provider_id, cfg, &crate::provider::CliValues)
 }

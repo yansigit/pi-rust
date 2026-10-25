@@ -747,12 +747,25 @@ fn hot_cycle_crosses_providers_and_anchors_duplicate_ids_to_the_live_lane() {
                         .await
                         .unwrap();
                 assert!(note.contains("second/shared"));
+                assert!(
+                    note.contains("Not saved as the default"),
+                    "the note should say the switch was not persisted: {note}"
+                );
                 assert_eq!(lane.get_model().await.unwrap(), second);
                 assert!(
                     strip_ansi(&state.footer.render(120).join("\n")).contains("(second) shared")
                 );
                 let saved = crate::settings::load_settings().unwrap();
-                assert_eq!(saved.default_provider.as_deref(), Some("second"));
+                assert_eq!(
+                    saved.default_provider.as_deref(),
+                    None,
+                    "a session-scoped switch must not save a default provider"
+                );
+                assert_eq!(
+                    saved.default_model.as_deref(),
+                    None,
+                    "a session-scoped switch must not save a default model"
+                );
                 assert_eq!(
                     cycle_model(&lane, &catalog, true).await.unwrap().unwrap(),
                     first
@@ -792,6 +805,47 @@ fn hot_cycle_crosses_providers_and_anchors_duplicate_ids_to_the_live_lane() {
                     crate::settings::load_settings().unwrap().default_provider,
                     saved.default_provider
                 );
+            });
+    });
+}
+
+/// The only path allowed to touch `settings.json`: `/settings` → Default model
+/// passes `save_default = true` and must still persist the pair.
+#[test]
+fn explicit_default_model_selection_still_persists() {
+    with_isolated_config_dir(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let harness = AgentHarness::create(Default::default()).await.unwrap();
+                let lane: Arc<dyn AgentLane> = harness.lane("main");
+                let state = test_tui_state();
+                let model = rpi_ai::Model::new(
+                    "saved-model",
+                    "Saved",
+                    rpi_ai::Api::OpenaiCompletions,
+                    "saved",
+                    "http://saved.invalid",
+                );
+                lane.set_model(model.clone()).await.unwrap();
+                let note = apply_model_selection(
+                    &lane,
+                    &state,
+                    model.clone(),
+                    true,
+                    ModelSelectionSource::Set,
+                )
+                .await
+                .unwrap();
+                assert!(note.contains("saved/saved-model"), "{note}");
+                assert!(note.contains("Default saved."), "{note}");
+                assert_eq!(lane.get_model().await.unwrap(), model);
+                let saved = crate::settings::load_settings().unwrap();
+                assert_eq!(saved.default_provider.as_deref(), Some("saved"));
+                assert_eq!(saved.default_model.as_deref(), Some("saved-model"));
+                harness.close().await.unwrap();
             });
     });
 }
@@ -3398,6 +3452,227 @@ fn pasted_win_crlf_text_has_no_stray_carriage_returns() {
     assert!(!editor.get_text().contains('\r'));
 }
 
+/// An IME commit delivers a whole word with no gap between its characters, so a
+/// gap-based paste heuristic classified normal Chinese input as paste and held
+/// it in a buffer until the user stopped typing. The run must instead be handed
+/// to the editor on the very keystroke that arrives with nothing queued behind
+/// it — which is what this asserts about the state machine itself.
+#[test]
+fn ime_commit_is_not_buffered_as_paste() {
+    let mut run = WindowsPasteRun::default();
+    let now = std::time::Instant::now();
+
+    // `我们` arrives back-to-back: burst = true, but far too short to fold.
+    run.feed('我', now);
+    run.feed('们', now);
+    assert!(run.burst, "back-to-back characters are a burst");
+    assert!(
+        !run.is_paste_candidate(),
+        "a two-character IME commit must never be treated as a paste"
+    );
+
+    // Flushing it empties the buffer, so the next word starts clean.
+    let editor = rpi_tui::Editor::simple();
+    run.flush(&editor, now);
+    assert_eq!(editor.get_text(), "我们");
+    assert!(!run.is_buffering(), "flush must clear the buffer");
+
+    // A genuine clipboard paste clears the size threshold.
+    let mut big = WindowsPasteRun::default();
+    for _ in 0..PASTE_RUN_MIN_CHARS {
+        big.feed('x', now);
+    }
+    assert!(big.is_paste_candidate(), "a long run is still foldable");
+}
+
+/// The console can hand one clipboard payload over in several batches. When
+/// the batch holding the final newline arrives after the text batch was
+/// already flushed to the editor, the run is empty — but that newline still
+/// belongs to the paste and must not submit the prompt.
+///
+/// The flushed batch here carries an interior newline: a multi-line payload
+/// whose first console batch ends after its second line. That shape is what
+/// separates it from a coalesced IME commit, which is also queued behind
+/// itself but never contains a newline — see
+/// [`final_review_pr91_coalesced_ime_commit_never_leaves_a_tail_that_eats_enter`].
+#[test]
+fn paste_split_just_before_its_trailing_enter_is_not_a_submit() {
+    let now = std::time::Instant::now();
+    let clipboard = "alpha\nbeta\nc\nd\ne\nf\ng\nh\ni\nj\nk\n";
+    let editor = rpi_tui::Editor::simple();
+
+    let mut run = WindowsPasteRun::default();
+    for ch in "alpha\nbeta".chars() {
+        run.feed(ch, now);
+    }
+    // The console proved this is a paste: input was still queued behind it.
+    run.mark_collected();
+    run.flush(&editor, now);
+    assert_eq!(editor.get_text(), "alpha\nbeta");
+    assert!(!run.is_buffering(), "the text batch is already inserted");
+
+    // The newline lands in the next batch, inside the carry window, and the
+    // clipboard confirms which text it belongs to.
+    let entered_at = now + std::time::Duration::from_millis(60);
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), entered_at),
+        "a newline split from its paste must not submit"
+    );
+
+    // A genuinely later Enter is the user's own and has to submit.
+    let typed_at = now + PASTE_CARRY_GAP + std::time::Duration::from_millis(1);
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), typed_at),
+        "a typed Enter after the carry window still submits"
+    );
+}
+
+/// The behaviour this whole change exists for: an IME commit must never absorb
+/// the Enter that submits it. Crucially this has to hold even when the clipboard
+/// happens to start with the committed word — otherwise the guard only works by
+/// accident, because the test clipboard did not match.
+#[test]
+fn ime_commit_then_enter_submits_even_when_the_clipboard_starts_with_it() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+
+    // Deliberately corroborating: same head word, and enough newlines for the
+    // clipboard check to pass if it were ever consulted.
+    let clipboard = "我们\n第二行\n3\n4\n5\n6\n7\n8\n9\n10\n11\n";
+
+    let mut ime = WindowsPasteRun::default();
+    ime.feed('我', now);
+    ime.feed('们', now);
+    // The typing path: the queue was empty, so nothing was collected.
+    ime.flush(&editor, now);
+
+    assert_eq!(editor.get_text(), "我们");
+    assert!(
+        !ime.has_paste_evidence(now),
+        "an IME commit must leave no paste evidence behind"
+    );
+    assert!(
+        ime.paste_tail_texts(now).is_empty(),
+        "an IME commit must not keep a paste tail"
+    );
+
+    let entered_at = now + std::time::Duration::from_millis(80);
+    assert!(
+        !windows_enter_in_paste(&ime, false, Some(clipboard), entered_at),
+        "an IME commit must never absorb the Enter that submits it, even when \
+         the clipboard starts with the committed word"
+    );
+}
+
+/// Two pastes inside the carry window are two separate pastes. Gluing the second
+/// batch onto the first makes the corroborated prefix match neither clipboard,
+/// which is exactly how a trailing Enter slips through and submits the prompt.
+#[test]
+fn consecutive_pastes_each_keep_their_own_trailing_enter() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let clipboard_a = "AAAA\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    let clipboard_b = "BBBB\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+
+    let mut run = WindowsPasteRun::default();
+    for ch in "AAAA".chars() {
+        run.feed(ch, now);
+    }
+    run.mark_collected();
+    run.flush(&editor, now);
+
+    // Second paste starts inside `PASTE_CARRY_GAP`.
+    let second_at = now + std::time::Duration::from_millis(120);
+    for ch in "BBBB".chars() {
+        run.feed(ch, second_at);
+    }
+    run.mark_collected();
+    run.flush(&editor, second_at);
+    assert_eq!(editor.get_text(), "AAAABBBB");
+
+    // The candidates must include the second paste alone, so its own trailing
+    // Enter corroborates — even though the first paste is still carried too.
+    assert!(
+        run.paste_tail_texts(second_at).iter().any(|t| t == "BBBB"),
+        "the tail has to include the head of the most recent paste alone"
+    );
+
+    // The trailing Enter trails its batch at machine speed — a console-level
+    // split of the payload, not a human key-to-key delay (two IME commits in
+    // the same shape must submit instead: the standalone lone-short window
+    // is `PASTE_BURST_GAP`).
+    let enter_at = second_at + std::time::Duration::from_millis(10);
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard_b), enter_at),
+        "the second paste's trailing Enter must not submit"
+    );
+    // And it must not corroborate against the *first* clipboard either.
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard_a), enter_at),
+        "a stale clipboard must not be accepted as evidence"
+    );
+}
+
+/// A paste that ends without a trailing newline must still leave its text
+/// available: the console can split the payload anywhere, not only before the
+/// final newline.
+#[test]
+fn paste_tail_is_dropped_once_the_carry_window_expires() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let clipboard = "alpha\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\n";
+
+    let mut run = WindowsPasteRun::default();
+    for ch in "alpha".chars() {
+        run.feed(ch, now);
+    }
+    run.mark_collected();
+    run.flush(&editor, now);
+
+    assert!(run.has_paste_evidence(now));
+    let expired = now + PASTE_CARRY_GAP + std::time::Duration::from_millis(1);
+    assert!(!run.has_paste_evidence(expired));
+    assert!(run.paste_tail_texts(expired).is_empty());
+    assert!(!windows_enter_in_paste(
+        &run,
+        false,
+        Some(clipboard),
+        expired
+    ));
+}
+
+/// Once a run crosses the fold threshold the loop must stop probing per
+/// character: the probe stashes the next event, and that stash is what made the
+/// native console drain unreachable.
+#[test]
+fn native_batch_read_is_reached_before_the_queue_probe() {
+    let now = std::time::Instant::now();
+
+    let mut run = WindowsPasteRun::default();
+    for _ in 0..PASTE_RUN_MIN_CHARS {
+        run.feed('x', now);
+    }
+    assert!(run.is_paste_candidate());
+    assert!(
+        !run.probe_needed(),
+        "an established paste must drain the console rather than stash a probe"
+    );
+    assert!(
+        should_drain_queued_text(&run, true),
+        "the native batch read has to be reachable"
+    );
+    assert!(
+        !should_drain_queued_text(&run, false),
+        "claimed extension keys keep ownership of the console"
+    );
+
+    // A short IME commit still probes, which is what keeps typing immediate.
+    let mut ime = WindowsPasteRun::default();
+    ime.feed('我', now);
+    ime.feed('们', now);
+    assert!(ime.probe_needed());
+}
+
 #[test]
 fn pasted_enter_is_not_a_submit() {
     let now = std::time::Instant::now();
@@ -3673,4 +3948,466 @@ fn provider_auth_flow_yields_keys_to_an_open_native_dialog() {
     assert!(state.provider_auth_owns_keys());
     state.provider_auth_flow_id.store(0, Ordering::Release);
     assert!(!state.provider_auth_owns_keys());
+}
+
+// Local review probes for PR #91. Exercise the real state/probe methods using
+// the Press/Release queue consumed by the Windows text-key branch.
+fn review_pr91_deliver_batch(
+    run: &mut WindowsPasteRun,
+    editor: &rpi_tui::Editor,
+    text: &str,
+    trailing_enter: bool,
+    now: std::time::Instant,
+) -> bool {
+    let mut queue = std::collections::VecDeque::new();
+    for ch in text.chars() {
+        for kind in [KeyEventKind::Press, KeyEventKind::Release] {
+            queue.push_back(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char(ch),
+                KeyModifiers::NONE,
+                kind,
+            )));
+        }
+    }
+    if trailing_enter {
+        queue.push_back(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+    }
+    let mut pending = None;
+    while let Some(event) = pending.take().or_else(|| queue.pop_front()) {
+        let Event::Key(key) = event else {
+            unreachable!()
+        };
+        if !should_dispatch_key(key.kind) {
+            continue;
+        }
+        if key.code == KeyCode::Enter {
+            assert!(queue.is_empty());
+            return true;
+        }
+        let KeyCode::Char(ch) = key.code else {
+            unreachable!()
+        };
+        run.feed(ch, now);
+        assert!(
+            run.probe_needed(),
+            "these short batches do not use the native drain"
+        );
+        let (more, stashed) = probe_paste_input(pending.take(), || queue.pop_front());
+        pending = stashed;
+        if more {
+            run.mark_collected();
+        } else {
+            run.flush(editor, now);
+        }
+    }
+    false
+}
+
+#[test]
+fn review_pr91_one_paste_split_into_three_queue_batches_keeps_its_prefix() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alphabeta\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    review_pr91_deliver_batch(
+        &mut run,
+        &editor,
+        "beta",
+        false,
+        now + std::time::Duration::from_millis(10),
+    );
+    assert_eq!(editor.get_text(), "alphabeta");
+    assert!(
+        windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            now + std::time::Duration::from_millis(20)
+        ),
+        "the third batch's Enter must not submit a partially received paste"
+    );
+}
+
+#[test]
+fn review_pr91_second_paste_enter_ignores_the_previous_paste_tail() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "BBBB\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "AAAA", false, now);
+    let second_at = now + std::time::Duration::from_millis(20);
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "BBBB", true, second_at
+    ));
+    assert_eq!(run.text, "BBBB");
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), second_at),
+        "a previous paste's tail must not prevent this paste's newline from matching"
+    );
+}
+
+#[test]
+fn review_pr91_queued_ime_commit_can_submit_after_two_hundred_ms() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, now);
+    assert_eq!(editor.get_text(), "我们");
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            now + std::time::Duration::from_millis(200)
+        ),
+        "queued IME characters must not swallow a subsequent typed Enter"
+    );
+}
+
+#[test]
+fn review_pr91_single_character_ime_batches_leave_no_tail() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "我", false, now);
+    review_pr91_deliver_batch(
+        &mut run,
+        &editor,
+        "们",
+        false,
+        now + std::time::Duration::from_millis(1),
+    );
+    assert_eq!(editor.get_text(), "我们");
+    assert!(!run.has_paste_evidence(now + std::time::Duration::from_millis(200)));
+}
+
+// Re-review probes for PR #91: boundary cases of the candidate construction.
+#[test]
+fn rereview_pr91_first_paste_with_queued_trailing_enter_does_not_submit() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let text = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+    let clipboard = format!("{text}\n");
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, text, true, now
+    ));
+    assert!(
+        run.tail.is_none(),
+        "nothing has been flushed before the queued Enter"
+    );
+    assert_eq!(run.text, text);
+    assert!(run.has_paste_evidence(now));
+    assert!(
+        windows_enter_in_paste(&run, false, Some(&clipboard), now),
+        "a live first paste must be corroborated without requiring an older flushed tail"
+    );
+}
+
+#[test]
+fn rereview_pr91_split_paste_includes_both_flushed_and_live_text() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alphabeta\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    let later = now + std::time::Duration::from_millis(10);
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "beta", true, later
+    ));
+    assert_eq!(run.tail.as_ref().unwrap().text, "alpha");
+    assert_eq!(run.text, "beta");
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), later),
+        "the clipboard prefix must include both alpha (flushed) and beta (still buffered)"
+    );
+}
+
+#[test]
+fn rereview_pr91_completed_paste_must_not_swallow_the_next_edited_submit() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let text = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+    let clipboard = format!("{text}\n");
+    review_pr91_deliver_batch(&mut run, &editor, text, false, now);
+    let pasted_enter = now + std::time::Duration::from_millis(10);
+    assert!(windows_enter_in_paste(
+        &run,
+        false,
+        Some(&clipboard),
+        pasted_enter
+    ));
+    run.feed('\n', pasted_enter); // The actual Enter handler accepts the pasted newline.
+    let edited_at = now + std::time::Duration::from_millis(80);
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "X", true, edited_at
+    ));
+    assert_eq!(run.text, "\nX");
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(&clipboard), edited_at),
+        "a stale matching prefix must not override the unrelated live edit when Enter submits"
+    );
+}
+
+// Carry-review probes for PR #91: batch boundaries of the first line and
+// per-variant maturity of the tail.
+#[test]
+fn carry_review_pr91_first_line_can_end_at_a_console_batch_boundary() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    // Only the first line and its Enter have reached the queue. The rest of
+    // this same clipboard payload will arrive in a subsequent console batch.
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "alpha", true, now
+    ));
+    assert!(run.tail.is_none());
+    assert_eq!(run.text, "alpha");
+    assert!(run.burst && run.collected);
+    assert!(run.has_paste_evidence(now));
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), now),
+        "the first pasted newline must not submit just because later lines are in another batch"
+    );
+}
+
+#[test]
+fn carry_review_pr91_a_prior_large_paste_must_not_extend_a_new_ime_commits_window() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    // An already completed large paste leaves mature carry. It has no trailing
+    // newline, so there is no pending pasted Enter waiting to be attributed.
+    for _ in 0..PASTE_RUN_MIN_CHARS {
+        run.feed('x', now);
+    }
+    run.mark_collected();
+    run.flush(&editor, now);
+    assert!(run.tail.as_ref().unwrap().mature);
+    let commit_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, commit_at);
+    assert_eq!(run.tail.as_ref().unwrap().last, "我们");
+    assert!(run.text.is_empty());
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    let typed_enter = commit_at + std::time::Duration::from_millis(200);
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), typed_enter),
+        "the previous paste must not give a new two-character IME commit a 500ms carry window"
+    );
+}
+
+// Re-review probe (round 5) for PR #91: a coalesced IME commit delivered as
+// one queued batch sets `collected` through the queue probe, so its flush
+// leaves a short PasteTail. The clipboard happening to share the commit's
+// prefix must not make that tail eligible to swallow the user's Enter.
+#[test]
+fn final_review_pr91_coalesced_ime_commit_never_leaves_a_tail_that_eats_enter() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    // One queued batch: 我们's Press/Release pairs, exactly as a coalesced
+    // IME commit arrives. No newline ever enters this batch.
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, now);
+    assert_eq!(editor.get_text(), "我们");
+    // Enter arrives within the short carry window (~80 ms).
+    let entered_at = now + std::time::Duration::from_millis(80);
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), entered_at),
+        "a coalesced IME commit must not leave a tail that can consume a later Enter"
+    );
+}
+
+// Round-6 review probes for PR #91: the first newline can land in its own
+// console batch while the rest of the payload is still in transit, and a
+// carried tail must not re-enable a lone short last batch.
+#[test]
+fn latest_review_pr91_first_newline_can_be_its_own_console_batch() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    // The same clipboard arrives in order as [alpha], [Enter], [remaining lines].
+    // At the Enter, no later event has reached the queue within PASTE_PROBE.
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    let entered_at = now + std::time::Duration::from_millis(10);
+    assert_eq!(editor.get_text(), "alpha");
+    assert!(run.tail.as_ref().unwrap().lone_short);
+    assert!(run.has_paste_evidence(entered_at));
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), entered_at),
+        "a batch boundary before the first newline must not submit the partial clipboard"
+    );
+}
+
+#[test]
+fn latest_review_pr91_old_paste_must_not_enable_a_short_ime_tail() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    for _ in 0..PASTE_RUN_MIN_CHARS {
+        run.feed('x', now);
+    }
+    run.mark_collected();
+    run.flush(&editor, now);
+    let commit_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, commit_at);
+    let tail = run.tail.as_ref().unwrap();
+    assert!(!tail.lone_short);
+    assert!(!tail.last_mature);
+    assert_eq!(tail.last, "我们");
+    let typed_at = commit_at + std::time::Duration::from_millis(80);
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), typed_at),
+        "an older paste must not make a new lone IME batch eligible to swallow Enter"
+    );
+}
+
+#[test]
+fn latest_review_pr91_two_ime_commits_must_not_enable_the_last_tail() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "你好", false, now);
+    let commit_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, commit_at);
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            commit_at + std::time::Duration::from_millis(80)
+        ),
+        "two newline-less IME commits must not enable the standalone last candidate"
+    );
+}
+
+// Flanking probes around the machine-speed boundary the fix draws for lone
+// short tails: corroborate at batch-trailing speed, submit beyond it.
+#[test]
+fn round6_pr91_lone_short_tail_corroborates_within_the_burst_gap() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    assert!(
+        windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            now + std::time::Duration::from_millis(15)
+        ),
+        "an Enter trailing its batch at machine speed is the paste's own newline"
+    );
+}
+
+#[test]
+fn round6_pr91_lone_short_tail_stops_corroborating_beyond_the_burst_gap() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            now + std::time::Duration::from_millis(25)
+        ),
+        "beyond machine speed the Enter is the user's, even if the clipboard matches"
+    );
+}
+
+#[test]
+fn round6_pr91_carried_last_batch_corroborates_only_within_the_burst_gap() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "你好", false, now);
+    let commit_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, commit_at);
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    assert!(
+        windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            commit_at + std::time::Duration::from_millis(15)
+        ),
+        "a carried history must not change the machine-speed window of the last batch"
+    );
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            commit_at + std::time::Duration::from_millis(25)
+        ),
+        "the last batch alone is back to a typed Enter once machine speed is exceeded"
+    );
+}
+
+// Round-7 review probe for PR #91: concatenating short newline-less IME
+// batches must not give the accumulated candidate full carry eligibility.
+#[test]
+fn next_review_pr91_accumulated_ime_batches_must_not_swallow_submit() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "你好", false, now);
+    let second_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, second_at);
+    let entered_at = second_at + std::time::Duration::from_millis(80);
+    assert_eq!(editor.get_text(), "你好我们");
+    assert!(
+        run.tail.as_ref().unwrap().lone_short,
+        "the concatenated IME shape is lone-short as a whole"
+    );
+    let clipboard = "你好我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), entered_at),
+        "a concatenated pair of short IME commits must not become paste evidence at 80 ms"
+    );
+}
+
+// Flanking probe: the same concatenated shape corroborates only while an
+// Enter could trail the second batch at machine speed.
+#[test]
+fn round7_pr91_concatenated_short_batches_corroborate_only_at_machine_speed() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "你好我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "你好", false, now);
+    let second_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, second_at);
+    assert!(
+        windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            second_at + std::time::Duration::from_millis(15)
+        ),
+        "a payload split into two newline-less batches keeps its newline at machine speed"
+    );
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            second_at + std::time::Duration::from_millis(25)
+        ),
+        "beyond machine speed the accumulated newline-less text is IME-shaped, not paste evidence"
+    );
 }
