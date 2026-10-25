@@ -208,7 +208,12 @@ impl JsonlSessionStorage {
                         state.resync_sequence(mutation.seq() - 1);
                     }
                     let mutation = chain_onto_lane_leaf(mutation, &state);
-                    if let Err(e) = state.apply_mutation(mutation) {
+                    // Replay only re-checks what the state needs to stay
+                    // consistent: Pi validates an edit when it is appended and
+                    // never when a session is loaded, so a stored edit with a
+                    // missing/off-branch target must not make the file
+                    // unopenable (`state.rs` `replay_mutation`).
+                    if let Err(e) = state.replay_mutation(mutation) {
                         if e.code == SessionErrorCode::InvalidEntry {
                             drop(state);
                             return Err(invalid_file(path, line_no, &e));

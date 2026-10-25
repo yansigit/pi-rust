@@ -4240,7 +4240,9 @@ async fn compaction_hooks_acknowledge_commits_and_preserve_failure_identity() {
             );
             assert_eq!(events[1].2.get("errorMessage").is_none(), aborted);
             if mode == "error" {
-                assert_eq!(events[1].2["error"], "fixture summary failure");
+                // Pi reports the failure through `errorMessage` alone
+                // (`agent-session.ts:3262-3270`); `error` was a host-only key.
+                assert!(events[1].2.get("error").is_none());
                 assert_eq!(
                     events[1].2["errorMessage"],
                     "Compaction failed: fixture summary failure"

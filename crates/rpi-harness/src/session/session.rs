@@ -307,6 +307,47 @@ impl Session {
             .await
     }
 
+    // -- Context edits -------------------------------------------------------
+
+    /// `appendContextEdit(targetId, replacement)` — mint an id and commit a
+    /// branch-local edit of an earlier model-visible entry on `main`. Mirrors TS
+    /// `SessionManager.appendContextEdit` (`session-manager.ts:1360-1400`).
+    /// Returns the new entry id.
+    ///
+    /// Validation (target exists, is on the active branch, contributes editable
+    /// model content, replacement is representable) stays in the storage commit
+    /// path, which is where Pi performs it.
+    pub async fn append_context_edit(
+        &self,
+        target_id: &str,
+        replacement: JsonValue,
+    ) -> SessionResult<String> {
+        self.append_context_edit_to_lane("main", target_id, replacement)
+            .await
+    }
+
+    /// `appendContextEdit` on an explicit lane.
+    pub async fn append_context_edit_to_lane(
+        &self,
+        lane: &str,
+        target_id: &str,
+        replacement: JsonValue,
+    ) -> SessionResult<String> {
+        let entry = self
+            .commit_entry(
+                ProvisionedEntry {
+                    id: self.id_generator.next(),
+                    kind: ProvisionedKind::ContextEdit {
+                        target_id: target_id.to_string(),
+                        replacement,
+                    },
+                },
+                lane,
+            )
+            .await?;
+        Ok(entry_id(&entry))
+    }
+
     // -- Lanes ---------------------------------------------------------------
 
     /// `getLanes()`. Mirrors TS `Session.getLanes`.
