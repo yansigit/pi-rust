@@ -165,6 +165,18 @@ pub trait CredentialTransaction: Send + Sync {
 #[async_trait::async_trait]
 pub trait CredentialStore: Send + Sync {
     async fn read(&self, provider: &str) -> Result<Option<Credential>, AuthError>;
+    /// Availability probe: does a credential exist, without resolving it?
+    ///
+    /// Reporting availability must never execute a `!command` API key (or
+    /// interpolate a `$VAR` template) just to learn that one is configured. Pi
+    /// only resolves at request time (`auth-storage.js:213-214` returns command
+    /// values unresolved, `provider-composer.js:266-267` reports a command key
+    /// as configured without running it). The default delegates to
+    /// [`Self::read`] because plugin-owned stores never execute config values;
+    /// the legacy `auth.json` store overrides it with a non-resolving read.
+    async fn read_unresolved(&self, provider: &str) -> Result<Option<Credential>, AuthError> {
+        self.read(provider).await
+    }
     async fn lock(
         &self,
         provider: &str,
