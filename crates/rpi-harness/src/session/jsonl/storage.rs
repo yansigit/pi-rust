@@ -96,16 +96,27 @@ pub struct JsonlSessionStorage {
 
 struct PendingWrite<'a> {
     uncertain: &'a AtomicBool,
-    applied: bool,
+    settled: bool,
 }
 impl PendingWrite<'_> {
+    /// Declare the write's outcome *known*.
+    ///
+    /// Two outcomes are known: the line reached the file, or the append
+    /// reported an error, in which case nothing persisted and the failed writer
+    /// handle is discarded so a retry reopens it. Only a drop that never
+    /// settles — the future cancelled or panicking while the append is in
+    /// flight — leaves the on-disk state unknown.
+    fn settle(&mut self) {
+        self.settled = true;
+    }
+    /// The ordinary success path: the line reached the file.
     fn applied(mut self) {
-        self.applied = true;
+        self.settle();
     }
 }
 impl Drop for PendingWrite<'_> {
     fn drop(&mut self) {
-        if !self.applied {
+        if !self.settled {
             self.uncertain.store(true, Ordering::Release);
         }
     }
@@ -389,24 +400,38 @@ impl JsonlSessionStorage {
         mutation: &SessionMutation,
     ) -> SessionResult<PendingWrite<'_>> {
         self.require_certain()?;
-        let pending = PendingWrite {
+        let mut pending = PendingWrite {
             uncertain: &self.uncertain,
-            applied: false,
+            settled: false,
         };
         let line = encode_mutation(mutation);
         let mut append = self.append.lock().await;
         if append.is_none() {
-            *append = file_result(
+            match file_result(
                 self.fs.open_append_file(&self.metadata.path).await,
                 &format!("Failed to open session {}", self.metadata.path),
-            )?;
+            ) {
+                Ok(writer) => *append = writer,
+                Err(error) => {
+                    // No writer ever received the line, so nothing can have
+                    // persisted: the outcome is known.
+                    pending.settle();
+                    return Err(error);
+                }
+            }
         }
         if let Some(writer) = append.as_mut() {
             // The tail lock still orders every append, and the writer flushes
-            // before acknowledgement. A failed handle is discarded for retry.
+            // before acknowledgement. A failed handle is discarded for retry:
+            // whatever the backend does with a torn write, the next append
+            // reopens the file and rewrites nothing, so the caller may retry.
             let result = writer.append(line.as_bytes()).await;
             if result.is_err() {
                 *append = None;
+                // The writer reported the failure and is gone, so the line was
+                // not persisted and a retry reopens the handle: the outcome is
+                // known, not uncertain (upstream's discard-and-retry contract).
+                pending.settle();
             }
             file_result(
                 result,
@@ -415,6 +440,11 @@ impl JsonlSessionStorage {
             return Ok(pending);
         }
         drop(append);
+        // Fallback path: no reusable writer handle, so the line goes through a
+        // one-shot append that can stop half-way and leave a torn tail. An
+        // error here says nothing about how much reached the file, so the write
+        // stays *unsettled* and the session demands a reopen before any further
+        // write (parity's recovery-before-writes contract).
         file_result(
             self.fs
                 .append_file(&self.metadata.path, FileContent::Text(line), None)
@@ -1131,7 +1161,49 @@ mod tests {
         assert!(storage.append_entry(entry.clone(), "main").await.is_err());
         assert!(storage.get_entry("retry").await.unwrap().is_none());
         assert_eq!(freed.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // A reported failure is a *known* outcome: the handle is discarded and
+        // the session stays writable (no reopen needed).
         assert_eq!(storage.append_entry(entry, "main").await.unwrap().seq(), 1);
+    }
+
+    #[tokio::test]
+    async fn abandoned_append_poisons_the_session_until_a_reopen() {
+        let fs: Arc<dyn FileSystem> =
+            Arc::new(rpi_tools::InMemoryExecutionEnv::with_cwd("/".into()));
+        let storage = JsonlSessionStorage::create(
+            fs,
+            "/s.jsonl",
+            header(),
+            Arc::new(FakeClock::new()),
+            Arc::new(CounterIdGenerator::new()),
+        )
+        .await
+        .unwrap();
+        // A write whose fate was never learned (the future was cancelled or
+        // panicked mid-append) must block further writes: the file may or may
+        // not carry the line, so only a reopen can resynchronize the state.
+        drop(PendingWrite {
+            uncertain: &storage.uncertain,
+            settled: false,
+        });
+        let error = storage
+            .append_entry(
+                ProvisionedEntry {
+                    id: "lost".into(),
+                    kind: ProvisionedKind::Message {
+                        message: user_msg("lost"),
+                        terminate: None,
+                    },
+                },
+                "main",
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, crate::error::SessionErrorCode::Storage);
+        assert!(
+            error.message.contains("write outcome is uncertain"),
+            "unexpected error: {error}"
+        );
     }
 
     #[tokio::test]
