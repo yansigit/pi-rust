@@ -847,6 +847,52 @@ async fn construction_seeds_disk_config_and_credential_availability() {
     }
 }
 
+/// A disk-backed runtime's catalog refresh re-reads `models.json` (Pi
+/// `ModelRuntime.refresh`); a hermetic runtime keeps its fixed config, so
+/// unlocked tests never observe another test's config directory.
+#[tokio::test]
+async fn refresh_reads_models_json_only_for_disk_backed_runtimes() {
+    let _guard = crate::config::test_support::env_lock().lock().unwrap();
+    let agent = tempfile::tempdir().unwrap();
+    let previous = std::env::var_os(crate::config::CONFIG_DIR_ENV);
+    std::env::set_var(crate::config::CONFIG_DIR_ENV, agent.path());
+
+    let (disk, disk_owner, _) = fixture_from_disk(|_| {});
+    let (hermetic, hermetic_owner, _) = fixture_with(|_| {});
+    std::fs::write(
+        agent.path().join("models.json"),
+        r#"{"providers":{"configured":{"baseUrl":"https://configured.invalid","apiKey":"k","api":"openai-completions","models":[{"id":"configured-model"}]}}}"#,
+    )
+    .unwrap();
+    for (runtime, owner) in [(&disk, &disk_owner), (&hermetic, &hermetic_owner)] {
+        request(
+            runtime,
+            owner.clone(),
+            json!({"action":"refresh","allowNetwork":false}),
+        )
+        .await
+        .unwrap();
+    }
+    let configured = |runtime: &ProviderRuntime| {
+        let runtime = runtime.state.try_lock().unwrap();
+        (
+            runtime.config.providers.contains_key("configured"),
+            runtime
+                .catalog
+                .list_providers()
+                .iter()
+                .any(|provider| provider.id == "configured"),
+        )
+    };
+    assert_eq!(configured(&disk), (true, true));
+    assert_eq!(configured(&hermetic), (false, false));
+
+    match previous {
+        Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
+        None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
+    }
+}
+
 /// D-2: a publication installs the host snapshot with the runtime state mutex
 /// released. Holding it across the install would deadlock any plugin that
 /// re-enters `inspect` or `auth` from the install path, so the guard is stated

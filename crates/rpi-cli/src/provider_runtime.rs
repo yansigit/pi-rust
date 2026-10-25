@@ -78,6 +78,26 @@ pub(crate) struct ProviderRuntime {
     logins: Mutex<BTreeMap<String, auth::Login>>,
     auth: BTreeMap<String, Arc<crate::provider::auth::AuthBinding>>,
     publications: std::sync::Mutex<BTreeMap<String, Weak<Publication>>>,
+    config_source: Arc<ConfigSource>,
+}
+/// Where a catalog refresh reads `models.json` from. Pi `ModelRuntime.refresh`
+/// reloads `this.modelsPath` every time, and `modelsPath: null` gives a runtime
+/// that never reads the file (pi-coding-agent 1.3.0 `model-runtime.js:81,588`).
+enum ConfigSource {
+    /// The process config directory: every production runtime.
+    Disk,
+    /// A frozen config for hermetic runtimes. Tests that do not hold the
+    /// shared env lock must never read the process config directory, which a
+    /// concurrently running locked test may point at its own `models.json`.
+    Fixed(crate::config::ModelsConfig),
+}
+impl ConfigSource {
+    fn load(&self) -> Result<crate::config::ModelsConfig, String> {
+        match self {
+            Self::Disk => crate::config::load_models_config().map_err(|error| error.to_string()),
+            Self::Fixed(config) => Ok(config.clone()),
+        }
+    }
 }
 impl ProviderRuntime {
     /// Pi `ModelRuntime.create`: start from the on-disk `models.json`
@@ -90,17 +110,37 @@ impl ProviderRuntime {
         providers: Vec<Arc<dyn Provider>>,
         discovery: Vec<Model>,
     ) -> Result<Arc<Self>, String> {
-        let config = crate::config::load_models_config().map_err(|error| error.to_string())?;
-        Self::with_config(session, bridge, providers, discovery, config)
+        let config = ConfigSource::Disk.load()?;
+        Self::build(
+            session,
+            bridge,
+            providers,
+            discovery,
+            config,
+            ConfigSource::Disk,
+        )
     }
-    /// Construct over an already-loaded models config; [`Self::new`] is the
-    /// disk-seeded path every production caller uses.
+    /// A hermetic runtime over a fixed models config: construction and every
+    /// later catalog refresh use `config` and never read the process config
+    /// directory. [`Self::new`] is the disk-backed path every production caller
+    /// uses.
     pub(crate) fn with_config(
         session: &ExtensionSession,
         bridge: &rpi_extensions::ActionBridge,
         providers: Vec<Arc<dyn Provider>>,
         discovery: Vec<Model>,
         config: crate::config::ModelsConfig,
+    ) -> Result<Arc<Self>, String> {
+        let source = ConfigSource::Fixed(config.clone());
+        Self::build(session, bridge, providers, discovery, config, source)
+    }
+    fn build(
+        session: &ExtensionSession,
+        bridge: &rpi_extensions::ActionBridge,
+        providers: Vec<Arc<dyn Provider>>,
+        discovery: Vec<Model>,
+        config: crate::config::ModelsConfig,
+        config_source: ConfigSource,
     ) -> Result<Arc<Self>, String> {
         let catalog = ModelRegistry::new();
         for provider in providers {
@@ -167,6 +207,7 @@ impl ProviderRuntime {
             logins: Mutex::new(BTreeMap::new()),
             auth,
             publications: Default::default(),
+            config_source: Arc::new(config_source),
         });
         Ok(runtime)
     }
@@ -347,6 +388,7 @@ impl ProviderRuntime {
             logins: Mutex::new(BTreeMap::new()),
             auth: self.auth.clone(),
             publications: Default::default(),
+            config_source: self.config_source.clone(),
         });
         children.insert(scope.runtime_id().into(), child.clone());
         Ok(child)
@@ -545,7 +587,7 @@ impl ProviderRuntime {
         args: Value,
         signal: CancellationToken,
     ) -> Result<Value, String> {
-        let config = crate::config::load_models_config().map_err(|error| error.to_string())?;
+        let config = self.config_source.load()?;
         self.refresh_config(caller, args, signal, config).await
     }
     async fn refresh_config(
