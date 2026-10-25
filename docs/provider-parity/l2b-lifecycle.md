@@ -37,6 +37,8 @@ entries and JSONL cwd header are checked before shutdown. Missing/cross-cwd
 services fail closed for resume; cwd service migration is not claimed. Import
 copies history into the caller's repository: its preserved source cwd is
 provenance, not a project-switch instruction (existing cross-cwd import test).
+Import is validated too — by the cwd the copy runs in — and a later resume of the
+archive is refused by name (B-3, see *B5* below).
 
 Tests cover active veto, active external settlement, immediate busy refusal,
 missing-cwd preparation with a live DLL, and replacement admission refusal.
@@ -84,10 +86,97 @@ instead of accepting its veto (exit 101); reverted and loaded test passed.
 `tree_ui` and real-process RPC tests also passed.
 
 Boundaries: loaded fixture is not the Cursor package. Cross-cwd replacement is
-refused before teardown. A post-shutdown construction failure is fail-closed,
-not atomic rollback; the host can retry. Lane C must join late inherited journal
-leases to its actual worker routing. Lane D owns refresh/config recomposition
-and availability; this lane only rebuilds provider bindings per fresh runtime.
+refused before teardown. Post-shutdown failure is fail-closed: since the fix in
+*B5*, every fallible construction step is staged before the first harness
+mutation, so only a harness-setter failure can leave a replaced session without
+extension authority — and that is reported as `ReplacedDegraded`, not as
+success. Lane C must join late inherited journal leases to its actual worker
+routing. Lane D owns refresh/config recomposition and availability; this lane
+only rebuilds provider bindings per fresh runtime (and now runs lane D's
+create-time refresh, see *B5*).
+
+## B5 — review fixes (fix-l2bd)
+
+Cross-lane (X-1): a fresh runtime is Pi's `ModelRuntime.create`, which refreshes
+on create (`model-runtime.js:79-108`, create → `refresh({allowModelNetwork:false})`).
+`SessionRuntimeFactory::rebuild` and the startup/`/reload` builders now run that
+create-time phase (`ProviderRuntime::refresh_availability_on_create`) before the
+catalog reaches the harness, so `/new`, `/resume`, `/fork`, `/import`, `/reload`
+and process start all agree. Lane D's half of the fix is the config seed:
+`ProviderRuntime::new` starts from `load_models_config()` instead of
+`Default::default()`, so a publication cannot recompose against an empty config
+and drop `models.json` overrides.
+
+Replacement outcomes are explicit (B-1/B-2). `rebuild` stages every fallible
+step (fresh extension session, provider runtime, credential pass, hooks, tools)
+before the first harness mutation and returns `RebuildOutcome::Installed`,
+`::Failed(error)` (nothing applied, safe to retry) or `::Degraded(reason)` (the
+durable session is replaced but the harness has no/partial extension authority).
+`SessionReplacement::ReplacedDegraded { reason }` carries the degraded case to
+TUI, host actions (`"degraded"` in the JSON) and RPC. Unpublished authority is
+retired with an awaited `auth_runtime().shutdown()` on every failure path (B-4),
+the provider-runtime cell is published before `activate()` so a request can never
+reach an unbound port (B-5), and settle is bounded (`SETTLE_TIMEOUT`) because it
+runs under the admission gate (B-6).
+
+Imports are archive-only in one rule (B-3): `validate_destination` runs for every
+reason. `Import` validates the cwd the copy runs in and keeps the source bytes
+verbatim; `import_session_file` writes a durable `<session>.import` provenance
+marker (invisible to `.jsonl` listings), and `Resume` of a marked archive is
+refused with `imported session from … is archive-only: Pi v1-v3 session logs are
+not resumable` instead of a cross-cwd error from the preserved header. Import is
+really validated, not bypassed: with the destination cwd gone it fails with
+`Session working directory does not exist` before any teardown (existence is
+checked before canonicalization, so the caller gets that message rather than a
+bare io error). A failed import publish also drops this process's
+`SESSION_LOCK_PATHS` entry and its `.lock` file (B-7).
+
+Catalog publication no longer awaits the host install while holding the runtime
+state mutex (D-2): the snapshot is staged under the lock, the lock is dropped for
+`install_native_providers`/`replace_model_catalog`, then a monotonic commit
+counter re-validates that nothing else published before the catalog/epoch/chain
+swap. `inspect` derives availability from one snapshot (D-6), a transient status
+read keeps the last committed credential status instead of flapping to `Unknown`
+(D-4), the availability loop stops on cancellation (D-3), and a provider-local
+refresh error is reported instead of the availability pass's error (D-5). Epoch
+revocation on every catalog commit stays intentional and is now documented at the
+commit site (D-7).
+
+Tests: `construction_seeds_disk_config_and_credential_availability` (D-1/X-1,
+mechanism), `imported_archive_is_archive_only_for_import_and_resume` (B-3,
+through `validate_destination` rather than around it, including a second archive
+refused for import once the destination cwd is gone),
+`rebuild_failure_after_the_swap_is_reported_as_degraded` (B-1/B-2, failure after
+`set_active_session`), `import_is_validated_and_only_import_accepts_an_archive`
+(the per-reason rule at the predicate), and
+`degraded_outcome_is_surfaced_and_failures_stay_retryable` (the coordinator's
+`RebuildOutcome` translation, so a degraded swap can never be flattened into a
+clean replacement). `host_install_runs_with_the_state_lock_released` states the
+D-2 rule directly: the runtime state mutex is free while the host snapshot is
+installed.
+
+Mutation checks on the new guards (each killed, then reverted):
+revert the config seed → D-1 test fails; restore the `reason != Import` bypass →
+the import test fails on the missing destination cwd; delete the archive rule →
+the per-reason test fails; flatten `Degraded` into `Replaced` → the outcome test
+fails; hold the state mutex across the host install → the D-2 test fails.
+
+### fix-l2bd qualification
+
+Gates were re-run on the fixed tree (`lane/fix-l2bd` = `lane/l2-integration` +
+this lane), foreground under `timeout 270`, with lane target dirs
+`/home/user/Projects/.targets/fix-l2bd-178` (Rust 1.78) and
+`…-195` (Rust 1.95):
+
+- `cargo fmt --all --check`: pass.
+- `RUSTFLAGS=-Dwarnings cargo +1.78.0 check --workspace --all-targets --locked`: pass.
+- `cargo +1.78.0 check -p rpi-plugin-sdk --no-default-features` and `… --features
+  provider`, both `--locked`: pass.
+- `cargo +1.95.0 test --workspace --locked --tests`: 2444 passed, 0 failed, 23
+  ignored across 95 test binaries; `… --doc`: 17 passed, 0 failed, 3 ignored.
+  **Combined 2461 passed, 0 failed, 26 ignored** — integration baseline
+  2455/0/26 plus this lane's six new tests.
+- Seven `docs/provider-parity/check-*.mjs`: pass.
 
 ## Final qualification
 
@@ -114,7 +203,9 @@ parallel run exposed an unrelated harness environment race in
 
 SDK/ABI: no `rpi-plugin-sdk` source, PluginApi layout/slot, EventTag number or
 native JSON contract changed. Rust CLI embedders must add `runtime_factory` to
-`SessionReplacementContext` literals and use `rpc_with_context` for replacement.
+`SessionReplacementContext` literals and use `rpc_with_context` for replacement;
+both are documented in rustdoc (`SessionReplacementContext::runtime_factory`,
+`rpc_with_context`) including the `ReplacedDegraded`/`degraded` signal (B-8).
 Package pins need no SDK source update from this lane. Runtime behavior changes
 intentionally: captured ordinary contexts become stale on replacement; narrow
 persistence/scope leases retain only their pre-existing authority.

@@ -12,6 +12,11 @@ struct Host {
     installs: AtomicUsize,
     models: std::sync::Mutex<Vec<Model>>,
     child_models: std::sync::Mutex<BTreeMap<String, Vec<Model>>>,
+    /// D-2 guard: whether the runtime state mutex was free while the host
+    /// install ran. Holding it across the install deadlocks a plugin that
+    /// re-enters `inspect`/`auth` from the install path.
+    state_free_during_install: std::sync::Mutex<Option<bool>>,
+    runtime: std::sync::OnceLock<std::sync::Weak<ProviderRuntime>>,
 }
 macro_rules! host {
     ($($name:ident),*) => {
@@ -19,6 +24,9 @@ macro_rules! host {
         impl RuntimeActionHost for Host {
             $(async fn $name(&self, _:Value) -> Result<Value,String> { Err("unused test action".into()) })*
             async fn install_native_providers(&self, providers: Vec<Arc<dyn Provider>>) -> Result<(), String> {
+                if let Some(port) = self.runtime.get().and_then(|weak| weak.upgrade()) {
+                    *self.state_free_during_install.lock().unwrap() = Some(port.state.try_lock().is_ok());
+                }
                 if self.fail.load(Ordering::SeqCst) { return Err("injected installation failure".into()); }
                 let models = providers.iter().flat_map(|p| p.models().to_vec()).collect();
                 if let Some(scope) = rpi_agent::tool_execution_scope::current_scope() {
@@ -767,4 +775,81 @@ async fn awaited_publication_commits_once_and_rejects_stale_or_expired_refresh_t
             .contains("expired"));
     }
     assert_eq!(runtime.providers().await[0].models()[0].id, "newer");
+}
+
+/// D-1 + X-1: constructing a runtime is Pi's `ModelRuntime.create`, so it must
+/// seed the on-disk config (`model-runtime.js:79-108`) and run one credential
+/// pass before anything publishes a catalog over it.
+#[tokio::test]
+async fn construction_seeds_disk_config_and_credential_availability() {
+    let _guard = crate::config::test_support::env_lock().lock().unwrap();
+    let agent = tempfile::tempdir().unwrap();
+    let previous = std::env::var_os(crate::config::CONFIG_DIR_ENV);
+    std::env::set_var(crate::config::CONFIG_DIR_ENV, agent.path());
+    std::fs::write(
+        agent.path().join("models.json"),
+        r#"{"providers":{"test":{"baseUrl":"https://configured.invalid"}}}"#,
+    )
+    .unwrap();
+
+    let (runtime, owner, host) = fixture_with(|_| {});
+    let revision = {
+        let state = runtime.state.lock().await;
+        assert!(
+            state.config.providers.contains_key("test"),
+            "a replaced session must start from models.json, not an empty config"
+        );
+        assert_eq!(
+            state.catalog.list_providers()[0].auth_status,
+            crate::model_registry::AuthStatus::Unknown,
+            "nothing has read credentials yet"
+        );
+        state.catalog.revision()
+    };
+
+    runtime.refresh_availability_on_create().await.unwrap();
+    let providers = runtime.state.lock().await.catalog.list_providers();
+    assert!(!providers.is_empty());
+    assert!(
+        providers
+            .iter()
+            .all(|provider| provider.auth_status != crate::model_registry::AuthStatus::Unknown),
+        "the create-time pass must record a credential status: {providers:?}"
+    );
+    // A create-time pass is not a publication: no catalog revision is installed.
+    assert_eq!(host.installs.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        request(&runtime, owner, json!({"action":"inspect"}))
+            .await
+            .unwrap()["revision"],
+        revision
+    );
+
+    match previous {
+        Some(value) => std::env::set_var(crate::config::CONFIG_DIR_ENV, value),
+        None => std::env::remove_var(crate::config::CONFIG_DIR_ENV),
+    }
+}
+
+/// D-2: a publication installs the host snapshot with the runtime state mutex
+/// released. Holding it across the install would deadlock any plugin that
+/// re-enters `inspect` or `auth` from the install path, so the guard is stated
+/// directly: at install time the state lock must be free.
+#[tokio::test]
+async fn host_install_runs_with_the_state_lock_released() {
+    let (runtime, owner, host) = fixture();
+    host.runtime.set(Arc::downgrade(&runtime)).unwrap();
+    request(
+        &runtime,
+        owner,
+        json!({"action":"publish","providerId":"test","models":[model("new")]}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        *host.state_free_during_install.lock().unwrap(),
+        Some(true),
+        "the host install must not run under the runtime state mutex"
+    );
+    assert_eq!(host.installs.load(Ordering::SeqCst), 1);
 }
