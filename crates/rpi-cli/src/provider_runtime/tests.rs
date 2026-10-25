@@ -109,8 +109,24 @@ extern "C" fn unused(
 fn fixture() -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
     fixture_with(|_| {})
 }
+/// Hermetic fixture: never reads `models.json`, so tests that do not hold the
+/// shared env lock cannot observe another test's config directory.
 fn fixture_with(
     configure: impl FnOnce(&mut rpi_extensions::ExtensionRegistry),
+) -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
+    fixture_seeded(configure, false)
+}
+/// Disk-seeded fixture (`ProviderRuntime::new`). Callers must hold
+/// `config::test_support::env_lock()` with `CONFIG_DIR_ENV` pointed at a
+/// temporary directory.
+fn fixture_from_disk(
+    configure: impl FnOnce(&mut rpi_extensions::ExtensionRegistry),
+) -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
+    fixture_seeded(configure, true)
+}
+fn fixture_seeded(
+    configure: impl FnOnce(&mut rpi_extensions::ExtensionRegistry),
+    from_disk: bool,
 ) -> (Arc<ProviderRuntime>, NativeOwner, Arc<Host>) {
     let host = Arc::new(Host::default());
     let bridge = rpi_extensions::ActionBridge::new(tokio::runtime::Handle::current(), host.clone());
@@ -141,12 +157,12 @@ fn fixture_with(
         vec![],
         Some(bridge.clone()),
     );
-    let runtime = ProviderRuntime::new(
-        &session,
-        &bridge,
-        vec![Arc::new(TestProvider(vec![model("old")]))],
-        vec![],
-    )
+    let providers: Vec<Arc<dyn Provider>> = vec![Arc::new(TestProvider(vec![model("old")]))];
+    let runtime = if from_disk {
+        ProviderRuntime::new(&session, &bridge, providers, vec![])
+    } else {
+        ProviderRuntime::with_config(&session, &bridge, providers, vec![], Default::default())
+    }
     .unwrap();
     (runtime, owner, host)
 }
@@ -614,7 +630,7 @@ fn owned_auth_resolution_keeps_configuration_private_and_environment_request_loc
     std::fs::write(directory.path().join("models.json"), r#"{"providers":{"test":{"apiKey":"configured-private-key","headers":{"X-Overlay":"${RPI_AUTH_TEST_OVERLAY}"}}}}"#).unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     tokio::runtime::Runtime::new().unwrap().block_on(async {
-        let (runtime, owner, _) = fixture_with(|registry| {
+        let (runtime, owner, _) = fixture_from_disk(|registry| {
             registry.register_provider_auth(rpi_extensions::provider_auth::RegisteredAuthProvider {
                 action_bridge: None,
                 plugin: "test-plugin".into(),
@@ -792,7 +808,7 @@ async fn construction_seeds_disk_config_and_credential_availability() {
     )
     .unwrap();
 
-    let (runtime, owner, host) = fixture_with(|_| {});
+    let (runtime, owner, host) = fixture_from_disk(|_| {});
     let revision = {
         let state = runtime.state.lock().await;
         assert!(

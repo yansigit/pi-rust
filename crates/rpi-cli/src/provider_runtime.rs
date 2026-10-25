@@ -80,11 +80,27 @@ pub(crate) struct ProviderRuntime {
     publications: std::sync::Mutex<BTreeMap<String, Weak<Publication>>>,
 }
 impl ProviderRuntime {
+    /// Pi `ModelRuntime.create`: start from the on-disk `models.json`
+    /// (`model-runtime.js:79-108`). Seed it here, not on the first
+    /// publication: a replaced session would otherwise recompose against an
+    /// empty config and silently drop every `models.json` override (X-1).
     pub(crate) fn new(
         session: &ExtensionSession,
         bridge: &rpi_extensions::ActionBridge,
         providers: Vec<Arc<dyn Provider>>,
         discovery: Vec<Model>,
+    ) -> Result<Arc<Self>, String> {
+        let config = crate::config::load_models_config().map_err(|error| error.to_string())?;
+        Self::with_config(session, bridge, providers, discovery, config)
+    }
+    /// Construct over an already-loaded models config; [`Self::new`] is the
+    /// disk-seeded path every production caller uses.
+    pub(crate) fn with_config(
+        session: &ExtensionSession,
+        bridge: &rpi_extensions::ActionBridge,
+        providers: Vec<Arc<dyn Provider>>,
+        discovery: Vec<Model>,
+        config: crate::config::ModelsConfig,
     ) -> Result<Arc<Self>, String> {
         let catalog = ModelRegistry::new();
         for provider in providers {
@@ -128,11 +144,6 @@ impl ProviderRuntime {
             }
         }
         let chains = Self::chains(session, &catalog);
-        // Pi `ModelRuntime.create` starts from the on-disk config
-        // (`model-runtime.js:79-108`). Seed it here, not on the first
-        // publication: a replaced session would otherwise recompose against an
-        // empty config and silently drop every `models.json` override (X-1).
-        let config = crate::config::load_models_config().map_err(|error| error.to_string())?;
         let auth = crate::provider::native_auth_bindings(session)?;
         let delegation_scope = DelegationScopeId::fresh();
         let epoch = DelegationEpoch::new(delegation_scope, chains.values().cloned());
