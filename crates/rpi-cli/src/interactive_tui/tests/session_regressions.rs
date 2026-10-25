@@ -110,16 +110,15 @@ async fn empty_reload_context(
     reload_context_with_catalog(cwd, root, &empty_catalog()).await
 }
 
-/// Serializes the tests that publish the process-global plugin session id.
+/// Marks the child process that reads the process-global plugin env channel.
 ///
-/// `publish_session_identity` / `set_active_session` write `RPI_SESSION_ID`
-/// in the process environment, and every `/new` or session switch publishes it.
-/// Two such tests running side by side can therefore observe each other's id,
-/// so they take this lock for the whole swap-and-assert window.
-fn plugin_session_env_lock() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
-}
+/// `publish_session_identity` / `set_active_session` write `RPI_SESSION_ID` into
+/// the process environment, and every `/new` or session switch publishes it. Any
+/// test in this binary can publish while another one runs, so an in-process read
+/// of that variable races its siblings no matter which tests take a lock. Only
+/// the child process started by
+/// [`new_session_publishes_the_env_channel_in_its_own_process`] reads it.
+const ENV_CHANNEL_CHILD: &str = "RPI_TEST_SESSION_ENV_CHANNEL_CHILD";
 
 #[tokio::test]
 async fn tui_fork_locks_the_copy_and_keeps_the_selected_root_for_switch_and_picker() {
@@ -412,7 +411,6 @@ async fn imported_archive_is_archive_only_for_import_and_resume() {
 /// the remaining failures are harness setters on a harness that went away.
 #[tokio::test]
 async fn rebuild_failure_after_the_swap_is_reported_as_degraded() {
-    let _env = plugin_session_env_lock();
     let temporary = tempfile::tempdir().unwrap();
     let cwd = temporary.path().join("project");
     std::fs::create_dir_all(&cwd).unwrap();
@@ -574,7 +572,6 @@ async fn session_switch_banner_reports_real_capabilities() {
 /// must reset the per-session footer counters while keeping the environment.
 #[tokio::test]
 async fn new_session_creates_a_file_and_resets_footer() {
-    let _env = plugin_session_env_lock();
     let temporary = tempfile::tempdir().unwrap();
     let cwd = temporary.path();
     let root = cwd.join("sessions");
@@ -620,15 +617,17 @@ async fn new_session_creates_a_file_and_resets_footer() {
     let new_id = harness.session().storage().metadata().id.clone();
     assert_ne!(new_id, previous_id, "`/new` must swap the session id");
     assert_eq!(
-        std::env::var(rpi_plugin_sdk::SESSION_ID_ENV).unwrap_or_default(),
-        new_id,
-        "the plugin env channel must follow the swap"
-    );
-    assert_eq!(
         context.session_id().as_deref(),
         Some(new_id.as_str()),
         "the plugin tool context must follow the swap"
     );
+    if std::env::var_os(ENV_CHANNEL_CHILD).is_some() {
+        assert_eq!(
+            std::env::var(rpi_plugin_sdk::SESSION_ID_ENV).unwrap_or_default(),
+            new_id,
+            "the plugin env channel must follow the swap"
+        );
+    }
 
     // (b) the new session file really exists under the session root. The JSONL
     // repo nests files under a cwd-derived directory, so walk the tree instead
@@ -675,6 +674,33 @@ async fn new_session_creates_a_file_and_resets_footer() {
     );
 }
 
+/// The env-channel half of the `/new` regression, checked in a child process.
+///
+/// The child runs only `new_session_creates_a_file_and_resets_footer` with
+/// [`ENV_CHANNEL_CHILD`] set, so no sibling test can publish into the variable
+/// between the swap and the read. The inherited value is removed first so a
+/// swap that stops writing the variable cannot pass on a stale value.
+#[test]
+fn new_session_publishes_the_env_channel_in_its_own_process() {
+    let output = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args([
+            "--exact",
+            "interactive_tui::tests::session_regressions::new_session_creates_a_file_and_resets_footer",
+            "--test-threads=1",
+        ])
+        .env(ENV_CHANNEL_CHILD, "1")
+        .env_remove(rpi_plugin_sdk::SESSION_ID_ENV)
+        .output()
+        .expect("spawn the test binary");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // `--exact` matches nothing when the path is wrong, and that exits 0.
+    assert!(
+        output.status.success() && stdout.contains("test result: ok. 1 passed"),
+        "the env-channel check did not pass in its child process:\n{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 /// Every `.jsonl` file under `root`, at any depth.
 fn jsonl_files_under(root: &std::path::Path) -> Vec<String> {
     let mut found = Vec::new();
@@ -718,7 +744,6 @@ fn ephemeral_harness_session() -> rpi_harness::session::Session {
 
 #[tokio::test]
 async fn review_pr98_new_keeps_an_ephemeral_session_off_disk() {
-    let _env = plugin_session_env_lock();
     let temporary = tempfile::tempdir().unwrap();
     let cwd = temporary.path();
     let root = cwd.join("sessions");
@@ -757,7 +782,6 @@ async fn review_pr98_new_keeps_an_ephemeral_session_off_disk() {
 
 #[tokio::test]
 async fn review_pr98_new_must_not_switch_under_an_unscoped_user_bash_run() {
-    let _env = plugin_session_env_lock();
     let temporary = tempfile::tempdir().unwrap();
     let cwd = temporary.path();
     let root = cwd.join("sessions");
