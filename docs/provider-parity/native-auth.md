@@ -21,32 +21,67 @@ into its snapshot and invalidated with that snapshot.
 ## Presentation metadata
 
 A method may carry two optional presentation fields. They are additive: a payload
-without them parses unchanged, and discovery omits them when absent, so earlier
-traces and evidence keep byte-identical method JSON.
+without them parses unchanged, and discovery omits them when absent, so a
+manifest that never set them keeps byte-identical method JSON. (The host's own
+API-key fallback is not covered by that claim: it is host-produced and now always
+reports `interactiveLogin: true`.)
 
 - `loginLabel` (string, default absent): Pi's `oauth.loginLabel`, the label a
-  multi-provider row renders as `loginLabel ?? name`. An empty or blank label is
-  rejected, matching the non-blank method-name rule.
+  multi-provider row renders as `loginLabel ?? name`. A blank label is normalized
+  to absent rather than rejected, so a cosmetic field can never disable the
+  provider's auth surface.
 - `interactiveLogin` (boolean, default absent): Pi's presence test for
   `apiKey.login`. `false` means the method only discovers an already-available
-  credential, so a host must offer a paste prompt (`api_key_paste` in the TS
-  extension); `true` means the registered flow is interactive. Absent carries no
-  claim, which is what legacy manifests and the old OAuth adapter produce.
+  credential, so a host offers a paste prompt instead of the registered flow
+  (`api_key_paste` in the TS extension); `true` means the registered flow is
+  interactive. Absent carries no claim, which is what legacy manifests and the
+  old OAuth adapter produce.
 
-Sources: `provider-references/multiprovider/extensions/multiprovider.ts:1192-1208`
-(`oauth.loginLabel ?? oauth.name`, `apiKey.login !== undefined`) and
-`@earendil-works/pi-ai/dist/auth/types.d.ts:170,216` (`ApiKeyAuth.login?`,
-`OAuthAuth.loginLabel?`). Built-in Pi providers that ship a `loginLabel`
-("Sign in with ChatGPT", "Sign in with SuperGrok or X Premium", "Sign in with
-OpenRouter", "Sign in with Kimi Code", "Sign in with Meta") are provider-owned
-plugins here, so this host conveys the fields instead of hard-coding provider
-rows. The host's own API-key fallback (`compatibility.rs`) reports
-`interactiveLogin: true` because its key prompt is interactive; the legacy OAuth
-adapter reports neither field.
+The flag is meaningful only for an `api_key` method, mirroring Pi, where `login`
+exists only on `ApiKeyAuth`: an `oauth` method that sets it is normalized to
+absent (ignored) rather than rejected, so one method list can still be shared with
+hosts that interpret the field more loosely.
 
-The provider runtime's `authMethods` result is the same method array, so a
-dynamic result may carry both fields. `rpi auth methods` and the TUI method
-selector render `loginLabel ?? name`.
+Sources: `provider-references/multiprovider/extensions/multiprovider.ts:1196-1201`
+(`apiKey.login !== undefined` selects `api_key_paste` and appends ` (paste)` to
+the row label) and `:1193` (`oauth.loginLabel ?? oauth.name`);
+`@earendil-works/pi-ai/dist/auth/types.d.ts:174` (`login?(interaction)` on
+`ApiKeyAuth`), `:216-222` (`OAuthAuth` with `isSubscription?` and `loginLabel?`);
+`dist/auth/helpers.d.ts:19` (`lazyOAuth({name, isSubscription?, loginLabel?, load})`),
+which is where built-in Pi providers supply the label. Those providers are
+provider-owned plugins here, so this host conveys the fields instead of
+hard-coding provider rows. The host's own API-key fallback (`compatibility.rs`)
+reports `interactiveLogin: true` because its key prompt is interactive; the
+legacy OAuth adapter reports neither field.
+
+### Row presentation and routing
+
+Both host surfaces render rows through one helper, `AuthMethod::display_label`,
+and route through one helper, `AuthMethod::login_value`:
+
+- label: `loginLabel ?? name`, plus a ` (paste)` suffix for a non-interactive
+  `api_key` method (Pi's `${baseLabel} (paste)`);
+- route: `oauth`, `api_key`, or `api_key_paste`.
+
+`api_key_paste` drives a paste prompt instead of the provider callback: the host
+asks `Enter <method name>:` as a secret input (Pi's `promptApiKeyCredential`
+asking `Enter ${apiKey.name}:`), trims the answer, requires it non-empty, and
+commits it as the provider's `api_key` credential without invoking the
+registration. `rpi auth login` and the TUI login flow share that code path, so
+`interactiveLogin: false` is now observable in both surfaces; previously a host
+entered the provider flow for a method that only discovers an ambient credential.
+
+### Cross-version safety
+
+An older host parses methods with `deny_unknown_fields`, so a manifest carrying
+the new fields is rejected and the whole provider registration is lost: the field
+addition alone is only forward compatible. Hosts therefore advertise the
+capability `auth.methodPresentation` (SDK: `AUTH_METHOD_PRESENTATION_CAPABILITY`).
+A package that must serve both generations passes its manifest -- or its
+`authMethods` result, which is the same method list -- through
+`gate_auth_method_presentation(document, host_capabilities)`, which strips
+`loginLabel`/`interactiveLogin` unless the capability is advertised. Dynamic
+results are normalized exactly like a static manifest.
 
 The callback receives `{version:1,providerId,action,input}` and a separate sized
 `AuthRequestControl`. Actions are `login`, `continue`, `refresh`, `resolveApiKey`,
