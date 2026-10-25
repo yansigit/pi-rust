@@ -832,8 +832,8 @@ async fn a_real_cdylib_can_replace_the_system_prompt() {
         "the base prompt the plugin appended to must survive; got {applied:?}"
     );
 
-    let mut context = ctx.clone();
-    context.system_prompt = Some(applied.clone());
+    let mut context: std::borrow::Cow<'_, rpi_ai::Context> = std::borrow::Cow::Owned(ctx.clone());
+    context.to_mut().system_prompt = Some(applied.clone());
     hooks.prepare_request(&model, &mut context, &mut opts).await;
     hooks.prepare_request(&model, &mut context, &mut opts).await;
     assert_eq!(context.system_prompt.as_deref(), Some(applied.as_str()));

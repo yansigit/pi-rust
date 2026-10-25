@@ -153,7 +153,7 @@ impl ProviderHooks for ExtensionProviderHooks {
     async fn prepare_request(
         &self,
         model: &Model,
-        ctx: &mut Context,
+        ctx: &mut std::borrow::Cow<'_, Context>,
         opts: &mut SimpleStreamOptions,
     ) {
         let event = serde_json::json!({"messages":ctx.messages});
@@ -167,11 +167,17 @@ impl ProviderHooks for ExtensionProviderHooks {
         )
         .await
         {
-            if let Ok(messages) = serde_json::from_value(result.event["messages"].clone()) {
-                ctx.messages = messages;
+            if let Ok(messages) =
+                serde_json::from_value::<Vec<Message>>(result.event["messages"].clone())
+            {
+                // Only a plugin that really rewrote the context materialises a
+                // copy; a round-tripped unchanged context keeps it borrowed.
+                if messages != ctx.messages {
+                    ctx.to_mut().messages = messages;
+                }
             }
         }
-        self.observe_request(model, ctx, opts);
+        self.observe_request(model, &ctx, opts);
     }
     fn transform_context(&self, _model: &Model, ctx: &Context) -> Option<ContextPatch> {
         if self.snapshot.before_agent_start().is_empty() {

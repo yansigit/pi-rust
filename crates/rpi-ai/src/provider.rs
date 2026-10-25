@@ -470,16 +470,23 @@ pub trait ProviderHooks: Send + Sync {
 
     /// Awaited before the provider opens a stream. Existing synchronous hooks
     /// retain their order; native result handlers override this boundary.
+    ///
+    /// The context arrives as a [`std::borrow::Cow`] so an observer-only hook
+    /// keeps the caller's history borrowed — the provider's zero-copy fast path
+    /// — and a copy is materialised only when a patch actually changes
+    /// something. A hook that mutates calls [`std::borrow::Cow::to_mut`].
     async fn prepare_request(
         &self,
         model: &Model,
-        context: &mut Context,
+        context: &mut std::borrow::Cow<'_, Context>,
         options: &mut SimpleStreamOptions,
     ) {
-        if let Some(patch) = self.transform_context(model, context) {
-            patch.apply(context);
+        if let Some(patch) = self.transform_context(model, &*context) {
+            if patch != ContextPatch::default() {
+                patch.apply(context.to_mut());
+            }
         }
-        if let Some(patch) = self.before_request(model, context, options) {
+        if let Some(patch) = self.before_request(model, &*context, options) {
             patch.apply(options);
         }
     }

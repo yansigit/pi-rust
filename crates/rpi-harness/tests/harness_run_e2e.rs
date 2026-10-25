@@ -4551,7 +4551,7 @@ async fn awaited_turn_hooks_refresh_request_tools_model_and_thinking() {
         async fn prepare_request(
             &self,
             model: &rpi_ai::Model,
-            context: &mut rpi_ai::Context,
+            context: &mut std::borrow::Cow<'_, rpi_ai::Context>,
             options: &mut rpi_ai::SimpleStreamOptions,
         ) {
             self.0
