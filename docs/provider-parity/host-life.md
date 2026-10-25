@@ -2,8 +2,9 @@
 
 Status: Pi 1.3.0's automatic-compaction decisions and session replacement
 lifecycle are now wired into the host. H05 refresh phases, Pi's full runtime
-rebuild on replacement, and `context_edit`-based overflow retry remain open and
-are listed at the end.
+rebuild on replacement, and loaded cross-lane lifecycle qualification remain
+open. Lane A adds durable `context_edit`-based in-process overflow recovery;
+see [l2a-lifecycle.md](l2a-lifecycle.md) for tests, mutations and residual gaps.
 
 This closes the gaps recorded in [host-compaction-results.json](host-compaction-results.json)
 ("complete compaction preparation" and "automatic-trigger parity") and in the
@@ -43,8 +44,10 @@ Call sites in `AgentHarness::run_core`:
 
 1. **Before a run** — the last assistant message is checked with
    `skip_aborted_check: false`, matching Pi's `_prepareRun`. A previous turn's
-   aborted or overflowing state is compacted before the new prompt is
-   persisted.
+   aborted or overflowing state is compacted before the new prompt becomes a
+   transcript entry. Accepted prompts are already durable in the operation
+   intent (and queued input keeps its enqueue record). They do not participate
+   in pre-prompt summary input. Abort leaves that admission record intact.
 2. **After tool results** (host-specific safety valve, Pi checks after the run)
    — the host estimate still gates, because the in-flight turn is not persisted
    yet; the cut itself is the projected Pi algorithm over a self-consistent
@@ -63,11 +66,16 @@ Call sites in `AgentHarness::run_core`:
 Reasons reach the lifecycle events unchanged (`manual`, `threshold`,
 `overflow`), including `willRetry`.
 
-Not implemented: Pi's case-1 overflow recovery that omits the failed attempt
-(`appendContextEdit(targetId, null)`) and retries the turn once. The host
-session model has no `context_edit` entry, so the omission cannot be
-represented; `Exhausted` is classified but the retry path is not driven.
-Related: the host persists `retainedTail` on the compaction entry instead of
+Failed overflow/short-length generations now use a separate one-use recovery
+budget after ordinary transport retry handling. The host settles the generation,
+resolves source-entry IDs, appends durable null context edits, prepares from the
+edited branch, and continues after acknowledged compaction. Exhaustion returns
+the exact Pi error and emits host end before the awaited failure hook. Component
+Faux tests cover success, overflow/length exhaustion, and retry precedence;
+loaded native events, tool/queue/crash boundaries remain unqualified. The host
+progress bus does not carry the full Pi public event payload.
+
+The host persists `retainedTail` on the compaction entry instead of
 `firstKeptEntryId`, so the entry representation still differs from Pi's file
 format even though the in-memory decisions match.
 
@@ -127,8 +135,9 @@ authority, and the owner/generation checks are unchanged. Regression:
   in [native-runtime.md](native-runtime.md); this lane did not restructure the
   phases, recompose configured models on refresh, or expose an availability
   snapshot.
-- Overflow compact-and-retry (needs `context_edit` entries) and Pi's compaction
-  entry representation (`firstKeptEntryId` vs `retainedTail`).
+- Loaded overflow/tool/queue recovery qualification, public event payloads,
+  crash/restart budget boundaries, and Pi's compaction entry representation
+  (`firstKeptEntryId` vs `retainedTail`); no storage migration is attempted.
 - Pi's full runtime rebuild across session replacement and captured-`ctx`
   invalidation; RPC session commands.
 - `/new` in the TUI is still an alias of `/clear`; it does not create a new
