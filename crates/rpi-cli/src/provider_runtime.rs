@@ -79,6 +79,12 @@ pub(crate) struct ProviderRuntime {
     auth: BTreeMap<String, Arc<crate::provider::auth::AuthBinding>>,
     publications: std::sync::Mutex<BTreeMap<String, Weak<Publication>>>,
     config_source: Arc<ConfigSource>,
+    /// Pi freezes credential storage on the runtime (`RuntimeCredentials` is
+    /// built from `options.authPath` once in `model-runtime.js:80`), so the
+    /// resolved auth file is pinned here at construction instead of being
+    /// re-derived per request. `None` means the config directory itself is
+    /// unavailable, which every credential action reports as unavailable.
+    credential_path: Option<std::path::PathBuf>,
 }
 /// Where a catalog refresh reads `models.json` from. Pi `ModelRuntime.refresh`
 /// reloads `this.modelsPath` every time, and `modelsPath: null` gives a runtime
@@ -86,9 +92,17 @@ pub(crate) struct ProviderRuntime {
 enum ConfigSource {
     /// The process config directory: every production runtime.
     Disk,
-    /// A frozen config for hermetic runtimes. Tests that do not hold the
-    /// shared env lock must never read the process config directory, which a
+    /// A frozen config for hermetic runtimes: construction and every later
+    /// catalog refresh use it instead of the process config directory, which a
     /// concurrently running locked test may point at its own `models.json`.
+    ///
+    /// A *non-empty* fixed config is an rpi-only test extension with no Pi
+    /// equivalent; Pi's `modelsPath: null` is an empty config, which rpi spells
+    /// `Fixed(Default::default())`.
+    ///
+    /// Only tests construct this today, but it stays compiled in every target
+    /// so the disk-backed and fixed paths share one `load`.
+    #[cfg_attr(not(test), allow(dead_code))]
     Fixed(crate::config::ModelsConfig),
 }
 impl ConfigSource {
@@ -124,6 +138,7 @@ impl ProviderRuntime {
     /// later catalog refresh use `config` and never read the process config
     /// directory. [`Self::new`] is the disk-backed path every production caller
     /// uses.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn with_config(
         session: &ExtensionSession,
         bridge: &rpi_extensions::ActionBridge,
@@ -184,9 +199,10 @@ impl ProviderRuntime {
             }
         }
         let chains = Self::chains(session, &catalog);
-        let auth = crate::provider::native_auth_bindings(session)?;
+        let auth = crate::provider::native_auth_bindings(session, &config)?;
         let delegation_scope = DelegationScopeId::fresh();
         let epoch = DelegationEpoch::new(delegation_scope, chains.values().cloned());
+        let credential_path = crate::config::auth_path().ok();
         let runtime = Arc::new_cyclic(|myself| Self {
             delegation_scope,
             session: session.clone(),
@@ -208,6 +224,7 @@ impl ProviderRuntime {
             auth,
             publications: Default::default(),
             config_source: Arc::new(config_source),
+            credential_path,
         });
         Ok(runtime)
     }
@@ -389,6 +406,7 @@ impl ProviderRuntime {
             auth: self.auth.clone(),
             publications: Default::default(),
             config_source: self.config_source.clone(),
+            credential_path: self.credential_path.clone(),
         });
         children.insert(scope.runtime_id().into(), child.clone());
         Ok(child)
