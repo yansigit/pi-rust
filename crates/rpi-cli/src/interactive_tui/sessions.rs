@@ -436,6 +436,9 @@ pub(super) async fn render_session_history(
                 );
                 rendered_any = true;
             }
+            // Pi treats `context_edit` as bookkeeping: it rewrites model context
+            // but is never a transcript row (tree-selector.js hides it by default).
+            Entry::ContextEdit(_) => {}
         }
     }
     if rendered_any {
