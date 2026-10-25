@@ -110,6 +110,17 @@ async fn empty_reload_context(
     reload_context_with_catalog(cwd, root, &empty_catalog()).await
 }
 
+/// Serializes the tests that publish the process-global plugin session id.
+///
+/// `publish_session_identity` / `set_active_session` write `RPI_SESSION_ID`
+/// in the process environment, and every `/new` or session switch publishes it.
+/// Two such tests running side by side can therefore observe each other's id,
+/// so they take this lock for the whole swap-and-assert window.
+fn plugin_session_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
 #[tokio::test]
 async fn tui_fork_locks_the_copy_and_keeps_the_selected_root_for_switch_and_picker() {
     let temporary = tempfile::tempdir().unwrap();
@@ -401,6 +412,7 @@ async fn imported_archive_is_archive_only_for_import_and_resume() {
 /// the remaining failures are harness setters on a harness that went away.
 #[tokio::test]
 async fn rebuild_failure_after_the_swap_is_reported_as_degraded() {
+    let _env = plugin_session_env_lock();
     let temporary = tempfile::tempdir().unwrap();
     let cwd = temporary.path().join("project");
     std::fs::create_dir_all(&cwd).unwrap();
@@ -562,6 +574,7 @@ async fn session_switch_banner_reports_real_capabilities() {
 /// must reset the per-session footer counters while keeping the environment.
 #[tokio::test]
 async fn new_session_creates_a_file_and_resets_footer() {
+    let _env = plugin_session_env_lock();
     let temporary = tempfile::tempdir().unwrap();
     let cwd = temporary.path();
     let root = cwd.join("sessions");
@@ -705,6 +718,7 @@ fn ephemeral_harness_session() -> rpi_harness::session::Session {
 
 #[tokio::test]
 async fn review_pr98_new_keeps_an_ephemeral_session_off_disk() {
+    let _env = plugin_session_env_lock();
     let temporary = tempfile::tempdir().unwrap();
     let cwd = temporary.path();
     let root = cwd.join("sessions");
@@ -743,6 +757,7 @@ async fn review_pr98_new_keeps_an_ephemeral_session_off_disk() {
 
 #[tokio::test]
 async fn review_pr98_new_must_not_switch_under_an_unscoped_user_bash_run() {
+    let _env = plugin_session_env_lock();
     let temporary = tempfile::tempdir().unwrap();
     let cwd = temporary.path();
     let root = cwd.join("sessions");

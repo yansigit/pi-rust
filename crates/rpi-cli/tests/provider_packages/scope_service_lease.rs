@@ -8,7 +8,11 @@ use rpi_harness::{
 use serde_json::{json, Value};
 async fn wait_file(path: &Path) {
     tokio::time::timeout(Duration::from_secs(20), async {
-        while !path.exists() {
+        // Wait for the handshake *payload*, not just the directory entry: the
+        // plugin creates the file before it writes it, so an existence-only
+        // wait can hand the reader an empty file ("EOF while parsing a
+        // value") whenever the machine is busy.
+        while !std::fs::metadata(path).is_ok_and(|metadata| metadata.len() > 0) {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
