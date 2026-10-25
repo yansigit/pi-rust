@@ -35,6 +35,41 @@ async fn harness_with_root(
     (harness, reload_context)
 }
 
+/// Like [`harness_with_root`], but with the host's real tool and skill
+/// discovery left on.
+///
+/// Session replacement rebuilds the host capabilities from the reload
+/// context, so a banner regression test needs a build whose capability
+/// snapshot is non-empty on its own instead of one injected after the fact.
+async fn harness_with_live_tools(
+    cwd: &std::path::Path,
+    root: &std::path::Path,
+) -> (AgentHarness, crate::session::ReloadContext) {
+    let resolved = crate::provider::resolve(
+        Some("anthropic"),
+        Some(crate::provider::DEFAULT_MODEL_ID),
+        None,
+        Some("test-key"),
+        None,
+    )
+    .unwrap();
+    let args = crate::args::Args {
+        session_dir: Some(root.to_path_buf()),
+        no_session: true,
+        no_extensions: true,
+        no_tools: false,
+        no_skills: false,
+        no_prompt_templates: true,
+        no_context_files: true,
+        system_prompt: Some("test".into()),
+        ..Default::default()
+    };
+    let (harness, _events, reload_context) = crate::session::build(&resolved, &args, cwd, false)
+        .await
+        .unwrap();
+    (harness, reload_context)
+}
+
 fn assert_session_locked(path: &str) {
     let lock = std::fs::OpenOptions::new()
         .create(true)
@@ -449,19 +484,11 @@ async fn session_switch_banner_reports_real_capabilities() {
     let second_id = second.storage().metadata().id.clone();
     assert_ne!(first_id, second_id);
 
-    let harness = AgentHarness::create(Default::default()).await.unwrap();
+    // A project skill on disk is not discovered for an untrusted cwd, so the
+    // banner's skill snapshot is supplied directly; the replacement rebuild
+    // only reinstalls tools, never resources.
+    let (harness, reload_context) = harness_with_live_tools(cwd, &root).await;
     harness.set_session(second).await.unwrap();
-    // One real tool so `Tools (N)` has something to count; the empty-sentinel
-    // fallback would otherwise mask a broken banner.
-    harness
-        .set_tools(
-            vec![rpi_harness::types::HarnessTool::new(Arc::new(
-                BannerProbeTool::new("probe-tool"),
-            ))],
-            None,
-        )
-        .await
-        .unwrap();
     harness
         .set_resources(rpi_harness::types::AgentHarnessResources {
             skills: Some(vec![rpi_harness::types::Skill {
@@ -475,6 +502,14 @@ async fn session_switch_banner_reports_real_capabilities() {
         })
         .await
         .unwrap();
+    // The host build supplies real tools, so `Tools (N)` has something to
+    // count; the empty-sentinel fallback would otherwise mask a broken banner.
+    let host_tools = harness.get_tools().await.unwrap();
+    assert!(
+        host_tools.len() > 1,
+        "the host build must contribute real tools: {}",
+        host_tools.len()
+    );
     let lane: Arc<dyn AgentLane> = harness.lane("main");
     let state = state_with_root(&root);
     let context = rpi_extensions::ToolCallContext::new(cwd.to_string_lossy());
@@ -488,10 +523,11 @@ async fn session_switch_banner_reports_real_capabilities() {
             &state.chat_container,
             &state,
             &context,
-            &empty_reload_context(cwd, &root).await
+            &reload_context
         )
         .await
     );
+    let installed_tools = harness.get_tools().await.unwrap().len();
 
     let banner = strip_ansi(&state.chat_container.render(160).join("\n"));
     assert!(
@@ -513,8 +549,12 @@ async fn session_switch_banner_reports_real_capabilities() {
         "the banner must not report zero tools: {banner}"
     );
     assert!(
-        banner.contains("Tools (1)") && banner.contains("probe-tool"),
+        banner.contains(&format!("Tools ({installed_tools})")),
         "the banner must count the session's tools: {banner}"
+    );
+    assert!(
+        banner.contains(&host_tools[0].tool.schema().name),
+        "the banner must name the session's tools: {banner}"
     );
 }
 
@@ -1401,47 +1441,4 @@ async fn rereview_pr104_compaction_must_invalidate_pre_compaction_context() {
         footer.split_whitespace().any(|part| part == "0.0%/200k"),
         "after compaction there is no new context report; old 50% must not reappear: {footer}"
     );
-}
-
-/// A tool that exists only to give the banner something to count.
-struct BannerProbeTool {
-    schema: rpi_ai::types::Tool,
-}
-
-impl BannerProbeTool {
-    fn new(name: &str) -> Self {
-        Self {
-            schema: rpi_ai::types::Tool {
-                name: name.to_string(),
-                description: "probe tool".into(),
-                parameters: rpi_ai::types::Schema::new(serde_json::json!({
-                    "type": "object",
-                    "properties": {},
-                })),
-                constrained_sampling: None,
-            },
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl rpi_agent::AgentTool for BannerProbeTool {
-    fn schema(&self) -> &rpi_ai::types::Tool {
-        &self.schema
-    }
-    fn label(&self) -> &str {
-        &self.schema.name
-    }
-    fn execution_mode(&self) -> rpi_agent::types::ToolExecutionMode {
-        rpi_agent::types::ToolExecutionMode::Parallel
-    }
-    async fn execute(
-        &self,
-        _tool_call_id: &str,
-        _params: serde_json::Value,
-        _signal: tokio_util::sync::CancellationToken,
-        _on_update: Arc<dyn Fn(rpi_agent::types::ToolResultPartial) + Send + Sync>,
-    ) -> Result<rpi_agent::types::AgentToolResult, rpi_agent::AgentError> {
-        Ok(rpi_agent::types::AgentToolResult::text("probe"))
-    }
 }
