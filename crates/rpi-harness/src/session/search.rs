@@ -162,6 +162,23 @@ impl SessionSearch {
                     query_lower,
                 )
             }
+            // A durable edit carries model-visible replacement text, so it is
+            // searchable like the message it rewrote (`context_edit` entries
+            // are settings entries in `/tree`, but their content is transcript
+            // content).
+            Entry::ContextEdit(edit_entry) => {
+                let text = match &edit_entry.replacement {
+                    serde_json::Value::Null => String::new(),
+                    replacement => serde_json::to_string(replacement).unwrap_or_default(),
+                };
+                self.find_match(
+                    session_id,
+                    &edit_entry.base.id,
+                    "context_edit",
+                    &text,
+                    query_lower,
+                )
+            }
             _ => None,
         }
     }
@@ -429,6 +446,56 @@ mod tests {
             .await;
 
         assert_eq!(results.len(), 2);
+    }
+
+    fn create_context_edit_entry(id: &str, replacement: serde_json::Value) -> Entry {
+        Entry::ContextEdit(crate::session::types::ContextEditEntry {
+            base: EntryBase {
+                entry_type: "context_edit".to_string(),
+                id: id.to_string(),
+                seq: 0,
+                timestamp: 0,
+                parent_id: None,
+            },
+            target_id: "e1".to_string(),
+            replacement,
+        })
+    }
+
+    /// A durable edit carries model-visible content, so its replacement is
+    /// searchable; it is a settings entry in `/tree`, not in search.
+    #[tokio::test]
+    async fn search_finds_context_edit_replacements() {
+        let search = SessionSearch::new();
+        let mut sessions = HashMap::new();
+
+        let metadata = make_metadata("session-1");
+        let entries = vec![
+            create_user_entry("e1", "Hello world"),
+            create_context_edit_entry(
+                "e2",
+                serde_json::json!({"content": "Database migration redacted"}),
+            ),
+            create_context_edit_entry("e3", serde_json::Value::Null),
+        ];
+
+        sessions.insert("session-1".to_string(), (metadata, entries));
+
+        let results = search
+            .search(
+                &sessions,
+                "database",
+                SessionSearchOptions {
+                    limit: None,
+                    include_tool_calls: false,
+                    include_custom_entries: false,
+                },
+            )
+            .await;
+
+        assert_eq!(results.len(), 1, "{results:#?}");
+        assert_eq!(results[0].entry_id, "e2");
+        assert_eq!(results[0].role, "context_edit");
     }
 
     #[tokio::test]

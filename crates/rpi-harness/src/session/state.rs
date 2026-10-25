@@ -59,6 +59,15 @@ impl Default for SessionState {
     }
 }
 
+/// Whether a context edit is a *new* append (Pi validates those inside
+/// `appendContextEdit`) or a replay of an already-stored entry (Pi never
+/// re-validates on load).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditValidation {
+    Append,
+    Replay,
+}
+
 impl SessionState {
     pub fn snapshot(&self, metadata: SessionMetadata) -> crate::session::types::SessionSnapshot {
         use crate::session::types::{BranchRevision, SessionSnapshot};
@@ -160,6 +169,11 @@ impl SessionState {
         };
         let seq = self.next_sequence();
         let mut entry = provisioned_into_entry(entry, seq, parent, timestamp);
+        // First of two validations, and deliberately not the last: this pass
+        // runs against the snapshot the caller saw (fail early, outside the
+        // write lock), while `apply_mutation` re-runs it under the lock because
+        // the branch may have moved in between. Both are needed — deleting
+        // either one lets an edit target an off-branch or missing entry.
         self.validate_context_edit(&mut entry)?;
         Ok(SessionMutation::Entry {
             seq,
@@ -171,6 +185,12 @@ impl SessionState {
 
     /// Validate against the actual parent chain while storage holds its write lock.
     /// Also used during replay/fork, before changing any state.
+    ///
+    /// The chain walk is bounded by the branch length (each step is one hash
+    /// lookup on `entries_by_id`), and recovery appends at most one edit per
+    /// omitted message, so the cost stays proportional to one branch walk per
+    /// edit. Callers must not hoist this out of the write lock: that is the
+    /// whole point of the second validation pass.
     pub(crate) fn validate_context_edit(&self, entry: &mut Entry) -> SessionResult<()> {
         let parent = entry.parent_id().map(str::to_owned);
         let Entry::ContextEdit(edit) = entry else {
@@ -330,6 +350,30 @@ impl SessionState {
     /// are already stamped by the storage layer (TS shape); the state *validates*
     /// lane-leaf chaining against `entry.parent_id`, it does not set it.
     pub fn apply_mutation(&mut self, mutation: SessionMutation) -> SessionResult<ApplyOutcome> {
+        self.apply_mutation_mode(mutation, EditValidation::Append)
+    }
+
+    /// Replay a mutation read back from storage.
+    ///
+    /// Pi validates a context edit only inside `appendContextEdit`
+    /// (`session-manager.ts:1358-1400`) and never on load: a replayed edit whose
+    /// target is missing, off-branch, or not editable is a projection no-op
+    /// (`projectContextEntry`, `session-manager.ts:518-535`). The host still
+    /// enforces the structural invariants it needs to replay a lane (unique ids,
+    /// chaining), but a file Pi can open must stay openable here, so the
+    /// semantic edit checks run only for live appends.
+    pub(crate) fn replay_mutation(
+        &mut self,
+        mutation: SessionMutation,
+    ) -> SessionResult<ApplyOutcome> {
+        self.apply_mutation_mode(mutation, EditValidation::Replay)
+    }
+
+    fn apply_mutation_mode(
+        &mut self,
+        mutation: SessionMutation,
+        edits: EditValidation,
+    ) -> SessionResult<ApplyOutcome> {
         let seq = mutation.seq();
         if seq != self.sequence + 1 {
             return Err(SessionError::invalid_entry(format!(
@@ -368,7 +412,9 @@ impl SessionState {
                     }
                 }
 
-                self.validate_context_edit(&mut entry)?;
+                if edits == EditValidation::Append {
+                    self.validate_context_edit(&mut entry)?;
+                }
                 let is_message = matches!(entry, Entry::Message(_));
                 self.sequence = seq;
                 self.used_ids.insert(entry.id().to_string());

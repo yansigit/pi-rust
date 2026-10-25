@@ -168,8 +168,13 @@ async fn second_overflow_exhausts_without_a_third_call_or_second_summary() {
         .await
         .unwrap();
     match result.outcome {
-        HarnessRunOutcome::Failed{error,..} => assert_eq!(error.message,"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model."),
-        outcome=>panic!("unexpected {outcome:?}"),
+        HarnessRunOutcome::Failed { error, .. } => {
+            assert_eq!(error.message,"Context overflow recovery failed after one compact-and-retry attempt. Try reducing context or switching to a larger-context model.");
+            // Exhaustion is not a compaction failure: the run skipped the
+            // second recovery (`agent-session.ts:3047-3062`) and reports it.
+            assert_eq!(error.code, "overflow_recovery_exhausted");
+        }
+        outcome => panic!("unexpected {outcome:?}"),
     }
     assert_eq!(
         provider

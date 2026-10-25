@@ -170,3 +170,104 @@ to `model_registry.rs` or `provider_runtime.rs` were made.
 
 H05/H06/H10 remain partial. Neither these component tests nor historical evidence
 files qualify loaded native/plugin, crash, replacement or live provider behavior.
+
+## Review-fix pass (lane `fix-l2a`, on top of `7bdd1e2`)
+
+Findings from `l2a-review.md` fixed in the integrated tree, each verified against
+the embedded TypeScript in
+`/home/user/Projects/provider-references/multiprovider/node_modules/@earendil-works/pi-coding-agent/dist/core/*.js.map`
+(`agent-session.ts`, `session-manager.ts`) and
+`dist/modes/interactive/components/tree-selector.js`.
+
+**H2 — the pre-prompt boundary ignored `will_retry` and never persisted the
+omission.** `_prepareRun` calls `_checkCompaction(lastAssistant, false)`
+(`agent-session.ts:1886-1897`); inside it an overflowed assistant with
+`stopReason !== "stop"` sets `_overflowRecoveryAttempted`, calls
+`_omitRecoveryAttempt(assistantMessage, toolResults)` and then
+`_runAutoCompaction("overflow", willRetry)` (`:3071-3075`), so the boundary path
+both writes the durable `context_edit(target, null)` and tells the hook
+`willRetry: true`. The host now destructures `AutoCompactionDecision::Run {
+reason, will_retry }`, appends the null edits for the assistant (plus the tool
+results that follow it — a documented host extension, Pi passes `toolResults =
+[]` from `_prepareRun`), re-reads the branch path and passes `will_retry` into
+`compact_with_extensions`, mirroring `_runAutoCompaction`
+(`:3126-3140`). Omissions go through the new `omit_recovery_attempt` helper and
+`Session::append_context_edit_to_lane`, i.e. `commit_entry` plus validation
+(L3).
+
+**M1 — the post-recovery `_checkCompaction` was suppressed.** Pi never lets a
+previous recovery skip the run-end check: `_handlePostAgentRun` always calls
+`_checkCompaction(message, true, toolResults)` (`:1974-1978`) and
+`_overflowRecoveryAttempted` only refuses a *second* overflow recovery
+(`:3055-3062`). The host's post-loop guard no longer tests
+`!overflow_recovery_attempted`, and the decision receives the real flag again.
+Note the host's mid-loop threshold valve (`AfterToolResults`) shares Pi's
+`should_compact` threshold, so a tool-calling retry can never reach the post-run
+check; the regression test drives a second assistant turn through a steering
+message instead.
+
+**M2 — cancellation after a successful recovery compaction finished as
+`Completed`.** The `Err` arm of the recovery block rethrows "Compaction
+cancelled" only while the abort is live; Pi catches it, marks the event
+`aborted` and reports the run as a cancelled retry (`:3245-3268`, `:1978`,
+`:1878`, `:3776-3786`). The in-loop recovery now checks
+`signal.is_cancelled()` before recording a terminal compaction error and ends the
+run as `Aborted`, leaving the failed generation unsettled and the retry
+unsent.
+
+**M3 — replay rejected JSONL a live Pi process can load.** Pi validates
+`appendContextEdit` only at append time (`session-manager.ts:1360-1400`) and
+projection ignores a dangling target (`:518-535`, `:553`). Replay now goes
+through `SessionState::replay_mutation` (`EditValidation::Replay`), so an
+existing edit with a missing/off-branch target opens instead of failing with
+`InvalidEntry`; new appends keep both validations (`prepare_commit` and the
+re-validation under the lock). `replace_message_content` also wraps a string
+replacement into a text block for assistant/tool results, matching
+`projectContextEntry`.
+
+**M4 — `get_messages` returned raw entries.** Pi's `getMessages` returns
+`session.messages`, the projected context (`rpc-mode.js:534-535`), so RPC
+clients must see replacement text and no row for an omission. `rpc_get_messages`
+now projects the branch once with `project_context_messages` and keys rows by
+source entry id.
+
+**M5 — `/tree` listed context edits as transcript entries.** `context_edit` is a
+settings entry in Pi (`tree-selector.ts:259-266`) hidden by the default filter
+(`:285`), described as `[context omit|replace: <targetId>]` (`:695`) and
+searchable as `context edit omit|replace <targetId>` (`:487`). The host has no
+filter-mode cycle, so edits are simply hidden from the list while keeping the
+Pi label/description/search text for the row builder.
+
+**Low items.** L1: hook payloads now carry Pi's key set (`automatic` and the
+duplicate `error` field removed; `errorMessage` is the only failure text and is
+absent when aborted — `agent-session.ts:3262-3270`, `:1054-1058`). L2:
+exhaustion is surfaced as `code: "overflow_recovery_exhausted"` instead of
+`compaction_failed`. L3: `Session::append_context_edit` /
+`append_context_edit_to_lane` façade. L5: `search_entry` covers `ContextEdit`
+replacements (`context_edit` role; null omissions are empty). L6: comments
+record why validation runs twice and that the chain walk is under the write lock.
+**L4 is deferred:** emitting a Pi `entry_appended` event needs the lane B host
+event/native JSON adapter that the handoff already assigns; the harness event bus
+is outside this lane's ownership.
+
+**Tests added** (`crates/rpi-harness/tests/lifecycle_recovery_boundary.rs`,
+`lifecycle_replay_tolerance.rs`, plus CLI/search unit tests):
+
+| Test | Covers |
+| --- | --- |
+| `pre_prompt_boundary_omits_the_overflowed_assistant_before_the_prompt` | H2 omission ordering + `willRetry` on the hook payload + Pi's exact `session_before_compact` key set (L1) |
+| `pre_prompt_boundary_omits_the_tool_results_that_follow_the_assistant` | H2 tool-result targets |
+| `recovery_persists_the_failed_attempt_exactly_once` | failed attempt written once, three message entries |
+| `cancellation_during_recovery_compaction_is_a_cancelled_retry` | M2 `Aborted`, no `Compaction` entry, `session_compact_failed` aborted with no `errorMessage` |
+| `post_run_compaction_still_runs_after_a_successful_recovery` | M1 second compaction with `willRetry: false` |
+| `replay_tolerates_a_context_edit_whose_target_is_gone` | M3 live append still refuses, replay opens, projection no-op |
+| `modes::tests::rpc_get_messages_returns_the_projected_context` | M4 replacement visible, omission dropped |
+| `interactive_tui::selectors::…_describes_the_way_pi_describes_them` | M5 hidden + Pi label/search text |
+| `session::search::search_finds_context_edit_replacements` | L5 |
+
+Mutation checks (each guard broken, the matching test killed, then reverted):
+H2 `will_retry:false` and dropped omission; M1 restored
+`!overflow_recovery_attempted`; M2 deleted cancellation arm; M3
+`apply_mutation` instead of `replay_mutation`; M4 empty projection input; M5
+`is_settings_entry` forced `false`; L1 restored `automatic` key; L5 disabled
+`ContextEdit` search arm. Logs: `/tmp/fix-l2a-logs/mut-*.log`.
