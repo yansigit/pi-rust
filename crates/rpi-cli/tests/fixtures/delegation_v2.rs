@@ -428,6 +428,11 @@ sdk::export_plugin!(|api| {
     // allocation; absent delegation slots must be None, not read past its end.
     let size = std::mem::offset_of!(PluginApi, declare);
     let mut short = vec![0usize; size / std::mem::size_of::<usize>()];
+    // `export_plugin!` already runs the body inside an `unsafe` block, so this
+    // explicit block is redundant there. Keep it so the raw-pointer operations
+    // stay marked if the macro's wrapping ever changes; the CI gate builds this
+    // fixture with `-D warnings`, which would otherwise reject the lint.
+    #[allow(unused_unsafe)]
     unsafe {
         std::ptr::copy_nonoverlapping(
             (api as *const PluginApi).cast::<u8>(),
