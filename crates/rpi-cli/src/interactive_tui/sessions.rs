@@ -121,6 +121,21 @@ pub(super) async fn switch_to_session(
             state.set_status(RunStatus::Idle);
             false
         }
+        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => {
+            chat.clear();
+            add_welcome_message(chat);
+            render_session_history(
+                harness,
+                chat,
+                state.markdown_transformer(),
+                Some(state.extension_session.clone()),
+                state.images_visible(),
+            )
+            .await;
+            add_error_message(chat, &format!("Extensions unavailable: {reason}"));
+            state.set_status(RunStatus::Idle);
+            true
+        }
         Ok(crate::session::SessionReplacement::Replaced) => {
             chat.clear();
             add_welcome_message(chat);
@@ -179,6 +194,13 @@ pub(super) async fn import_session(
     .await
     {
         Ok(crate::session::SessionReplacement::Replaced) => {}
+        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => {
+            state.set_status(RunStatus::Idle);
+            add_error_message(
+                chat,
+                &format!("Extensions unavailable after import: {reason}"),
+            );
+        }
         Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
             state.set_status(RunStatus::Idle);
             add_note_message(chat, &format!("Import cancelled: {reason}"));
@@ -223,6 +245,12 @@ pub(super) async fn fork_session(
     .await
     {
         Ok(crate::session::SessionReplacement::Replaced) => {}
+        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => {
+            add_error_message(
+                chat,
+                &format!("Extensions unavailable after fork: {reason}"),
+            );
+        }
         Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
             add_note_message(chat, &format!("Fork cancelled: {reason}"));
             return;

@@ -28,6 +28,11 @@ struct State {
     chains: BTreeMap<String, Arc<dyn Provider>>,
     generations: BTreeMap<String, u64>,
     refreshes: BTreeMap<String, Weak<Publication>>,
+    /// Monotonic publication counter. A catalog revision is a per-registry
+    /// number that a fork can reach twice, so a publication that installs a
+    /// host snapshot with the state lock released re-validates against this
+    /// counter, not the revision.
+    commits: u64,
 }
 struct Publication {
     owner: NativeOwner,
@@ -123,6 +128,11 @@ impl ProviderRuntime {
             }
         }
         let chains = Self::chains(session, &catalog);
+        // Pi `ModelRuntime.create` starts from the on-disk config
+        // (`model-runtime.js:79-108`). Seed it here, not on the first
+        // publication: a replaced session would otherwise recompose against an
+        // empty config and silently drop every `models.json` override (X-1).
+        let config = crate::config::load_models_config().map_err(|error| error.to_string())?;
         let auth = crate::provider::native_auth_bindings(session)?;
         let delegation_scope = DelegationScopeId::fresh();
         let epoch = DelegationEpoch::new(delegation_scope, chains.values().cloned());
@@ -137,10 +147,11 @@ impl ProviderRuntime {
             state: Mutex::new(State {
                 epoch,
                 catalog,
-                config: Default::default(),
+                config,
                 chains,
                 generations: BTreeMap::new(),
                 refreshes: BTreeMap::new(),
+                commits: 0,
             }),
             logins: Mutex::new(BTreeMap::new()),
             auth,
@@ -152,6 +163,26 @@ impl ProviderRuntime {
         let port: Arc<dyn NativeProviderRuntime> = self.clone();
         self.host
             .bind_provider_runtime_generation(&self.generation, Arc::downgrade(&port));
+    }
+    /// One credential pass on a freshly constructed runtime, matching Pi's
+    /// `ModelRuntime.create` -> `refresh({allowModelNetwork:false})`
+    /// (`model-runtime.js:79-108`). Session replacement builds a new runtime, so
+    /// without this a replaced session reports every provider as `Unknown` until
+    /// some unrelated refresh runs (X-1).
+    ///
+    /// Status reads only local credential storage; nothing here can reach the
+    /// network or publish a catalog revision.
+    pub(crate) async fn refresh_availability_on_create(&self) -> Result<(), String> {
+        // A create-time pass is host-initiated: no plugin invocation owns it, and
+        // `status` reads only need the runtime generation to be live.
+        let owner = NativeOwner {
+            generation: self.generation.clone(),
+            id: 0,
+            plugin: String::new(),
+            child: false,
+        };
+        self.refresh_availability(owner, None, CancellationToken::new())
+            .await
     }
     pub(crate) async fn initialize(
         session: &ExtensionSession,
@@ -204,6 +235,19 @@ impl ProviderRuntime {
             .into_iter()
             .map(|provider| (provider.id().into(), provider))
             .collect()
+    }
+    /// Re-install the committed catalog on the host.
+    ///
+    /// A publication installs its snapshot with the state lock released (D-2).
+    /// If a concurrent publication commits first, the loser must not leave the
+    /// host holding its own uncommitted models: re-install what is committed.
+    async fn republish_committed(&self) {
+        let (proxies, models) = {
+            let state = self.state.lock().await;
+            (self.proxies(&state.catalog), state.catalog.list_models())
+        };
+        let _ = self.host.install_native_providers(proxies).await;
+        self.host.replace_model_catalog(models);
     }
     fn proxies(&self, catalog: &ModelRegistry) -> Vec<Arc<dyn Provider>> {
         let runtime = self
@@ -287,6 +331,7 @@ impl ProviderRuntime {
                 chains,
                 generations: state.generations.clone(),
                 refreshes: BTreeMap::new(),
+                commits: state.commits,
             }),
             logins: Mutex::new(BTreeMap::new()),
             auth: self.auth.clone(),
@@ -316,7 +361,7 @@ impl ProviderRuntime {
         args: Value,
         signal: CancellationToken,
     ) -> Result<Value, String> {
-        let mut state = self.state.lock().await;
+        let state = self.state.lock().await;
         self.validate_owner(&owner)?;
         let mut owner = owner;
         owner.child = false; // Catalog ownership is inherited; each child has a separate registry.
@@ -326,8 +371,19 @@ impl ProviderRuntime {
         }
         let action = args["action"].as_str().ok_or("missing provider action")?;
         if action == "inspect" {
+            // One catalog snapshot per inspect: `available` is the subset whose
+            // last credential pass authenticated it, so a host never re-derives
+            // availability from a second (possibly newer) snapshot.
+            let providers = state.catalog.list_providers();
+            let available: Vec<Model> = providers
+                .iter()
+                .filter(|provider| {
+                    provider.auth_status == crate::model_registry::AuthStatus::Authenticated
+                })
+                .flat_map(|provider| provider.models.clone())
+                .collect();
             return Ok(
-                json!({"revision":state.catalog.revision(),"providers":state.catalog.list_providers(),"available":state.catalog.list_providers().into_iter().filter(|provider| provider.auth_status == crate::model_registry::AuthStatus::Authenticated).flat_map(|provider| provider.models).collect::<Vec<_>>()}),
+                json!({"revision":state.catalog.revision(),"providers":providers,"available":available}),
             );
         }
         let id = args["providerId"]
@@ -432,24 +488,35 @@ impl ProviderRuntime {
                 .map_err(|error| error.to_string())?;
         }
         let chains = Self::chains(&self.session, &candidate);
-        // The same gate protects readers, so the installed proxies cannot see
-        // a catalog reservation before the host has accepted the update.
-        self.host
-            .install_native_providers(self.proxies(&candidate))
-            .await?;
-        self.host.replace_model_catalog(
-            candidate
-                .instances()
-                .iter()
-                .flat_map(|provider| provider.models().to_vec())
-                .collect(),
-        );
+        let proxies = self.proxies(&candidate);
+        let models = candidate.list_models();
         let revision = candidate.revision();
+        let bases = state.commits;
+        // Publish the host-visible snapshot with the state lock released: the
+        // install reaches the harness, and a plugin re-entering `inspect`/`auth`
+        // from there would deadlock this non-reentrant mutex (D-2). Readers stay
+        // on the committed catalog until the commit below, which re-validates
+        // that nothing else published while the host install was in flight.
+        drop(state);
+        self.host.install_native_providers(proxies).await?;
+        self.host.replace_model_catalog(models);
+        let mut state = self.state.lock().await;
+        if state.commits != bases {
+            // A concurrent publication won. Its snapshot is the committed one,
+            // so re-install that instead of leaving the host on this loser.
+            drop(state);
+            self.republish_committed().await;
+            return Err("provider catalog changed during the operation".into());
+        }
         let epoch = DelegationEpoch::new(self.delegation_scope, chains.values().cloned());
+        // Every commit revokes the outgoing delegation epoch: an in-flight
+        // delegation keeps the chain it was admitted with, and new calls can
+        // only target the catalog committed here (D-7, intentional).
         state.epoch.revoke();
         state.epoch = epoch;
         state.catalog = candidate;
         state.chains = chains;
+        state.commits += 1;
         if let Some(generation) = next_generation {
             state.supersede(id, generation);
         }
@@ -517,17 +584,6 @@ impl ProviderRuntime {
                         .map(|generation| (id.clone(), generation))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            if candidate.revision() != state.catalog.revision() {
-                let chains = Self::chains(&self.session, &candidate);
-                self.host
-                    .install_native_providers(self.proxies(&candidate))
-                    .await?;
-                self.host.replace_model_catalog(candidate.list_models());
-                state.epoch.revoke();
-                state.epoch = DelegationEpoch::new(self.delegation_scope, chains.values().cloned());
-                state.catalog = candidate;
-                state.chains = chains;
-            }
             if let Some(selected) = &selected {
                 for id in selected {
                     match config.providers.get(id) {
@@ -542,8 +598,40 @@ impl ProviderRuntime {
             } else {
                 state.config = config;
             }
+            let staged = (candidate.revision() != state.catalog.revision()).then(|| {
+                (
+                    Self::chains(&self.session, &candidate),
+                    self.proxies(&candidate),
+                    candidate.list_models(),
+                    candidate,
+                    state.commits,
+                )
+            });
+            // Supersede before the host install: a provider-local publication
+            // that is still in flight must observe the new generation.
             for (id, generation) in &generations {
                 state.supersede(id, *generation);
+            }
+            if let Some((chains, proxies, models, candidate, bases)) = staged {
+                // Never await the host while holding the state mutex (D-2).
+                drop(state);
+                self.host.install_native_providers(proxies).await?;
+                self.host.replace_model_catalog(models);
+                let mut state = self.state.lock().await;
+                if state.commits == bases {
+                    // Every commit revokes the outgoing delegation epoch (D-7).
+                    state.epoch.revoke();
+                    state.epoch =
+                        DelegationEpoch::new(self.delegation_scope, chains.values().cloned());
+                    state.catalog = candidate;
+                    state.chains = chains;
+                    state.commits += 1;
+                } else {
+                    // A newer publication committed while the host install was in
+                    // flight; keep its catalog and re-install it on the host.
+                    drop(state);
+                    self.republish_committed().await;
+                }
             }
             generations
         };
@@ -577,11 +665,15 @@ impl ProviderRuntime {
                 }
             }
         }
-        self.refresh_availability(caller, selected.as_deref(), signal.clone())
-            .await?;
+        let availability = self
+            .refresh_availability(caller, selected.as_deref(), signal.clone())
+            .await;
+        // A provider-local failure is the actionable error: report it rather
+        // than whatever the availability pass happened to hit (D-5).
         if let Some(error) = selected_error {
             return Err(error);
         }
+        availability?;
         if args.get("providerId").is_some() {
             Ok(json!({"revision":revision}))
         } else {
@@ -688,6 +780,9 @@ impl ProviderRuntime {
         };
         let mut statuses = Vec::new();
         for id in ids {
+            if signal.is_cancelled() {
+                break;
+            }
             // Status reads only local credential storage: availability must not
             // resolve/refresh OAuth or hand private request headers to a catalog.
             let status = self
@@ -705,7 +800,10 @@ impl ProviderRuntime {
                     crate::model_registry::AuthStatus::Authenticated
                 }
                 Ok(_) => crate::model_registry::AuthStatus::Unauthenticated,
-                Err(_) => crate::model_registry::AuthStatus::Unknown,
+                // A transient port failure is not evidence about the
+                // credential: keep the last committed status instead of
+                // flapping a known-good provider to `Unknown` (D-4).
+                Err(_) => continue,
             };
             statuses.push((id, status));
         }
