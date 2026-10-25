@@ -3854,34 +3854,6 @@ impl AgentHarness {
 
         // Snapshot config.
         let snap = self.snapshot_config()?;
-        if snap.models.is_empty() {
-            let _ = self
-                .write_operation_finished(
-                    &run_id,
-                    OperationOutcome::Failed,
-                    Some(OperationError {
-                        code: "no_provider".into(),
-                        message: "No models/providers configured".into(),
-                    }),
-                )
-                .await;
-            let leaf = self
-                .finish_context_writes(&run_id, Some(RunEndOutcome::Failed))
-                .await?
-                .unwrap_or_default();
-            return Ok(RunResult {
-                run_id,
-                outcome: HarnessRunOutcome::Failed {
-                    leaf_id: leaf,
-                    error: OperationError {
-                        code: "no_provider".into(),
-                        message: "No models/providers configured".into(),
-                    },
-                    final_entry_id: None,
-                    final_message: None,
-                },
-            });
-        }
 
         // Pre-run compaction evaluation.
         if snap.compaction.enabled && snap.model.context_window > 0 {
@@ -4019,6 +3991,10 @@ impl AgentHarness {
         self.emit_appended_messages(prompts.iter().take(queued_ids.len()).cloned().collect())
             .await;
 
+        // The no-provider guard sits *after* transcript placement, never before
+        // it: an accepted prompt is durable on its lane's branch even when the
+        // run cannot proceed (and a `nextRun`/queued prompt keeps its own
+        // entry id above). Failing any earlier would drop the caller's input.
         if snap.models.is_empty() {
             let _ = self
                 .write_operation_finished(
