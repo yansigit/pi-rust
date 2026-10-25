@@ -82,16 +82,30 @@ C structure layouts, existing slots and workspace versions are unchanged.
 
 The `providers` port supports `inspect`, `publish`, `register`, `unregister`, and
 `refresh`. `inspect` includes offline discovery records as well as executable
-providers. Mutations return the committed catalog revision. Only a provider's
+providers. It answers `{revision,providers,available}` from one catalog snapshot:
+`available` is the flattened models of the providers whose last credential pass
+authenticated them, so a host must not re-derive it from a second read. Mutations
+return the committed catalog revision. Only a provider's
 owning registration can publish or unregister it; child invocations cannot mutate
 a parent's registration. A native implementation can register additional identities
 using its own `implementationId`, including virtual providers.
 
 Publication prepares a complete candidate catalog and rebuilds wrapper chains from
-unwrapped providers before installing it. Failed installation leaves the previous
-catalog and revision intact. Readers wait for installation to commit. Outstanding
-invocations retain the previous chain; subsequent requests use the current chain.
+unwrapped providers before installing it. The host snapshot is installed with the
+runtime state lock released (re-entering `inspect`/`auth` from the install must not
+deadlock), and the commit re-validates that no other publication committed while the
+install was in flight; the loser re-installs the committed snapshot and fails.
+Failed installation leaves the previous catalog and revision intact. Readers wait for
+installation to commit. Outstanding invocations retain the previous chain;
+subsequent requests use the current chain, and every commit revokes the outgoing
+delegation epoch so a stale wrapper cannot stream into the new catalog.
 The session runtime stays alive even if its last provider is unregistered.
+
+A runtime is a refresh on create, matching Pi's `ModelRuntime.create`: it seeds its
+config from the on-disk `models.json` and runs one `allowNetwork:false` credential
+pass before any catalog reaches the harness. Host-initiated availability reads keep
+the last committed status when a status request fails transiently instead of
+flapping the provider to `unknown`, and abandon the pass on cancellation.
 
 An optional `expectedRevision` rejects a stale mutation against the current scope’s catalog
 revision. Catalog refresh captures a provider-specific generation, awaits the

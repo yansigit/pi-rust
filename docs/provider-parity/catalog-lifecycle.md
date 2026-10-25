@@ -116,7 +116,9 @@ failure. The restored implementation subsequently passed the workspace gate.
 - Lane B owns session/native dispatch. Integration must bind the runtime to the
   fresh session generation and invalidate the outgoing `ExtensionSession` before
   admitting more callbacks; Lane D retains owner/snapshot validation before and
-  after callback awaits. No B-owned file was edited.
+  after callback awaits. Lane D now provides the create-time refresh that lane B's
+  replacement path calls (implemented boundary 7); the replacement itself, its
+  staging and its `ReplacedDegraded` signal stay lane B's.
 - No actual Cursor DLL/worker, live OAuth service, cross-lane replacement race,
   or full differential availability trace was qualified here. Local fixtures
   and the existing loaded plugin are not substitutes for that matrix.
