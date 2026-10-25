@@ -457,6 +457,12 @@ async fn capability_discovery_is_available_during_synchronous_registration() {
         .as_array()
         .unwrap()
         .contains(&json!("auth.publicErrors")));
+    // Advertised by the SDK constant so a package can gate the optional auth
+    // method presentation fields on it without hardcoding the string.
+    assert!(response["result"]
+        .as_array()
+        .unwrap()
+        .contains(&json!(rpi_plugin_sdk::AUTH_METHOD_PRESENTATION_CAPABILITY)));
     plugin.invalidate();
     let mut output = StbString::empty();
     assert_ne!(

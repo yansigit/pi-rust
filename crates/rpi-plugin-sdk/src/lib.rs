@@ -1445,12 +1445,65 @@ pub type AuthRequestFn = extern "C" fn(
     user_data: *mut c_void,
 ) -> i32;
 
+/// Host capability advertising that registered auth methods also understand the
+/// optional presentation fields `loginLabel` and `interactiveLogin`.
+///
+/// The fields are a JSON wire addition, but the host parses a method with
+/// `deny_unknown_fields`: a manifest that carries them and reaches a host which
+/// predates them is rejected outright, losing the whole provider registration.
+/// A package that must run on both generations therefore emits them only when
+/// the running host lists this capability — see
+/// [`gate_auth_method_presentation`].
+pub const AUTH_METHOD_PRESENTATION_CAPABILITY: &str = "auth.methodPresentation";
+
+/// Remove the optional presentation fields `loginLabel` and `interactiveLogin`
+/// from an auth manifest (or a bare methods array) unless `host_capabilities`
+/// lists [`AUTH_METHOD_PRESENTATION_CAPABILITY`].
+///
+/// Accepts both documents a host may receive: the `{"methods":[…]}` manifest
+/// passed to `register_provider_auth`, and the top-level methods array the
+/// `authMethods` action answers with. Returns `true` when the fields were kept
+/// and `false` when they were stripped. Nothing else is touched, so a manifest
+/// that never set the fields is unchanged either way.
+#[cfg(feature = "json")]
+pub fn gate_auth_method_presentation(
+    document: &mut serde_json::Value,
+    host_capabilities: &[String],
+) -> bool {
+    if host_capabilities
+        .iter()
+        .any(|capability| capability == AUTH_METHOD_PRESENTATION_CAPABILITY)
+    {
+        return true;
+    }
+    let methods = match document {
+        serde_json::Value::Object(fields) => {
+            fields.get_mut("methods").and_then(|v| v.as_array_mut())
+        }
+        serde_json::Value::Array(methods) => Some(methods),
+        _ => None,
+    };
+    if let Some(methods) = methods {
+        for method in methods.iter_mut() {
+            if let serde_json::Value::Object(fields) = method {
+                fields.remove("loginLabel");
+                fields.remove("interactiveLogin");
+            }
+        }
+    }
+    false
+}
+
 /// Manifest: `{version:1,id,displayName,apiKey,oauth,methods:[{id,name,kind}]}`.
 /// Method kind is `api_key` or `oauth`. No credentials belong in the manifest.
 /// A method may also carry the optional presentation fields `loginLabel`
-/// (string; Pi's `oauth.loginLabel`) and `interactiveLogin` (bool; Pi's
-/// `apiKey.login` exists). Both are omitted when absent, so older manifests and
-/// responses are unchanged; this is a JSON wire addition with no ABI change.
+/// (string; Pi's `oauth.loginLabel`, `types.d.ts:222`) and `interactiveLogin`
+/// (bool; Pi's `apiKey.login` exists, `types.d.ts:174`). Both are omitted when
+/// absent, so older manifests and responses are unchanged; this is a JSON wire
+/// addition with no ABI change. A host rejects unknown method fields, so a
+/// package that must also serve a host predating them should pass the document
+/// through `gate_auth_method_presentation` using the host's capability list,
+/// which reports [`AUTH_METHOD_PRESENTATION_CAPABILITY`] when they are safe.
 pub type RegisterProviderAuthFn = extern "C" fn(
     manifest: StbStringRef,
     request: AuthRequestFn,
@@ -2460,5 +2513,98 @@ mod tests {
             let rc = unsafe { register_entrypoint(&api, |_| panic!("incomplete ABI layout")) };
             assert_eq!(rc, 3);
         }
+    }
+
+    fn presentation_manifest() -> serde_json::Value {
+        serde_json::json!({
+            "version": 1,
+            "id": "example",
+            "displayName": "Example",
+            "apiKey": true,
+            "oauth": true,
+            "methods": [
+                {"id":"key","name":"Key","kind":"api_key","interactiveLogin":false},
+                {"id":"browser","name":"Browser","kind":"oauth","loginLabel":"Sign in"}
+            ]
+        })
+    }
+
+    #[test]
+    fn auth_method_presentation_is_gated_on_the_host_capability() {
+        let capable = vec![AUTH_METHOD_PRESENTATION_CAPABILITY.to_string()];
+        let mut document = presentation_manifest();
+        assert!(gate_auth_method_presentation(&mut document, &capable));
+        assert_eq!(document, presentation_manifest());
+
+        let mut document = presentation_manifest();
+        assert!(!gate_auth_method_presentation(&mut document, &[]));
+        assert_eq!(
+            document,
+            serde_json::json!({
+                "version": 1,
+                "id": "example",
+                "displayName": "Example",
+                "apiKey": true,
+                "oauth": true,
+                "methods": [
+                    {"id":"key","name":"Key","kind":"api_key"},
+                    {"id":"browser","name":"Browser","kind":"oauth"}
+                ]
+            })
+        );
+
+        // The bare methods array the `authMethods` action answers with.
+        let mut methods = serde_json::json!([
+            {"id":"key","name":"Key","kind":"api_key","interactiveLogin":true}
+        ]);
+        assert!(!gate_auth_method_presentation(
+            &mut methods,
+            &["auth.publicErrors".to_string()]
+        ));
+        assert_eq!(
+            methods,
+            serde_json::json!([{"id":"key","name":"Key","kind":"api_key"}])
+        );
+
+        // A manifest that never set the fields is unchanged either way.
+        let plain = serde_json::json!({
+            "version":1,
+            "methods":[{"id":"key","name":"Key","kind":"api_key"}]
+        });
+        let mut gated = plain.clone();
+        assert!(!gate_auth_method_presentation(&mut gated, &[]));
+        assert_eq!(gated, plain);
+    }
+
+    /// A host that predates the presentation fields parses methods with
+    /// `deny_unknown_fields`, so an ungated manifest loses the whole provider.
+    /// The gate is what makes one package target both generations.
+    #[test]
+    fn an_older_strict_host_only_accepts_the_gated_manifest() {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct OldMethod {
+            id: String,
+            name: String,
+            kind: String,
+        }
+
+        let parse = |document: &serde_json::Value| {
+            serde_json::from_value::<Vec<OldMethod>>(document["methods"].clone())
+        };
+
+        let mut ungated = presentation_manifest();
+        assert!(parse(&ungated).is_err());
+        assert!(!gate_auth_method_presentation(&mut ungated, &[]));
+        let methods = parse(&ungated).expect("the gated manifest parses");
+        assert_eq!(methods.len(), 2);
+        assert_eq!(
+            (
+                methods[1].id.as_str(),
+                methods[1].name.as_str(),
+                methods[1].kind.as_str()
+            ),
+            ("browser", "Browser", "oauth")
+        );
     }
 }
