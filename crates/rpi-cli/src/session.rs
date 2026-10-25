@@ -945,6 +945,7 @@ pub async fn build_prepared(
     let mut reload_args = args.clone();
     reload_args.session_dir = Some(session_dir);
     let reload_context = ReloadContext {
+        replacement_gate: Arc::new(tokio::sync::Mutex::new(())),
         execution_env: env,
         extension_session: extension_session_cell,
         action_bridge: Arc::new(Mutex::new(Some(Arc::clone(&action_bridge)))),
@@ -968,6 +969,7 @@ pub async fn build_prepared(
     // The plugin session actions (`newSession`/`fork`/`switchSession`) dispatch
     // Pi's replacement lifecycle through the same live cells `/reload` swaps.
     action_host.set_session_lifecycle(SessionLifecycleCells {
+        runtime_factory: SessionRuntimeFactory::from_reload(&reload_context),
         extension_session: reload_context.extension_session.clone(),
         action_bridge: Arc::clone(&reload_context.action_bridge),
     });
@@ -1126,6 +1128,12 @@ fn extension_tool_result_hook(sessions: ExtensionSessionCell) -> rpi_agent::Afte
 /// placeholder during the swap.
 pub type ExtensionSessionCell = Arc<Mutex<ExtensionSession>>;
 
+mod replacement_requests;
+pub(crate) use replacement_requests::replace_session_request;
+pub use replacement_requests::{replace_host_session, HostSessionRequest};
+mod runtime_factory;
+pub use runtime_factory::SessionRuntimeFactory;
+
 /// The cell that holds the live `ActionBridge` across a `/reload`. A plugin
 /// stores the bridge's raw `user_data` pointer during `register`; on reload the
 /// old bridge is `invalidate`d (in-flight calls fail fast) and the fresh one
@@ -1141,6 +1149,7 @@ pub type ActionBridgeCell = Arc<Mutex<Option<Arc<rpi_extensions::ActionBridge>>>
 /// reload callback without borrowing the harness).
 #[derive(Clone)]
 pub struct ReloadContext {
+    replacement_gate: Arc<tokio::sync::Mutex<()>>,
     execution_env: Arc<OsExecutionEnv>,
     provider_runtime: Arc<std::sync::RwLock<Arc<crate::provider_runtime::ProviderRuntime>>>,
     /// The live extension-session cell (swapped on reload).
@@ -2964,6 +2973,7 @@ pub(crate) async fn set_active_session(
 /// cell handles, so the replacement path always sees the live generation.
 #[derive(Clone)]
 pub(crate) struct SessionLifecycleCells {
+    pub runtime_factory: SessionRuntimeFactory,
     pub extension_session: ExtensionSessionCell,
     pub action_bridge: ActionBridgeCell,
 }
@@ -2975,6 +2985,8 @@ pub enum SessionReplacementReason {
     New,
     Resume,
     Fork,
+    /// Pi's command default: exclude the selected entry.
+    ForkBefore,
     Import,
 }
 
@@ -2983,7 +2995,7 @@ impl SessionReplacementReason {
         match self {
             Self::New => "new",
             Self::Resume => "resume",
-            Self::Fork => "fork",
+            Self::Fork | Self::ForkBefore => "fork",
             Self::Import => "import",
         }
     }
@@ -3004,6 +3016,8 @@ pub enum SessionReplacement {
 /// replacement does not reload extensions, so these are the same cells
 /// `/reload` swaps.
 pub struct SessionReplacementContext<'a> {
+    /// Required for loaded extensions; absent only in extension-free embedders.
+    pub runtime_factory: Option<&'a SessionRuntimeFactory>,
     pub harness: &'a AgentHarness,
     pub lane: &'a dyn rpi_harness::agent_harness::AgentLane,
     pub extension_session: &'a ExtensionSessionCell,
@@ -3013,35 +3027,69 @@ pub struct SessionReplacementContext<'a> {
 
 /// Point the harness at another session using Pi 1.3.0's replacement lifecycle.
 ///
+/// External callers abort only after a successful before-hook. Runtime actions
+/// use [`replace_active_session_idle`]: waiting for the operation that invoked
+/// the action would deadlock.
+///
 /// Order (Pi `agent-session-runtime.ts`):
-/// 1. require an idle lane. Pi settles the active response first
-///    (`teardownCurrent`); rpi refuses while an operation is active so a plugin
-///    action invoked from that operation cannot deadlock waiting for itself.
-///    Interactive callers abort and wait before calling;
+/// 1. admit a non-overlapping request (runtime callbacks must be idle);
 /// 2. `session_before_switch` (new/resume/import) or `session_before_fork`
 ///    (fork) — a handler can cancel and the old session stays active;
 /// 3. `session_shutdown { reason, targetSessionFile }`;
 /// 4. swap the durable backing ([`set_active_session`]);
 /// 5. `session_start { reason, previousSessionFile }`.
 ///
-/// Unlike Pi this keeps the harness object (and its extension runner) alive;
-/// the session-scoped state the harness owns (queues, children, pending
-/// context) is rebuilt by `AgentHarness::set_session`.
+/// The harness facade remains stable; extension authority, registrations,
+/// hooks, tools, provider bindings and emitter are freshly constructed.
 pub async fn replace_active_session(
     ctx: &SessionReplacementContext<'_>,
     session: Session,
     reason: SessionReplacementReason,
     fork_entry_id: Option<&str>,
 ) -> Result<SessionReplacement, String> {
-    if ctx
-        .harness
-        .snapshot()
-        .await
-        .map_err(|e| e.to_string())?
-        .active
-        .is_some()
+    replace_active_session_inner(ctx, session, reason, fork_entry_id, true, false).await
+}
+
+/// Runtime-action entry point: refuse busy calls instead of awaiting ourselves.
+pub async fn replace_active_session_idle(
+    ctx: &SessionReplacementContext<'_>,
+    session: Session,
+    reason: SessionReplacementReason,
+    fork_entry_id: Option<&str>,
+) -> Result<SessionReplacement, String> {
+    replace_active_session_inner(ctx, session, reason, fork_entry_id, false, false).await
+}
+
+async fn replace_active_session_inner(
+    ctx: &SessionReplacementContext<'_>,
+    session: Session,
+    reason: SessionReplacementReason,
+    fork_entry_id: Option<&str>,
+    settle: bool,
+    before_dispatched: bool,
+) -> Result<SessionReplacement, String> {
+    // Refuse reentrant/concurrent replacements rather than waiting under a hook.
+    let _admission = if before_dispatched {
+        None
+    } else {
+        ctx.runtime_factory
+            .map(|factory| factory.try_admit())
+            .transpose()?
+    };
+    if !settle
+        && ctx
+            .harness
+            .snapshot()
+            .await
+            .map_err(|e| e.to_string())?
+            .active
+            .is_some()
     {
         return Err("wait for the active operation to finish before replacing the session".into());
+    }
+
+    if ctx.runtime_factory.is_none() && !ctx.extension_session.lock().unwrap().is_empty() {
+        return Err("session replacement requires a fresh runtime factory".into());
     }
 
     let previous_file = ctx
@@ -3054,34 +3102,54 @@ pub async fn replace_active_session(
         .flatten();
     let target_file = session.storage().location().await.ok().flatten();
 
-    let before = if reason == SessionReplacementReason::Fork {
-        rpi_plugin_sdk::EventTag::SessionBeforeFork
-    } else {
-        rpi_plugin_sdk::EventTag::SessionBeforeSwitch
-    };
-    let before_payload = if reason == SessionReplacementReason::Fork {
-        serde_json::json!({
-            "reason": reason.as_str(),
-            "entryId": fork_entry_id,
-            "position": "at",
-            "targetSessionFile": target_file,
-        })
-    } else {
-        serde_json::json!({
-            "reason": reason.as_str(),
-            "targetSessionFile": target_file,
-        })
-    };
-    if let Some(reason) = dispatch_session_lifecycle_event(
-        ctx.extension_session,
-        ctx.action_bridge,
-        ctx.tool_context,
-        before,
-        before_payload,
-    )
-    .await
-    {
-        return Ok(SessionReplacement::Cancelled { reason });
+    if !before_dispatched {
+        if let Some(reason) =
+            before_session_replacement(ctx, reason, fork_entry_id, target_file.as_deref()).await
+        {
+            return Ok(SessionReplacement::Cancelled { reason });
+        }
+    }
+
+    // Validate the opened destination before any destructive teardown. The
+    // caller stages storage creation/opening; read faults cannot retire the old
+    // authority. Cwd-bound services must not silently keep the outgoing cwd.
+    session.get_metadata().await.map_err(|e| e.to_string())?;
+    if let Some(factory) = ctx.runtime_factory {
+        // Import copies history into the caller's repository; the preserved
+        // source header's cwd is provenance, not a request to switch projects.
+        if reason != SessionReplacementReason::Import {
+            factory.validate_destination(target_file.as_deref())?;
+        }
+    }
+    session
+        .find_entries(&rpi_harness::session::types::EntryQuery::default())
+        .await
+        .map_err(|e| e.to_string())?;
+    if settle {
+        if ctx
+            .harness
+            .snapshot()
+            .await
+            .map_err(|e| e.to_string())?
+            .active
+            .is_some()
+        {
+            if let Err(error) = ctx.lane.abort().await {
+                // A response may finish between snapshot and abort. Other
+                // errors must not lead to teardown of a still-active operation.
+                if ctx
+                    .harness
+                    .snapshot()
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .active
+                    .is_some()
+                {
+                    return Err(error.to_string());
+                }
+            }
+        }
+        ctx.lane.wait_for_idle().await.map_err(|e| e.to_string())?;
     }
 
     let _ = dispatch_session_lifecycle_event(
@@ -3096,7 +3164,24 @@ pub async fn replace_active_session(
     )
     .await;
 
+    let old_session = ctx.extension_session.lock().unwrap().clone();
+    let old_bridge = ctx.action_bridge.lock().unwrap().clone();
+    if let Some(snapshot) = old_session.snapshot_arc() {
+        snapshot.active_flag().store(false, Ordering::SeqCst);
+    }
+    if let Some(bridge) = &old_bridge {
+        bridge.invalidate();
+        bridge.finish_native_writes().await;
+    }
+    old_session.auth_runtime().shutdown().await;
+    old_session.begin_shutdown();
+
     set_active_session(ctx.harness, session, Some(ctx.tool_context)).await?;
+    if let (Some(factory), Some(bridge)) = (ctx.runtime_factory, old_bridge) {
+        factory
+            .rebuild(ctx, old_session.loaded_paths().to_vec(), bridge)
+            .await?;
+    }
 
     let _ = dispatch_session_lifecycle_event(
         ctx.extension_session,
@@ -3112,20 +3197,67 @@ pub async fn replace_active_session(
     Ok(SessionReplacement::Replaced)
 }
 
+async fn before_session_replacement(
+    ctx: &SessionReplacementContext<'_>,
+    reason: SessionReplacementReason,
+    fork_entry_id: Option<&str>,
+    target_file: Option<&str>,
+) -> Option<String> {
+    let fork = matches!(
+        reason,
+        SessionReplacementReason::Fork | SessionReplacementReason::ForkBefore
+    );
+    let tag = if fork {
+        rpi_plugin_sdk::EventTag::SessionBeforeFork
+    } else {
+        rpi_plugin_sdk::EventTag::SessionBeforeSwitch
+    };
+    let payload = if fork {
+        serde_json::json!({
+            "reason": reason.as_str(), "entryId": fork_entry_id,
+            "position": if reason == SessionReplacementReason::ForkBefore { "before" } else { "at" },
+            "targetSessionFile": target_file,
+        })
+    } else {
+        serde_json::json!({"reason": reason.as_str(), "targetSessionFile": target_file})
+    };
+    dispatch_session_lifecycle_event(
+        ctx.extension_session,
+        ctx.action_bridge,
+        ctx.tool_context,
+        tag,
+        payload,
+    )
+    .await
+}
+
 /// Fork the harness's current session into a new JSONL session (new id, parent
 /// set to the source) and wrap it in a `Session`. Mirrors the TUI's
 /// `fork_session` flow (`interactive_tui.rs`) — hoisted here so both the TUI
 /// and the plugin `runtime_action(Fork)` host share one implementation.
 /// Returns the new `Session` (NOT yet swapped onto the harness — the caller
 /// does `harness.set_session(...)`).
-pub(crate) async fn fork_session_storage(
+pub(crate) async fn fork_session_storage_at(
     harness: &AgentHarness,
     cwd: &str,
     dir: &Path,
+    entry_id: Option<String>,
+    position: rpi_harness::session::types::ForkPosition,
 ) -> Result<Session, String> {
     use rpi_harness::session::jsonl::{JsonlSessionRepo, JsonlSessionRepoOptions};
     use rpi_tools::FileSystem;
 
+    if let Some(id) = &entry_id {
+        if harness
+            .session()
+            .get_entry(id)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            return Err("Invalid entry ID for forking".into());
+        }
+    }
     let env = Arc::new(OsExecutionEnv::with_cwd(PathBuf::from(cwd)));
     let fs: Arc<dyn FileSystem> = env.clone();
     let repo = JsonlSessionRepo::with_env_cwd(JsonlSessionRepoOptions {
@@ -3155,7 +3287,10 @@ pub(crate) async fn fork_session_storage(
                 cwd: cwd.to_string(),
                 metadata: None,
             },
-            &rpi_harness::session::types::ForkOptions::default(),
+            &rpi_harness::session::types::ForkOptions::Branch {
+                entry_id,
+                position: Some(position),
+            },
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -3461,6 +3596,8 @@ fn read_prompt_source(path: &Path, sources: &mut Vec<String>) -> Option<String> 
     Some(text)
 }
 
+#[cfg(test)]
+mod lifecycle_generation_tests;
 #[cfg(test)]
 mod runtime_session_tests;
 
