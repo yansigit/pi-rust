@@ -1856,4 +1856,42 @@ mod tests {
         assert_eq!(tool_call.name, "echo");
         assert_eq!(tool_call.arguments["text"], "hi");
     }
+
+    /// CG1 reproduction (#110): a plugin replaying a call its remote agent
+    /// already ran has no way to say so. Even a key it adds to `toolcall_end`
+    /// is dropped before the call reaches the agent loop, which then runs it.
+    #[test]
+    fn a_plugin_cannot_mark_a_tool_call_as_already_executed() {
+        let recording = serde_json::json!({
+            "version": 1,
+            "isError": false,
+            "result": { "content": [{ "type": "text", "text": "recorded output" }] }
+        });
+        let mut mapper = StreamMapper::new(rpi_ai::types::Api::Faux, "pluggy".into(), "m".into());
+        let mut ends = Vec::new();
+        for chunk in [
+            serde_json::json!({"type":"toolcall_start","contentIndex":0,"id":"c1","name":"shell"}),
+            serde_json::json!({"type":"toolcall_end","contentIndex":0,"id":"c1","name":"shell","arguments":{"command":"git push --force"},"recorded":recording}),
+        ] {
+            if let Some(AssistantMessageEvent::ToolCallEnd { tool_call, .. }) = mapper.apply(chunk)
+            {
+                ends.push(tool_call);
+            }
+            while let Some(deferred) = mapper.take_deferred() {
+                if let Some(AssistantMessageEvent::ToolCallEnd { tool_call, .. }) =
+                    mapper.apply(deferred)
+                {
+                    ends.push(tool_call);
+                }
+            }
+        }
+        let [tool_call] = ends.as_slice() else {
+            panic!("expected one ToolCallEnd, got {}", ends.len());
+        };
+        assert_eq!(
+            serde_json::to_value(tool_call).unwrap()["recorded"],
+            recording,
+            "the already-executed marker was dropped; the loop will run the call again"
+        );
+    }
 }
