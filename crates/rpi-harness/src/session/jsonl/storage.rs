@@ -493,10 +493,17 @@ impl JsonlSessionStorage {
         }
         let mut append = self.append.lock().await;
         if append.is_none() {
-            *append = file_result(
+            match file_result(
                 self.fs.open_append_file(&self.metadata.path).await,
                 &format!("Failed to open session {}", self.metadata.path),
-            )?;
+            ) {
+                Ok(writer) => *append = writer,
+                Err(error) => {
+                    // No writer received the bytes, so the file cannot be ahead.
+                    pending.applied();
+                    return Err(error);
+                }
+            }
         }
         let result = if let Some(writer) = append.as_mut() {
             let result = writer.append(&lines).await;
@@ -1727,6 +1734,44 @@ mod tests {
         assert!(storage.get_entry("retry").await.unwrap().is_none());
         assert_eq!(freed.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!(storage.append_entry(entry, "main").await.unwrap().seq(), 1);
+    }
+
+    #[tokio::test]
+    async fn failed_open_leaves_the_session_writable() {
+        let temp = tempfile::tempdir().unwrap();
+        let fs: Arc<dyn FileSystem> = Arc::new(rpi_tools::OsExecutionEnv::with_cwd(
+            temp.path().to_path_buf(),
+        ));
+        let storage = JsonlSessionStorage::create(
+            fs,
+            "session.jsonl",
+            header(),
+            Arc::new(FakeClock::new()),
+            Arc::new(CounterIdGenerator::new()),
+        )
+        .await
+        .unwrap();
+        let entry = |id: &str| ProvisionedEntry {
+            id: id.into(),
+            kind: ProvisionedKind::Message {
+                message: user_msg(id),
+                terminate: None,
+            },
+        };
+        // A directory in the file's place makes the next open fail, even as root.
+        let path = temp.path().join("session.jsonl");
+        let saved = temp.path().join("saved.jsonl");
+        *storage.append.lock().await = None;
+        std::fs::rename(&path, &saved).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(storage
+            .append_entry(entry("refused"), "main")
+            .await
+            .is_err());
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::rename(&saved, &path).unwrap();
+        // Nothing was written, so the retry must not be refused as uncertain.
+        storage.append_entry(entry("retry"), "main").await.unwrap();
     }
 
     /// How a reusable append handle left the file when it reported failure.
