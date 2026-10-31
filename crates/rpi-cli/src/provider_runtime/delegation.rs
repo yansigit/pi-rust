@@ -32,12 +32,14 @@ pub(super) fn forward_scoped(
         .map(|scope| scope.runtime_closing().clone())
         .unwrap_or_default();
     tokio::spawn(async move {
-        let work = async move {
+        // Boxed: each task-local scope below otherwise copies this large future by value,
+        // overflowing a worker stack in debug builds when a child agent nests the path.
+        let work = Box::pin(async move {
             let _runtime = runtime;
             let signal = options.signal.clone();
             let _cancel = signal.clone().drop_guard();
             let revoked = epoch.signal();
-            let operation = async {
+            let operation = Box::pin(async {
                 if let Err(error) = provider.preflight(&model, signal.clone()).await {
                     producer.push(failure(&model, error, false)).await;
                     return;
@@ -58,7 +60,7 @@ pub(super) fn forward_scoped(
                         false,
                     ))
                     .await;
-            };
+            });
             let (message, aborted) = tokio::select! { biased;
                 _ = signal.cancelled() => ("provider request was cancelled", true),
                 _ = revoked.cancelled() => {
@@ -74,8 +76,11 @@ pub(super) fn forward_scoped(
             producer
                 .push(failure(&model, message.into(), aborted))
                 .await;
-        };
-        let work = rpi_agent::tool_execution_scope::inherit(scope, binding.scope(work));
+        });
+        let work = Box::pin(rpi_agent::tool_execution_scope::inherit(
+            scope,
+            binding.scope(work),
+        ));
         rpi_ai::identity::inherit(operation, async move {
             match identity {
                 Some(identity) => rpi_ai::identity::scope_if_absent(identity, work).await,
