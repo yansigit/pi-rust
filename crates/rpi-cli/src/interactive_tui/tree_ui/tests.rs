@@ -41,6 +41,8 @@ fn test_state() -> Arc<TuiState> {
         autocomplete_container: Arc::new(Container::new()),
         autocomplete_max_visible: 5,
         autocomplete_selection: std::sync::Mutex::new(0),
+        autocomplete_selection_stamped_for: std::sync::Mutex::new(None),
+        events_lagged: std::sync::atomic::AtomicBool::new(false),
         pending_images: std::sync::Mutex::new(Vec::new()),
         theme_manager: Arc::new(ThemeManager::new()),
         tui: None,
@@ -64,8 +66,6 @@ fn test_state() -> Arc<TuiState> {
         pending_snapshot: std::sync::Mutex::new(
             rpi_harness::agent_harness::QueuedMessages::default(),
         ),
-        selection_start: std::sync::Mutex::new(None),
-        selection_end: std::sync::Mutex::new(None),
     })
 }
 

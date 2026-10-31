@@ -207,6 +207,7 @@ pub fn loop_config_with_converter(
     rpi_agent::AgentLoopConfig {
         model: mock_model(),
         convert_to_llm,
+        convert_to_llm_incremental: None,
         transform_context: None,
         get_api_key: None,
         prepare_request: None,

@@ -273,6 +273,15 @@ mod tests {
             AgentHarness::compose_prompt(Some("Base"), &resources, &["other".into()], &tools),
             "Base"
         );
+        // A base prompt that already renders this tool's guidance owns it.
+        let covered = AgentHarnessResources {
+            base_prompt_tools: vec!["question".into()],
+            ..resources.clone()
+        };
+        assert_eq!(
+            AgentHarness::compose_prompt(Some("Base"), &covered, &["question".into()], &tools),
+            "Base"
+        );
         assert_eq!(
             AgentHarness::compose_prompt(
                 Some("Custom"),

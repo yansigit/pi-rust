@@ -21,11 +21,12 @@ categories = [
 [dependencies]
 rpi-telemetry = { workspace = true }
 rpi-ai = { workspace = true, features = ["providers"] }
+rpi-runtime = { workspace = true }
 rpi-agent = { workspace = true }
 rpi-tools = { workspace = true }
 rpi-harness = { workspace = true }
 rpi-tui = { workspace = true }
-rpi-plugin-sdk = { workspace = true }
+rpi-plugin-sdk = { workspace = true, features = ["binary"] }
 rpi-extensions = { workspace = true }
 tokio = { workspace = true, features = ["signal", "io-std", "net"] }
 tokio-util = { workspace = true }
@@ -101,6 +102,11 @@ clipboard = ["dep:arboard"]
 rpi-ai = { workspace = true, features = ["delegation-test-hooks"] }
 rpi-extensions = { workspace = true, features = ["delegation-test-hooks"] }
 rpi-plugin-sdk = { workspace = true, features = ["provider"] }
+criterion = "0.5"
+
+[[bench]]
+name = "serialization"
+harness = false
 
 [lib]
 path = "src/lib.rs"

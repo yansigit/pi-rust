@@ -98,7 +98,8 @@ pub use registry::{
     assert_active, current_platform, platform_allows, BeforeAgentStartHandler, ExtensionRegistry,
     ExtensionTool, ProviderManifest, RegisteredFlag, RegisteredHandler, RegisteredOAuthProvider,
     RegisteredProvider, RegisteredRenderer, RegisteredRendererKind, RegisteredShortcut,
-    RegistryEntry, RegistrySnapshot, ResourcesDiscoverHandler, DEFAULT_PRIORITY,
+    RegistryEntry, RegistrySnapshot, ResourcesDiscoverHandler, ToolPromptMetadata,
+    DEFAULT_PRIORITY,
 };
 pub use resources::{emit_resources_discover, DiscoveredResources};
 pub use status::ExtensionStatusMailbox;
@@ -134,6 +135,8 @@ pub mod services;
 mod status;
 mod stdio;
 mod tool;
+#[cfg(test)]
+mod tool_prompt_tests;
 mod translate;
 
 /// A diagnostics/event sink the host wires so the loader + adapter can report
@@ -337,6 +340,7 @@ impl HostApi {
             register_tool: Some(trampoline_register_tool),
             register_tool_with_wake: Some(trampoline_register_tool_with_wake),
             register_plugin_lifecycle: Some(trampoline_register_plugin_lifecycle),
+            register_tool_prompt: Some(trampoline_register_tool_prompt),
             register_provider_auth: Some(trampoline_register_provider_auth),
             register_credential_store: Some(trampoline_register_credential_store),
             register_provider_wrapper: Some(trampoline_register_provider_wrapper),
@@ -618,6 +622,34 @@ extern "C" fn trampoline_register_native_command(
             Some(Some(duplicate)) => i32::from(duplicate),
             _ => -1,
         }
+    })
+}
+
+extern "C" fn trampoline_register_tool_prompt(
+    name: StbStringRef,
+    metadata_json: StbStringRef,
+) -> i32 {
+    rpi_plugin_sdk::guard_or(-1, || {
+        with_current_api(|api| {
+            // SAFETY: plugin-supplied refs are borrowed for this registration call.
+            let name = unsafe { name.as_str() };
+            let json = unsafe { metadata_json.as_str() };
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(json) else {
+                return 2;
+            };
+            if !value.is_object() {
+                return 2;
+            }
+            let Ok(prompt) = serde_json::from_value::<ToolPromptMetadata>(value) else {
+                return 2;
+            };
+            match api.with_registry(|reg| reg.register_tool_prompt(name, prompt)) {
+                Some(true) => 0,
+                Some(false) => 1,
+                None => -1,
+            }
+        })
+        .unwrap_or(-1)
     })
 }
 

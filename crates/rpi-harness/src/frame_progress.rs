@@ -32,12 +32,15 @@
 //! `docs/debugging/llm-repetition-forensics.md` §十一.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use futures::future::BoxFuture;
 use rpi_agent::{AgentEmitter, AgentEvent, AgentMessage};
 use rpi_ai::frames::{reduce_frames, AssistantMessageFrame, AssistantMessageFrameEncoder};
 use rpi_ai::types::{AssistantMessage, AssistantMessageEvent, StopReason, Usage};
+use tokio::sync::{mpsc, oneshot};
 
 use crate::result::{HarnessError, HarnessResult};
 use crate::session::session::Session;
@@ -46,6 +49,375 @@ use crate::session::types::{
     RecordQuery,
 };
 
+const FRAME_CHUNK_RECORDS: usize = 32;
+const FRAME_CHANNEL_CAPACITY: usize = 128;
+const FRAME_CHECKPOINT_INTERVAL: Duration = Duration::from_millis(50);
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FrameFlushReason {
+    #[cfg(test)]
+    Manual,
+    PrepareCommit,
+    ClearStreamBefore,
+    ClearStreamAfter,
+    ClearRunBefore,
+    ClearRunAfter,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FrameDiagnosticsSnapshot {
+    pub frame_append_requests: u64,
+    pub batch_count: u64,
+    pub batch_records: u64,
+    pub append_records_calls: u64,
+    pub flush_requests: u64,
+    pub queue_wait_ns: u64,
+    pub flush_wait_ns: u64,
+    pub batch_append_ns: u64,
+    pub writer_failures: u64,
+    pub prepare_commit_flushes: u64,
+    pub clear_stream_before_flushes: u64,
+    pub clear_stream_after_flushes: u64,
+    pub clear_run_before_flushes: u64,
+    pub clear_run_after_flushes: u64,
+}
+
+#[derive(Debug, Default)]
+struct FrameDiagnostics {
+    enabled: bool,
+    frame_append_requests: AtomicU64,
+    batch_count: AtomicU64,
+    batch_records: AtomicU64,
+    append_records_calls: AtomicU64,
+    flush_requests: AtomicU64,
+    queue_wait_ns: AtomicU64,
+    flush_wait_ns: AtomicU64,
+    batch_append_ns: AtomicU64,
+    writer_failures: AtomicU64,
+    prepare_commit_flushes: AtomicU64,
+    clear_stream_before_flushes: AtomicU64,
+    clear_stream_after_flushes: AtomicU64,
+    clear_run_before_flushes: AtomicU64,
+    clear_run_after_flushes: AtomicU64,
+}
+
+impl FrameDiagnostics {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            enabled: std::env::var_os("RPI_FRAME_DIAGNOSTICS").is_some_and(|value| value != "0"),
+            ..Default::default()
+        })
+    }
+
+    fn add_duration(counter: &AtomicU64, duration: Duration) {
+        counter.fetch_add(
+            duration.as_nanos().min(u64::MAX as u128) as u64,
+            Ordering::Relaxed,
+        );
+    }
+
+    fn barrier(&self, reason: FrameFlushReason) {
+        if !self.enabled {
+            return;
+        }
+        let counter = match reason {
+            #[cfg(test)]
+            FrameFlushReason::Manual => return,
+            FrameFlushReason::PrepareCommit => &self.prepare_commit_flushes,
+            FrameFlushReason::ClearStreamBefore => &self.clear_stream_before_flushes,
+            FrameFlushReason::ClearStreamAfter => &self.clear_stream_after_flushes,
+            FrameFlushReason::ClearRunBefore => &self.clear_run_before_flushes,
+            FrameFlushReason::ClearRunAfter => &self.clear_run_after_flushes,
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> FrameDiagnosticsSnapshot {
+        FrameDiagnosticsSnapshot {
+            frame_append_requests: self.frame_append_requests.load(Ordering::Relaxed),
+            batch_count: self.batch_count.load(Ordering::Relaxed),
+            batch_records: self.batch_records.load(Ordering::Relaxed),
+            append_records_calls: self.append_records_calls.load(Ordering::Relaxed),
+            flush_requests: self.flush_requests.load(Ordering::Relaxed),
+            queue_wait_ns: self.queue_wait_ns.load(Ordering::Relaxed),
+            flush_wait_ns: self.flush_wait_ns.load(Ordering::Relaxed),
+            batch_append_ns: self.batch_append_ns.load(Ordering::Relaxed),
+            writer_failures: self.writer_failures.load(Ordering::Relaxed),
+            prepare_commit_flushes: self.prepare_commit_flushes.load(Ordering::Relaxed),
+            clear_stream_before_flushes: self.clear_stream_before_flushes.load(Ordering::Relaxed),
+            clear_stream_after_flushes: self.clear_stream_after_flushes.load(Ordering::Relaxed),
+            clear_run_before_flushes: self.clear_run_before_flushes.load(Ordering::Relaxed),
+            clear_run_after_flushes: self.clear_run_after_flushes.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Debug)]
+enum FrameWriteCommand {
+    Append(LaneRecord),
+    Flush(oneshot::Sender<Result<(), String>>),
+}
+
+#[derive(Clone)]
+struct FrameWriter {
+    tx: mpsc::Sender<FrameWriteCommand>,
+    diagnostics: Arc<FrameDiagnostics>,
+    /// Number of frame records accepted by the channel but not yet included in
+    /// a completed storage append. A barrier with no pending records is already
+    /// ordered after all prior appends, so sending an empty Flush is redundant.
+    pending: Arc<AtomicUsize>,
+    failure: Arc<Mutex<Option<String>>>,
+}
+
+impl FrameWriter {
+    fn new(session: Session) -> Self {
+        let (tx, rx) = mpsc::channel(FRAME_CHANNEL_CAPACITY);
+        let diagnostics = FrameDiagnostics::new();
+        let pending = Arc::new(AtomicUsize::new(0));
+        let failure = Arc::new(Mutex::new(None));
+        // A writer outlives the recorder and may finish after the harness
+        // switches the shared facade to another session. Pin the original
+        // storage/recovery binding, while retaining the caller's generator for
+        // record ids.
+        let pinned = session.pin(Arc::clone(session.id_generator()));
+        tokio::spawn(run_frame_writer(
+            pinned,
+            rx,
+            Arc::clone(&diagnostics),
+            Arc::clone(&pending),
+            Arc::clone(&failure),
+        ));
+        Self {
+            tx,
+            diagnostics,
+            pending,
+            failure,
+        }
+    }
+
+    async fn append(&self, record: LaneRecord) -> HarnessResult<()> {
+        let started = self.diagnostics.enabled.then(Instant::now);
+        if self.diagnostics.enabled {
+            self.diagnostics
+                .frame_append_requests
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        let permit = self
+            .tx
+            .reserve()
+            .await
+            .map_err(|_| HarnessError::io("frame writer stopped"))?;
+        // No await remains between reserve and send. Cancellation before the
+        // permit is acquired never changes pending; cancellation after this
+        // point cannot interrupt the synchronous increment/send pair.
+        self.pending.fetch_add(1, Ordering::AcqRel);
+        permit.send(FrameWriteCommand::Append(record));
+        if let Some(started) = started {
+            FrameDiagnostics::add_duration(&self.diagnostics.queue_wait_ns, started.elapsed());
+        }
+        Ok(())
+    }
+
+    async fn flush(&self) -> HarnessResult<()> {
+        // `append` increments before enqueueing, and the writer decrements only
+        // after its storage append completes. Therefore zero is a real ordered
+        // no-op, not merely an observation that the channel happens to be empty.
+        if self.pending.load(Ordering::Acquire) == 0 {
+            if let Some(error) = self.failure.lock().unwrap().clone() {
+                return Err(HarnessError::io(error));
+            }
+            if self.tx.is_closed() {
+                return Err(HarnessError::io("frame writer stopped"));
+            }
+            return Ok(());
+        }
+        let started = self.diagnostics.enabled.then(Instant::now);
+        if self.diagnostics.enabled {
+            self.diagnostics
+                .flush_requests
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        let (reply, result) = oneshot::channel();
+        let send_result = self.tx.send(FrameWriteCommand::Flush(reply)).await;
+        let result = match send_result {
+            Ok(()) => result
+                .await
+                .map_err(|_| HarnessError::io("frame writer stopped"))?
+                .map_err(HarnessError::io),
+            Err(_) => Err(HarnessError::io("frame writer stopped")),
+        };
+        if let Some(started) = started {
+            FrameDiagnostics::add_duration(&self.diagnostics.flush_wait_ns, started.elapsed());
+        }
+        result
+    }
+}
+
+async fn run_frame_writer(
+    session: Session,
+    mut rx: mpsc::Receiver<FrameWriteCommand>,
+    diagnostics: Arc<FrameDiagnostics>,
+    pending: Arc<AtomicUsize>,
+    failure_state: Arc<Mutex<Option<String>>>,
+) {
+    let mut batch = Vec::with_capacity(FRAME_CHUNK_RECORDS);
+    let mut deadline = None;
+    let mut failure: Option<String> = None;
+
+    loop {
+        let command = if batch.is_empty() {
+            deadline = None;
+            rx.recv().await
+        } else {
+            let wait_until = deadline.expect("a non-empty frame batch has a deadline");
+            match tokio::time::timeout_at(wait_until, rx.recv()).await {
+                Ok(command) => command,
+                Err(_) => {
+                    if failure.is_none() {
+                        if let Err(error) = flush_frame_batch(
+                            &session,
+                            &mut batch,
+                            &diagnostics,
+                            &pending,
+                            &failure_state,
+                        )
+                        .await
+                        {
+                            diagnostics.writer_failures.fetch_add(1, Ordering::Relaxed);
+                            let message = error.to_string();
+                            *failure_state.lock().unwrap() = Some(message.clone());
+                            failure = Some(message);
+                        }
+                    }
+                    deadline = None;
+                    continue;
+                }
+            }
+        };
+
+        let Some(command) = command else {
+            break;
+        };
+        match command {
+            FrameWriteCommand::Append(record) => {
+                if failure.is_none() {
+                    // The checkpoint is measured from the first pending frame,
+                    // not from the most recent receive. A busy stream must not
+                    // postpone durability indefinitely.
+                    if batch.is_empty() {
+                        deadline = Some(tokio::time::Instant::now() + FRAME_CHECKPOINT_INTERVAL);
+                    }
+                    batch.push(record);
+                    if batch.len() >= FRAME_CHUNK_RECORDS {
+                        if let Err(error) = flush_frame_batch(
+                            &session,
+                            &mut batch,
+                            &diagnostics,
+                            &pending,
+                            &failure_state,
+                        )
+                        .await
+                        {
+                            diagnostics.writer_failures.fetch_add(1, Ordering::Relaxed);
+                            let message = error.to_string();
+                            *failure_state.lock().unwrap() = Some(message.clone());
+                            failure = Some(message);
+                        }
+                        deadline = None;
+                    }
+                } else {
+                    // The writer has already reported a durable failure. Accept
+                    // no more work, but release its pending accounting so a
+                    // caller never waits on an impossible batch.
+                    pending.fetch_sub(1, Ordering::AcqRel);
+                }
+            }
+            FrameWriteCommand::Flush(reply) => {
+                if failure.is_none() {
+                    if let Err(error) = flush_frame_batch(
+                        &session,
+                        &mut batch,
+                        &diagnostics,
+                        &pending,
+                        &failure_state,
+                    )
+                    .await
+                    {
+                        diagnostics.writer_failures.fetch_add(1, Ordering::Relaxed);
+                        let message = error.to_string();
+                        *failure_state.lock().unwrap() = Some(message.clone());
+                        failure = Some(message);
+                    }
+                }
+                deadline = None;
+                let result = failure.clone().map_or(Ok(()), Err);
+                let _ = reply.send(result);
+            }
+        }
+    }
+
+    if failure.is_none() {
+        let _ =
+            flush_frame_batch(&session, &mut batch, &diagnostics, &pending, &failure_state).await;
+    }
+}
+
+fn publish_failure_before_pending_release(
+    message: String,
+    failure_state: &Mutex<Option<String>>,
+    pending: &AtomicUsize,
+    count: usize,
+) {
+    let mut failure = failure_state.lock().unwrap();
+    if failure.is_none() {
+        *failure = Some(message);
+    }
+    drop(failure);
+    pending.fetch_sub(count, Ordering::AcqRel);
+}
+
+async fn flush_frame_batch(
+    session: &Session,
+    batch: &mut Vec<LaneRecord>,
+    diagnostics: &FrameDiagnostics,
+    pending: &AtomicUsize,
+    failure_state: &Mutex<Option<String>>,
+) -> HarnessResult<()> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+    let records = std::mem::take(batch);
+    let count = records.len();
+    if diagnostics.enabled {
+        diagnostics.batch_count.fetch_add(1, Ordering::Relaxed);
+        diagnostics
+            .batch_records
+            .fetch_add(count as u64, Ordering::Relaxed);
+        diagnostics
+            .append_records_calls
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    let started = diagnostics.enabled.then(Instant::now);
+    let result = session
+        .append_records(records)
+        .await
+        .map(|_| ())
+        .map_err(|error| {
+            HarnessError::io(format!("could not append assistant frame chunk: {error}"))
+        });
+    if let Err(error) = &result {
+        // Publish failure before releasing the last pending count. A concurrent
+        // barrier must not observe zero and return success in this small window.
+        publish_failure_before_pending_release(error.to_string(), failure_state, pending, count);
+    } else {
+        pending.fetch_sub(count, Ordering::AcqRel);
+    }
+    if let Some(started) = started {
+        FrameDiagnostics::add_duration(&diagnostics.batch_append_ns, started.elapsed());
+    }
+    result
+}
+
 /// The `record_type` tag for [`AssistantFrameRecord`].
 pub const ASSISTANT_FRAME_RECORD_TYPE: &str = "assistant_frame";
 
@@ -53,6 +425,17 @@ pub const ASSISTANT_FRAME_RECORD_TYPE: &str = "assistant_frame";
 /// verbatim so a reader (or a tool) can recognise the case.
 pub const INTERRUPTED_NOTICE: &str = "Assistant request was interrupted. The preceding content is \
 the latest committed partial; newer live output may be missing and the external outcome is unknown.";
+
+#[derive(Clone, Default)]
+pub(crate) struct VolatileStream {
+    frames: Vec<AssistantMessageFrame>,
+    committed_entries: Vec<String>,
+}
+#[derive(Default)]
+pub(crate) struct VolatileProgress {
+    runs: BTreeMap<String, BTreeMap<usize, VolatileStream>>,
+}
+pub(crate) type SharedVolatileProgress = Arc<Mutex<VolatileProgress>>;
 
 /// Turn a replayed partial into the interrupted message rpi records.
 ///
@@ -83,6 +466,8 @@ pub struct UnknownToolOutcome {
     /// The arguments the model asked for, recovered from the frames. This is what
     /// lets a reader judge what the tool *would* have done.
     pub arguments: serde_json::Value,
+    /// The call's recording when it already ran upstream. Such a call is answered
+    /// from this recording and is never replayed.
     pub recorded: Option<serde_json::Value>,
 }
 
@@ -159,6 +544,29 @@ pub fn interrupted_tool_result(outcome: &UnknownToolOutcome, timestamp: i64) -> 
     }))
 }
 
+/// The tool result for an unresolved call that already ran upstream: its
+/// recording, or an error result when the recording is unusable. The call is
+/// never executed here.
+pub fn recorded_tool_result(
+    outcome: &UnknownToolOutcome,
+    recording: &serde_json::Value,
+    timestamp: i64,
+) -> AgentMessage {
+    // The host decoder keeps the recording's structured content and details.
+    let result =
+        rpi_agent::ToolInvocationResult::from_recording(recording).unwrap_or_else(|error| {
+            rpi_agent::ToolInvocationResult {
+                result: rpi_agent::AgentToolResult::error_text(error),
+                is_error: true,
+            }
+        });
+    AgentMessage::ToolResult(Box::new(result.into_message(
+        &outcome.tool_call_id,
+        &outcome.tool_name,
+        timestamp,
+    )))
+}
+
 /// Reduce the committed frames of every stream in `run_id`, in stream order.
 ///
 /// A run that was cleared (i.e. it committed) yields nothing. Unreadable frame
@@ -168,6 +576,42 @@ pub(crate) async fn replay_run_frames(
     session: &Session,
     run_id: &str,
 ) -> HarnessResult<Vec<AssistantMessage>> {
+    if let Some(progress) = session.volatile_progress() {
+        // Copy only on recovery. The streaming path moves typed frames into the
+        // cache, retaining the same encoder/reducer semantics as durable mode.
+        let streams = progress
+            .lock()
+            .unwrap()
+            .runs
+            .get(run_id)
+            .cloned()
+            .unwrap_or_default();
+        let mut replayed = Vec::new();
+        for stream in streams.into_values() {
+            let mut committed = false;
+            for entry_id in &stream.committed_entries {
+                if session
+                    .get_entry(entry_id)
+                    .await
+                    .map_err(|error| HarnessError::io(error.to_string()))?
+                    .is_some()
+                {
+                    committed = true;
+                    break;
+                }
+            }
+            if !committed {
+                match reduce_frames(&stream.frames) {
+                    Ok(Some(partial)) => replayed.push(partial),
+                    Ok(None) => {}
+                    Err(error) => {
+                        tracing::warn!(%error, "discarding an unreadable in-memory assistant frame stream")
+                    }
+                }
+            }
+        }
+        return Ok(replayed);
+    }
     let records = session
         .find_records(&RecordQuery {
             record_type: Some(ASSISTANT_FRAME_RECORD_TYPE),
@@ -266,6 +710,19 @@ pub(crate) async fn bind_stream_entry(
     stream_index: usize,
     entry_id: &str,
 ) -> HarnessResult<()> {
+    if let Some(progress) = session.volatile_progress() {
+        progress
+            .lock()
+            .unwrap()
+            .runs
+            .entry(run_id.to_owned())
+            .or_default()
+            .entry(stream_index)
+            .or_default()
+            .committed_entries
+            .push(entry_id.to_owned());
+        return Ok(());
+    }
     session
         .append_record(LaneRecord::AssistantFrame(AssistantFrameRecord {
             base: RecordBase {
@@ -316,6 +773,9 @@ struct RecorderShared {
     lane: String,
     run_id: String,
     state: Mutex<RecorderState>,
+    volatile: Option<SharedVolatileProgress>,
+    writer: Option<FrameWriter>,
+    diagnostics: Option<Arc<FrameDiagnostics>>,
 }
 
 struct RecorderState {
@@ -325,7 +785,7 @@ struct RecorderState {
 }
 
 impl RecorderShared {
-    /// Append one `AssistantFrame` record.
+    /// Queue one `AssistantFrame` record for the chunk writer.
     async fn append_frame_record(
         &self,
         stream_index: usize,
@@ -344,11 +804,54 @@ impl RecorderShared {
             op,
             frame,
         });
-        self.session
-            .append_record(record)
+        self.writer
+            .as_ref()
+            .ok_or_else(|| HarnessError::io("durable frame writer is unavailable"))?
+            .append(record)
             .await
-            .map_err(|error| HarnessError::io(error.to_string()))?;
-        Ok(())
+    }
+
+    async fn flush_frames(&self, reason: FrameFlushReason) -> HarnessResult<()> {
+        if let Some(diagnostics) = &self.diagnostics {
+            diagnostics.barrier(reason);
+        }
+        if let Some(writer) = &self.writer {
+            writer.flush().await
+        } else {
+            Ok(())
+        }
+    }
+
+    fn diagnostics_snapshot(&self) -> Option<FrameDiagnosticsSnapshot> {
+        self.diagnostics
+            .as_ref()
+            .filter(|diagnostics| diagnostics.enabled)
+            .map(|diagnostics| diagnostics.snapshot())
+    }
+
+    fn log_diagnostics(&self) {
+        let Some(snapshot) = self.diagnostics_snapshot() else {
+            return;
+        };
+        eprintln!(
+            "RPI_FRAME_DIAGNOSTICS lane={} run_id={} frame_append_requests={} batch_count={} batch_records={} append_records_calls={} flush_requests={} queue_wait_ns={} flush_wait_ns={} batch_append_ns={} writer_failures={} prepare_commit_flushes={} clear_stream_before_flushes={} clear_stream_after_flushes={} clear_run_before_flushes={} clear_run_after_flushes={}",
+            self.lane,
+            self.run_id,
+            snapshot.frame_append_requests,
+            snapshot.batch_count,
+            snapshot.batch_records,
+            snapshot.append_records_calls,
+            snapshot.flush_requests,
+            snapshot.queue_wait_ns,
+            snapshot.flush_wait_ns,
+            snapshot.batch_append_ns,
+            snapshot.writer_failures,
+            snapshot.prepare_commit_flushes,
+            snapshot.clear_stream_before_flushes,
+            snapshot.clear_stream_after_flushes,
+            snapshot.clear_run_before_flushes,
+            snapshot.clear_run_after_flushes,
+        );
     }
 
     /// Advance the recorder for one event and return the frame to append, if
@@ -397,12 +900,22 @@ impl FrameRecordingEmitter {
         lane: impl Into<String>,
         run_id: impl Into<String>,
     ) -> Self {
+        let volatile = session.volatile_progress();
+        let writer = volatile
+            .is_none()
+            .then(|| FrameWriter::new(session.clone()));
+        let diagnostics = writer
+            .as_ref()
+            .map(|writer| Arc::clone(&writer.diagnostics));
         Self {
             inner,
             shared: Arc::new(RecorderShared {
                 session,
                 lane: lane.into(),
                 run_id: run_id.into(),
+                volatile,
+                writer,
+                diagnostics,
                 state: Mutex::new(RecorderState {
                     next_index: 0,
                     current: None,
@@ -416,11 +929,41 @@ impl FrameRecordingEmitter {
         &self.shared.run_id
     }
 
+    /// Flush all queued durable frame chunks before a commit boundary.
+    #[cfg(test)]
+    pub(crate) async fn flush(&self) -> HarnessResult<()> {
+        self.shared.flush_frames(FrameFlushReason::Manual).await
+    }
+
+    pub(crate) async fn flush_with_reason(&self, reason: FrameFlushReason) -> HarnessResult<()> {
+        self.shared.flush_frames(reason).await
+    }
+
+    /// Snapshot optional frame writer diagnostics.
+    pub fn diagnostics(&self) -> Option<FrameDiagnosticsSnapshot> {
+        self.shared.diagnostics_snapshot()
+    }
+
     /// Retire this run's frames — called once its messages are persisted.
     pub async fn clear(&self) -> HarnessResult<()> {
+        if let Some(progress) = &self.shared.volatile {
+            progress.lock().unwrap().runs.remove(&self.shared.run_id);
+            return Ok(());
+        }
+        self.shared
+            .flush_frames(FrameFlushReason::ClearRunBefore)
+            .await?;
         self.shared
             .append_frame_record(0, AssistantFrameOp::ClearRun, None)
-            .await
+            .await?;
+        let result = self
+            .shared
+            .flush_frames(FrameFlushReason::ClearRunAfter)
+            .await;
+        if result.is_ok() {
+            self.shared.log_diagnostics();
+        }
+        result
     }
 
     /// Retire one stream, whose message has just been committed as an entry.
@@ -428,8 +971,20 @@ impl FrameRecordingEmitter {
     /// Without this, salvage would replay it again on a crash and duplicate the
     /// message: the run-wide `ClearRun` marker only arrives at the end of the run.
     pub async fn clear_stream(&self, stream_index: usize) -> HarnessResult<()> {
+        if let Some(progress) = &self.shared.volatile {
+            if let Some(run) = progress.lock().unwrap().runs.get_mut(&self.shared.run_id) {
+                run.remove(&stream_index);
+            }
+            return Ok(());
+        }
+        self.shared
+            .flush_frames(FrameFlushReason::ClearStreamBefore)
+            .await?;
         self.shared
             .append_frame_record(stream_index, AssistantFrameOp::ClearStream, None)
+            .await?;
+        self.shared
+            .flush_frames(FrameFlushReason::ClearStreamAfter)
             .await
     }
 
@@ -439,6 +994,19 @@ impl FrameRecordingEmitter {
         let Some((index, frame)) = shared.take_frame(event) else {
             return;
         };
+        if let Some(progress) = &shared.volatile {
+            progress
+                .lock()
+                .unwrap()
+                .runs
+                .entry(shared.run_id.clone())
+                .or_default()
+                .entry(index)
+                .or_default()
+                .frames
+                .push(frame);
+            return;
+        }
         let value = match serde_json::to_value(&frame) {
             Ok(value) => value,
             Err(error) => {
@@ -476,32 +1044,30 @@ impl FrameRecordingEmitter {
     fn emit_inner(&self, event: AgentEvent, prepared: bool) -> BoxFuture<'static, ()> {
         let inner = Arc::clone(&self.inner);
         let shared = Arc::clone(&self.shared);
-        // Extract the frame source before moving `event` into the future.
-        // `emit` is awaited by the loop in event order, so the append happens
-        // before the event is forwarded and frames can never be reordered.
-        let to_record: Option<AssistantMessageEvent> = match &event {
-            AgentEvent::MessageStart {
-                message: AgentMessage::Assistant(assistant),
-            } => Some(AssistantMessageEvent::Start {
-                partial: Arc::new((**assistant).clone()),
-            }),
-            AgentEvent::MessageUpdate {
-                assistant_message_event,
-                ..
-            } => Some(assistant_message_event.clone()),
-            // The settled message is persisted by the harness; stop recording
-            // this stream. Its frames are retired once the run commits.
-            AgentEvent::MessageEnd {
-                message: AgentMessage::Assistant(_),
-            } => {
-                shared.state.lock().unwrap().current = None;
-                None
-            }
-            _ => None,
-        };
         Box::pin(async move {
-            if let Some(event) = to_record {
-                FrameRecordingEmitter::record(&shared, &event).await;
+            // Borrow from the owned event while recording, then forward it.
+            // This avoids cloning every delta string into a temporary event.
+            match &event {
+                AgentEvent::MessageStart {
+                    message: AgentMessage::Assistant(assistant),
+                } => {
+                    let start = AssistantMessageEvent::Start {
+                        partial: Arc::new((**assistant).clone()),
+                    };
+                    FrameRecordingEmitter::record(&shared, &start).await;
+                }
+                AgentEvent::MessageUpdate {
+                    assistant_message_event,
+                    ..
+                } => {
+                    FrameRecordingEmitter::record(&shared, assistant_message_event).await;
+                }
+                AgentEvent::MessageEnd {
+                    message: AgentMessage::Assistant(_),
+                } => {
+                    shared.state.lock().unwrap().current = None;
+                }
+                _ => {}
             }
             if prepared {
                 inner.emit_prepared(event).await;
@@ -509,5 +1075,445 @@ impl FrameRecordingEmitter {
                 inner.emit(event).await;
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod volatile_tests {
+    use super::*;
+    use crate::session::memory::{CounterIdGenerator, FakeClock, InMemorySessionStorage};
+    use crate::session::types::{ProvisionedEntry, ProvisionedKind, SessionMetadata};
+    use rpi_agent::CollectorEmitter;
+    use rpi_ai::{Api, Content};
+
+    fn session(volatile: bool) -> Session {
+        let session = Session::new(
+            Arc::new(InMemorySessionStorage::new(
+                SessionMetadata {
+                    id: "memory".into(),
+                    created_at: 0,
+                    parent_session_id: None,
+                },
+                Arc::new(FakeClock::new()),
+                Arc::new(CounterIdGenerator::new()),
+            )),
+            None,
+        );
+        if volatile {
+            session.with_volatile_progress()
+        } else {
+            session
+        }
+    }
+    fn events() -> Vec<AgentEvent> {
+        let mut message = AssistantMessage::empty(Api::Faux, "faux", "m", 42);
+        let mut events = vec![AgentEvent::MessageStart {
+            message: message.clone().into(),
+        }];
+        // Start snapshots may already cover a delta not yet observed by the
+        // encoder. Both modes must retain the encoder's catch-up semantics.
+        message.content.push(Content::text("ahead"));
+        let partial = Arc::new(message.clone());
+        events.push(AgentEvent::MessageUpdate {
+            message: Arc::clone(&partial),
+            assistant_message_event: AssistantMessageEvent::TextStart {
+                content_index: 0,
+                partial,
+            },
+        });
+        for delta in ["ahead", " 🐈", "", "!"] {
+            if delta != "ahead" {
+                if let Content::Text(text) = &mut message.content[0] {
+                    text.text.push_str(delta);
+                }
+            }
+            let partial = Arc::new(message.clone());
+            events.push(AgentEvent::MessageUpdate {
+                message: Arc::clone(&partial),
+                assistant_message_event: AssistantMessageEvent::TextDelta {
+                    content_index: 0,
+                    delta: delta.into(),
+                    partial,
+                },
+            });
+        }
+        events
+    }
+    #[tokio::test]
+    async fn volatile_recovery_matches_durable_prefixes_without_json_records() {
+        let events = events();
+        for prefix in 0..=events.len() {
+            let durable = session(false);
+            let volatile = session(true);
+            for session in [&durable, &volatile] {
+                let recorder = FrameRecordingEmitter::new(
+                    Arc::new(CollectorEmitter::default()),
+                    session.clone(),
+                    "main",
+                    "run",
+                );
+                for event in &events[..prefix] {
+                    recorder.emit(event.clone()).await;
+                }
+                recorder.flush().await.unwrap();
+            }
+            assert_eq!(
+                salvage_run_frames(&volatile, "run").await.unwrap(),
+                salvage_run_frames(&durable, "run").await.unwrap(),
+                "prefix {prefix}"
+            );
+            assert!(volatile
+                .find_records(&RecordQuery {
+                    record_type: Some(ASSISTANT_FRAME_RECORD_TYPE),
+                    ..Default::default()
+                })
+                .await
+                .unwrap()
+                .is_empty());
+        }
+    }
+    #[tokio::test]
+    async fn volatile_bindings_clear_and_storage_switch_preserve_commit_boundaries() {
+        for volatile in [false, true] {
+            let session = session(volatile);
+            let recorder = FrameRecordingEmitter::new(
+                Arc::new(CollectorEmitter::default()),
+                session.clone(),
+                "main",
+                "run",
+            );
+            for event in events() {
+                recorder.emit(event).await;
+            }
+            recorder.flush().await.unwrap();
+            assert_eq!(replay_run_frames(&session, "run").await.unwrap().len(), 1);
+            bind_stream_entry(&session, "main", "run", 0, "settled")
+                .await
+                .unwrap();
+            assert_eq!(
+                replay_run_frames(&session, "run").await.unwrap().len(),
+                1,
+                "a binding alone must not hide progress"
+            );
+            session
+                .storage()
+                .append_entry(
+                    ProvisionedEntry {
+                        id: "settled".into(),
+                        kind: ProvisionedKind::Message {
+                            message: rpi_ai::UserMessage::new("committed", 42).into(),
+                            terminate: None,
+                        },
+                    },
+                    "main",
+                )
+                .await
+                .unwrap();
+            assert!(replay_run_frames(&session, "run").await.unwrap().is_empty());
+            recorder.clear_stream(0).await.unwrap();
+            recorder.clear().await.unwrap();
+            assert!(replay_run_frames(&session, "run").await.unwrap().is_empty());
+            if volatile {
+                assert!(session
+                    .volatile_progress()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .runs
+                    .is_empty());
+                let other = self::session(false);
+                session.set_storage(other.storage());
+                assert!(session.volatile_progress().is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn sticky_failure_is_published_before_pending_reaches_zero() {
+        let pending = AtomicUsize::new(1);
+        let failure = Mutex::new(None);
+        publish_failure_before_pending_release("append failed".into(), &failure, &pending, 1);
+        assert_eq!(pending.load(Ordering::Acquire), 0);
+        assert_eq!(
+            failure.lock().unwrap().as_deref(),
+            Some("append failed"),
+            "pending zero must imply the sticky failure is already visible"
+        );
+
+        let (tx, _rx) = mpsc::channel(1);
+        let writer = FrameWriter {
+            tx,
+            diagnostics: FrameDiagnostics::new(),
+            pending: Arc::new(AtomicUsize::new(0)),
+            failure: Arc::new(Mutex::new(Some("append failed".into()))),
+        };
+        let result = futures::executor::block_on(writer.flush());
+        assert!(
+            result.is_err(),
+            "sticky failure must not be hidden by fast path"
+        );
+    }
+
+    #[tokio::test]
+    async fn failed_frame_append_publishes_sticky_error_before_release() {
+        let session = session(false);
+        let pending = AtomicUsize::new(1);
+        let failure = Mutex::new(None);
+        let mut batch = vec![LaneRecord::AssistantFrame(AssistantFrameRecord {
+            base: RecordBase {
+                id: "bad-lane-frame".into(),
+                seq: 0,
+                lane: "missing-lane".into(),
+                timestamp: 0,
+            },
+            run_id: "failed-run".into(),
+            stream_index: 0,
+            op: AssistantFrameOp::Append,
+            frame: None,
+        })];
+
+        let result = flush_frame_batch(
+            &session,
+            &mut batch,
+            &FrameDiagnostics::new(),
+            &pending,
+            &failure,
+        )
+        .await;
+        assert!(result.is_err());
+        assert!(batch.is_empty());
+        assert_eq!(pending.load(Ordering::Acquire), 0);
+        assert!(failure.lock().unwrap().is_some());
+    }
+    #[tokio::test]
+    async fn cancelled_append_does_not_leak_pending_reservation() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let pending = Arc::new(AtomicUsize::new(0));
+        let writer = FrameWriter {
+            tx,
+            diagnostics: FrameDiagnostics::new(),
+            pending: Arc::clone(&pending),
+            failure: Arc::new(Mutex::new(None)),
+        };
+        let record = |id: String| {
+            LaneRecord::AssistantFrame(AssistantFrameRecord {
+                base: RecordBase {
+                    id,
+                    seq: 0,
+                    lane: "main".into(),
+                    timestamp: 0,
+                },
+                run_id: "cancel-run".into(),
+                stream_index: 0,
+                op: AssistantFrameOp::Append,
+                frame: None,
+            })
+        };
+
+        writer.append(record("first".into())).await.unwrap();
+        assert_eq!(pending.load(Ordering::Acquire), 1);
+        let blocked_writer = writer.clone();
+        let mut blocked = Box::pin(blocked_writer.append(record("cancelled".into())));
+        assert!(futures::poll!(blocked.as_mut()).is_pending());
+        drop(blocked);
+        assert_eq!(
+            pending.load(Ordering::Acquire),
+            1,
+            "a cancelled reserve must not leave a phantom pending record"
+        );
+
+        let command = rx.recv().await.expect("the first append is queued");
+        assert!(matches!(command, FrameWriteCommand::Append(_)));
+        pending.fetch_sub(1, Ordering::AcqRel);
+        assert_eq!(pending.load(Ordering::Acquire), 0);
+        writer.flush().await.unwrap();
+
+        let (tx, rx) = mpsc::channel(1);
+        drop(rx);
+        let closed = FrameWriter {
+            tx,
+            diagnostics: FrameDiagnostics::new(),
+            pending: Arc::new(AtomicUsize::new(0)),
+            failure: Arc::new(Mutex::new(None)),
+        };
+        assert!(closed.append(record("closed".into())).await.is_err());
+        assert_eq!(closed.pending.load(Ordering::Acquire), 0);
+    }
+    #[tokio::test]
+    async fn detached_writer_keeps_the_original_storage_binding_after_switch() {
+        let session = session(false);
+        let old_storage = session.storage();
+        let target = self::session(false);
+        let target_storage = target.storage();
+        let writer = FrameWriter::new(session.clone());
+        let record = LaneRecord::AssistantFrame(AssistantFrameRecord {
+            base: RecordBase {
+                id: session.id_generator().next(),
+                seq: 0,
+                lane: "main".into(),
+                timestamp: 0,
+            },
+            run_id: "old-run".into(),
+            stream_index: 0,
+            op: AssistantFrameOp::Append,
+            frame: None,
+        });
+
+        writer.append(record).await.unwrap();
+        drop(writer);
+        session.set_storage(target_storage.clone());
+        tokio::task::yield_now().await;
+
+        let query = RecordQuery {
+            record_type: Some(ASSISTANT_FRAME_RECORD_TYPE),
+            run_id: Some("old-run".into()),
+            ..Default::default()
+        };
+        let old_records = old_storage.find_records(&query).await.unwrap();
+        let target_records = target_storage.find_records(&query).await.unwrap();
+        assert_eq!(
+            old_records.len(),
+            1,
+            "queued work belongs to the old session"
+        );
+        assert_eq!(
+            target_records.len(),
+            0,
+            "a switch must not receive old work"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn frame_checkpoint_deadline_is_not_reset_by_busy_input() {
+        let session = session(false);
+        let storage = session.storage();
+        let writer = FrameWriter::new(session.clone());
+        let record = |id: String| {
+            LaneRecord::AssistantFrame(AssistantFrameRecord {
+                base: RecordBase {
+                    id,
+                    seq: 0,
+                    lane: "main".into(),
+                    timestamp: 0,
+                },
+                run_id: "busy-run".into(),
+                stream_index: 0,
+                op: AssistantFrameOp::Append,
+                frame: None,
+            })
+        };
+
+        writer
+            .append(record(session.id_generator().next()))
+            .await
+            .unwrap();
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_millis(40)).await;
+        writer
+            .append(record(session.id_generator().next()))
+            .await
+            .unwrap();
+        tokio::task::yield_now().await;
+        // The first frame's deadline was t=50ms. A relative timeout reset by
+        // the second frame would instead wait until t=90ms and fail this check.
+        tokio::time::advance(Duration::from_millis(20)).await;
+        for _ in 0..3 {
+            tokio::task::yield_now().await;
+        }
+
+        let records = storage
+            .find_records(&RecordQuery {
+                record_type: Some(ASSISTANT_FRAME_RECORD_TYPE),
+                run_id: Some("busy-run".into()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            records.len(),
+            2,
+            "the batch must flush at its first deadline"
+        );
+        drop(writer);
+    }
+
+    #[tokio::test]
+    async fn harness_switch_adopts_the_target_recovery_cache_and_existing_views() {
+        use crate::agent_harness::AgentHarness;
+        use crate::types::AgentHarnessOptions;
+        for target_volatile in [false, true] {
+            let source = session(true);
+            let harness = AgentHarness::create(AgentHarnessOptions {
+                session: source,
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+            let existing_view = harness.session().clone();
+            let old = FrameRecordingEmitter::new(
+                Arc::new(CollectorEmitter::default()),
+                existing_view.clone(),
+                "main",
+                "old-run",
+            );
+            for event in events() {
+                old.emit(event).await;
+            }
+            old.flush().await.unwrap();
+            let target = session(target_volatile);
+            let recorder = FrameRecordingEmitter::new(
+                Arc::new(CollectorEmitter::default()),
+                target.clone(),
+                "main",
+                "target-run",
+            );
+            for event in events() {
+                recorder.emit(event).await;
+            }
+            recorder.flush().await.unwrap();
+            bind_stream_entry(&target, "main", "target-run", 0, "target-entry")
+                .await
+                .unwrap();
+            let expected = salvage_run_frames(&target, "target-run").await.unwrap();
+            assert_eq!(expected.len(), 1);
+            harness.set_session(target.clone()).await.unwrap();
+            assert_eq!(
+                salvage_run_frames(harness.session(), "target-run")
+                    .await
+                    .unwrap(),
+                expected
+            );
+            assert_eq!(
+                salvage_run_frames(&existing_view, "target-run")
+                    .await
+                    .unwrap(),
+                expected
+            );
+            assert!(salvage_run_frames(harness.session(), "old-run")
+                .await
+                .unwrap()
+                .is_empty());
+            target
+                .storage()
+                .append_entry(
+                    ProvisionedEntry {
+                        id: "target-entry".into(),
+                        kind: ProvisionedKind::Message {
+                            message: rpi_ai::UserMessage::new("committed", 42).into(),
+                            terminate: None,
+                        },
+                    },
+                    "main",
+                )
+                .await
+                .unwrap();
+            assert!(
+                salvage_run_frames(harness.session(), "target-run")
+                    .await
+                    .unwrap()
+                    .is_empty(),
+                "the target's entry binding must survive the switch"
+            );
+        }
     }
 }

@@ -188,12 +188,10 @@ pub fn parse_mutation(line: &str) -> Result<SessionMutation, JsonlDecodeError> {
     }
 }
 
-/// Serialize a mutation to its newline-terminated JSONL line. Mirrors TS
-/// `encodeMutation`.
-pub fn encode_mutation(mutation: &SessionMutation) -> String {
+fn mutation_value(mutation: &SessionMutation) -> Value {
     match mutation {
         SessionMutation::Entry { lane, entry, .. } => {
-            // `{kind:"entry", lane, ...entry}` — emit as an object with `kind`
+            // `{kind:"entry", lane, ...entry}` — emit an object with `kind`
             // first, then `lane` (present or null), then the entry's flat fields.
             let mut map = serde_json::Map::new();
             map.insert("kind".into(), Value::String("entry".into()));
@@ -209,10 +207,7 @@ pub fn encode_mutation(mutation: &SessionMutation) -> String {
                     map.insert(k, v);
                 }
             }
-            let mut s =
-                serde_json::to_string(&Value::Object(map)).expect("entry mutates serialize");
-            s.push('\n');
-            s
+            Value::Object(map)
         }
         SessionMutation::Record { record } => {
             // `{kind:"record", ...record}`.
@@ -224,10 +219,7 @@ pub fn encode_mutation(mutation: &SessionMutation) -> String {
                     map.insert(k, v);
                 }
             }
-            let mut s =
-                serde_json::to_string(&Value::Object(map)).expect("record mutates serialize");
-            s.push('\n');
-            s
+            Value::Object(map)
         }
         SessionMutation::Lane { seq, lane, leaf_id } => {
             let mut map = serde_json::Map::new();
@@ -241,23 +233,19 @@ pub fn encode_mutation(mutation: &SessionMutation) -> String {
                     None => Value::Null,
                 },
             );
-            let mut s = serde_json::to_string(&Value::Object(map)).expect("lane mutates serialize");
-            s.push('\n');
-            s
+            Value::Object(map)
         }
         SessionMutation::FactName { seq, name } => {
             let mut map = serde_json::Map::new();
             map.insert("kind".into(), Value::String("fact".into()));
             map.insert("seq".into(), Value::Number((*seq).into()));
             map.insert("fact".into(), Value::String("name".into()));
-            if let Some(n) = name {
-                map.insert("name".into(), Value::String(n.clone()));
-            } else {
-                map.insert("name".into(), Value::Null);
-            }
-            let mut s = serde_json::to_string(&Value::Object(map)).expect("fact mutates serialize");
-            s.push('\n');
-            s
+            map.insert(
+                "name".into(),
+                name.as_ref()
+                    .map_or(Value::Null, |name| Value::String(name.clone())),
+            );
+            Value::Object(map)
         }
         SessionMutation::FactLabel {
             seq,
@@ -269,16 +257,29 @@ pub fn encode_mutation(mutation: &SessionMutation) -> String {
             map.insert("seq".into(), Value::Number((*seq).into()));
             map.insert("fact".into(), Value::String("label".into()));
             map.insert("targetId".into(), Value::String(target_id.clone()));
-            if let Some(l) = label {
-                map.insert("label".into(), Value::String(l.clone()));
-            } else {
-                map.insert("label".into(), Value::Null);
-            }
-            let mut s = serde_json::to_string(&Value::Object(map)).expect("fact mutates serialize");
-            s.push('\n');
-            s
+            map.insert(
+                "label".into(),
+                label
+                    .as_ref()
+                    .map_or(Value::Null, |label| Value::String(label.clone())),
+            );
+            Value::Object(map)
         }
     }
+}
+
+/// Serialize a mutation into an existing JSONL byte buffer.
+pub fn encode_mutation_into(mutation: &SessionMutation, output: &mut Vec<u8>) {
+    serde_json::to_writer(&mut *output, &mutation_value(mutation)).expect("mutation serializes");
+    output.push(b'\n');
+}
+
+/// Serialize a mutation to its newline-terminated JSONL line. Mirrors TS
+/// `encodeMutation`.
+pub fn encode_mutation(mutation: &SessionMutation) -> String {
+    let mut output = Vec::new();
+    encode_mutation_into(mutation, &mut output);
+    String::from_utf8(output).expect("JSON is UTF-8")
 }
 
 // ---- per-kind decode (mirror parseEntryMutation / parseRecordMutation / ...) ----

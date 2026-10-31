@@ -20,6 +20,7 @@ pub struct Request {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Command {
     Prompt {
+        #[serde(alias = "content", alias = "prompt")]
         message: String,
     },
     Abort,
@@ -34,10 +35,19 @@ pub enum Command {
         position: Option<String>,
     },
     GetState,
+    /// List extension slash commands (name, description, and `native`).
     GetCommands,
+    /// Run a command through the owner-scoped runner (native commands included).
     ExtensionCommand {
         name: String,
         args: Option<String>,
+    },
+    /// Invoke an extension handler and return its JSON result as response data.
+    /// `command` accepts a registered name with or without a leading slash.
+    ExecuteCommand {
+        command: String,
+        #[serde(default)]
+        args: String,
     },
     /// Read-only snapshot of the current branch's message entries.
     GetMessages {
@@ -51,6 +61,16 @@ pub enum Command {
         after_seq: Option<u64>,
         #[serde(rename = "beforeSeq")]
         before_seq: Option<u64>,
+    },
+    /// Query custom entries on the selected branch. Query validation is shared
+    /// with the runtime action (required non-empty `customTypes`; optional
+    /// `afterSeq`, `limit`, `order`), after removing the RPC envelope.
+    GetSessionBranch,
+    /// Append a protocol-neutral custom entry to the current branch.
+    AppendEntry {
+        #[serde(rename = "customType")]
+        custom_type: String,
+        data: Option<Value>,
     },
     GetStats,
     GetQueue,
@@ -77,6 +97,12 @@ pub enum Command {
     },
     GetAvailableModels,
     GetAuthStatus,
+    #[serde(rename = "oauth")]
+    OAuth {
+        provider: String,
+        action: String,
+        input: Option<Value>,
+    },
     SetApiKey {
         provider: String,
         #[serde(rename = "apiKey")]
@@ -90,6 +116,15 @@ pub enum Command {
     GetAvailableThinkingLevels,
     SetThinkingLevel {
         level: rpi_ai::types::ThinkingLevel,
+    },
+    ConfigureExternalTools {
+        tools: Vec<rpi_tools::tools::external::ExternalToolDefinition>,
+    },
+    // Outcome validation is presence-aware in ExternalTools::respond: Option
+    // would conflate explicit null with an absent outcome.
+    ExternalToolResponse {
+        #[serde(rename = "requestId")]
+        request_id: String,
     },
     GetAvailableTools,
     SetActiveTools {
@@ -113,8 +148,11 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "fork",
     "get_commands",
     "extension_command",
+    "execute_command",
     "get_messages",
     "get_history",
+    "get_session_branch",
+    "append_entry",
     "get_stats",
     "get_queue",
     "queue_message",
@@ -132,6 +170,8 @@ pub const SUPPORTED_COMMANDS: &[&str] = &[
     "set_model",
     "get_available_thinking_levels",
     "set_thinking_level",
+    "configure_external_tools",
+    "external_tool_response",
     "get_available_tools",
     "set_active_tools",
     "ui_dialog_response",
@@ -144,25 +184,34 @@ pub fn response(id: Option<Value>, command: &str, result: Result<Option<Value>, 
         "type": "response",
         "command": command,
         "success": result.is_ok(),
+        // Keep the original remote-client response fields during the RPC
+        // protocol transition. New clients use success/data; older clients
+        // still require status/result to deserialize the response.
+        "status": if result.is_ok() { "ok" } else { "error" },
     });
     if let Some(id) = id {
         out["id"] = id;
     }
     match result {
-        Ok(Some(data)) => out["data"] = data,
+        Ok(Some(data)) => {
+            out["data"] = data.clone();
+            out["result"] = data;
+        }
         Ok(None) => {}
         Err(error) => out["error"] = json!(error),
     }
     out
 }
 
-pub fn ready() -> Value {
+pub fn ready(mode: crate::args::RpcMessageUpdates) -> Value {
     json!({
         "type": "ready",
         "protocol": "rpi",
         "piCompatibilityTarget": PI_BASELINE,
         "supportedCommands": SUPPORTED_COMMANDS,
+        "supportedEvents": ["session_entry_committed", "external_tool_request", "external_tool_request_closed"],
         "semantics": {
+            "messageUpdates": mode.as_str(),
             "promptResponse": "accepted",
             "settlementEvent": "agent_settled",
             "agentEndIsTerminal": false
@@ -191,8 +240,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn advertised_commands_are_unique() {
+        let commands: std::collections::HashSet<_> = SUPPORTED_COMMANDS.iter().collect();
+        assert_eq!(commands.len(), SUPPORTED_COMMANDS.len());
+    }
+
+    #[test]
+    fn extension_commands_are_advertised_and_args_default_to_empty() {
+        for name in ["get_commands", "execute_command"] {
+            assert!(SUPPORTED_COMMANDS.contains(&name));
+        }
+        let request: Request = serde_json::from_value(json!({
+            "type": "execute_command", "command": "/example"
+        }))
+        .unwrap();
+        assert!(
+            matches!(request.command, Command::ExecuteCommand { command, args }
+            if command == "/example" && args.is_empty())
+        );
+        assert!(serde_json::from_value::<Request>(json!({
+            "type": "execute_command", "command": "example", "args": 42
+        }))
+        .is_err());
+    }
+
+    #[test]
     fn ready_advertises_the_p0_contract() {
-        let value = ready();
+        for mode in [
+            crate::args::RpcMessageUpdates::CompactDeltas,
+            crate::args::RpcMessageUpdates::Snapshot,
+        ] {
+            assert_eq!(ready(mode)["semantics"]["messageUpdates"], mode.as_str());
+        }
+        let value = ready(crate::args::RpcMessageUpdates::default());
         assert_eq!(value["protocol"], "rpi");
         assert_eq!(value["semantics"]["settlementEvent"], "agent_settled");
         assert!(value["supportedCommands"]
@@ -204,7 +284,7 @@ mod tests {
 
     #[test]
     fn ready_advertises_the_read_only_history_snapshot() {
-        let value = ready();
+        let value = ready(crate::args::RpcMessageUpdates::default());
         assert!(value["supportedCommands"]
             .as_array()
             .unwrap()
@@ -214,7 +294,7 @@ mod tests {
 
     #[test]
     fn ready_advertises_resuming_an_interrupted_run() {
-        let value = ready();
+        let value = ready(crate::args::RpcMessageUpdates::default());
         assert!(value["supportedCommands"]
             .as_array()
             .unwrap()
@@ -224,7 +304,7 @@ mod tests {
 
     #[test]
     fn ready_advertises_compaction() {
-        let value = ready();
+        let value = ready(crate::args::RpcMessageUpdates::default());
         assert!(value["supportedCommands"]
             .as_array()
             .unwrap()
@@ -295,6 +375,39 @@ mod tests {
         assert!(!status.to_string().contains("secret-fixture"));
     }
     #[test]
+    fn prompt_payload_accepts_legacy_content_and_prompt_fields() {
+        for field in ["content", "prompt"] {
+            let request: Request = serde_json::from_value(json!({
+                "type": "prompt",
+                field: "legacy text"
+            }))
+            .unwrap();
+            assert!(
+                matches!(request.command, Command::Prompt { message } if message == "legacy text")
+            );
+        }
+    }
+
+    #[test]
+    fn oauth_payload_keeps_provider_action_and_input() {
+        let request: Request = serde_json::from_value(json!({
+            "type": "oauth",
+            "id": 9,
+            "provider": "example",
+            "action": "begin",
+            "input": {"code": "fixture"}
+        }))
+        .unwrap();
+        assert!(matches!(
+            request.command,
+            Command::OAuth { provider, action, input: Some(input) }
+                if provider == "example"
+                    && action == "begin"
+                    && input["code"] == "fixture"
+        ));
+    }
+
+    #[test]
     fn response_has_canonical_success_data_shape() {
         let value = response(
             Some(json!(7)),
@@ -303,6 +416,12 @@ mod tests {
         );
         assert_eq!(value["type"], "response");
         assert_eq!(value["success"], true);
+        assert_eq!(value["status"], "ok");
         assert_eq!(value["data"]["accepted"], true);
+        assert_eq!(value["result"]["accepted"], true);
+        let legacy: crate::remote::protocol::RemoteResponse =
+            serde_json::from_value(value).unwrap();
+        assert!(legacy.is_ok());
+        assert_eq!(legacy.result.unwrap()["accepted"], true);
     }
 }

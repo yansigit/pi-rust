@@ -1,6 +1,7 @@
 # rpi 使用手册
 
-这是一份面向使用者和扩展作者的 rpi 手册。rpi 起步于对 Mario Zechner 的 [Pi TypeScript SDK](https://github.com/earendil-works/pi) 的 Rust 重新实现，核心能力以 crate 形式提供，`rpi` 是开箱即用的 CLI。来源与许可说明见仓库根目录的 NOTICE。本文记录当前版本已经实现的命令和行为，随 `rpi-cli` 一起发布。
+这是一份面向使用者和扩展作者的 rpi 手册，涵盖安装、配置、会话、插件、远程模式和故障排查。
+具体实现以当前仓库和已安装的 rpi 二进制为准。
 
 ## 1. 安装
 
@@ -200,13 +201,17 @@ rpi dev-local [options]    # 只调试当前 Rust 扩展（隔离模式）
 ### CLI 自更新
 
 `rpi update` 默认从 GitHub Release 下载预编译的 CLI，不需要本地 Rust/Cargo。
-版本按 crates.io 的发布记录解析；`rpi-release.json` 提供各平台下载地址、大小和
+稳定版版本按 crates.io 的发布记录解析；`rpi-release.json` 提供各平台下载地址、大小和
 压缩包/可执行文件的 SHA-256。校验目标平台、完整性和实际版本后，原子替换当前 CLI。
-Windows 会暂存更新，等待当前进程退出后完成替换。
+Windows 会暂存更新，等待当前进程退出后完成替换。稳定版不会提示或自动选择预览版。
+
+预览构建来自 `preview` 分支的合并，会创建 GitHub prerelease，但不会发布到 crates.io。
+需要体验预览版时显式运行 `rpi update preview`；它只从 GitHub prerelease 中选择最新版本。
+预览版运行普通 `rpi update` 时会检查 crates.io，发现正式版后提示切换到正式版本。
 
 `rpi update --force` 重新安装已解析的版本；`rpi update --build` 显式使用 Cargo 源码编译。
 缺少 manifest、下载失败或校验不通过都会报错并保留原版本，不会自动转为编译。
-`--offline` 仅报告缓存的版本信息，不下载也不编译。旧 Release 没有 manifest 时，
+`--offline` 仅报告稳定版缓存；预览版需要联网查询 GitHub。旧 Release 没有 manifest 时，
 可等待协议资产补齐，或显式使用 `rpi update --build`。
 
 ### TUI 历史消息滚动
@@ -317,6 +322,12 @@ RPI_CODING_AGENT_DIR=/work/rpi-agent rpi
 ## 6. Rust 插件
 
 Rust 原生插件是 `cdylib`，只依赖 `rpi-plugin-sdk`，由 `rpi-extensions` 动态加载：
+完整的“从零写插件”流程见 [`docs/extensions/authoring.md`](../extensions/authoring.md)，
+包括 Cargo 结构、`export_plugin!`、工具生命周期、能力检测、测试和 `rpi dev`。
+如果插件项目还需要 Web/ACP 适配器共享的 session、workspace、RPC 或 durable 状态，
+可以额外复用 [`rpi-extcore`](https://crates.io/crates/rpi-extcore)（`rpi-extcore = "0.1"`）。
+它是普通 Rust 库，不是 `cdylib` 入口，也不替代 `rpi-plugin-sdk`；只做普通 CLI 工具时
+不要为了 ABI 注册引入它。
 
 ```bash
 cargo build -p plugin-stub
@@ -482,8 +493,9 @@ rpi-telemetry → rpi-ai → rpi-agent → rpi-tools → rpi-harness →
 rpi-plugin-sdk → rpi-extensions → rpi-tui → rpi-cli
 ```
 
-日常贡献无需手动修改版本号。普通改动合并 `main` 并通过 CI 后，由自动化准备
-Release PR；只有合并符合条件的 Release PR 才会发布。发布记录统一维护在根目录
+日常贡献无需手动修改版本号。普通改动合并 `main` 并通过 CI 后不会自动准备
+Release PR；维护者需要在 `Actions → CI → Run workflow` 中选择 `main` 并启用
+`prepare_release`。只有合并符合条件的 Release PR 才会发布。发布记录统一维护在根目录
 `CHANGELOG.md`，不再新建 `docs/release-vX.Y.Z.md`。完整流程与纯文档不发布的处理方式
 见仓库 `docs/maintaining/releasing.md`：
 <https://github.com/bigfish1913/pi-rust/blob/main/docs/maintaining/releasing.md>。

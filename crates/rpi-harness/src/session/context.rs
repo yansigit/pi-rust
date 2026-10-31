@@ -22,6 +22,7 @@
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
+use std::time::Instant;
 
 use rpi_agent::message::AgentMessage;
 use rpi_ai::types::StopReason;
@@ -74,22 +75,167 @@ impl std::fmt::Debug for SessionContextBuildOptions {
 /// after it; if no compaction, keep all entries. Mirrors
 /// `defaultContextEntryTransform`.
 pub fn default_context_entry_transform(path_entries: &[Entry]) -> Vec<Entry> {
-    let mut compaction_index = None;
-    for (i, entry) in path_entries.iter().enumerate().rev() {
-        if matches!(entry, Entry::Compaction(_)) {
-            compaction_index = Some(i);
-            break;
+    default_context_entries(path_entries).to_vec()
+}
+
+fn default_context_entries(path_entries: &[Entry]) -> &[Entry] {
+    let start = path_entries
+        .iter()
+        .rposition(|entry| matches!(entry, Entry::Compaction(_)))
+        .unwrap_or(0);
+    &path_entries[start..]
+}
+
+fn context_entries<'a>(
+    path_entries: &'a [Entry],
+    options: &SessionContextBuildOptions,
+) -> std::borrow::Cow<'a, [Entry]> {
+    let mut entries = std::borrow::Cow::Borrowed(default_context_entries(path_entries));
+    for transform in &options.entry_transforms {
+        entries = std::borrow::Cow::Owned(transform(&entries));
+    }
+    entries
+}
+
+/// Build the default context by consuming an owned branch path.
+///
+/// The borrowed builder remains the compatibility path for callers
+/// that need transforms/projectors. The harness's ordinary path already owns the
+/// `Vec<Entry>` returned by storage, so cloning every message out of those entries
+/// is unnecessary when no user hook can observe the intermediate entries. In that
+/// case move ordinary messages and compaction retained-tail messages directly into
+/// the provider context. Derived state is computed before consuming the path so it
+/// still observes the full branch, including entries before the latest compaction.
+pub(crate) fn build_session_context_owned(
+    path_entries: Vec<Entry>,
+    options: &SessionContextBuildOptions,
+) -> SessionContext {
+    // A transform or projector receives entry references and can inspect indexes
+    // and the complete slice. Keep the borrowed implementation for those cases;
+    // this also ensures stateful hook output is never cached or otherwise reused.
+    if !options.entry_transforms.is_empty()
+        || !options.entry_projectors.is_empty()
+        || path_entries
+            .iter()
+            .any(|entry| matches!(entry, Entry::ContextEdit(_)))
+    {
+        return build_session_context(&path_entries, options);
+    }
+
+    let diagnostics = std::env::var_os("RPI_AGENT_DIAGNOSTICS").is_some_and(|value| value != "0");
+    let started = diagnostics.then(Instant::now);
+    let path_entry_count = path_entries.len();
+    let mut ctx = derive_latest_state(path_entries.iter().rev());
+    let start = path_entries
+        .iter()
+        .rposition(|entry| matches!(entry, Entry::Compaction(_)))
+        .unwrap_or(0);
+    let mut messages = Vec::new();
+
+    for entry in path_entries.into_iter().skip(start) {
+        match entry {
+            Entry::Message(message) => {
+                if !matches!(
+                    &message.message,
+                    AgentMessage::Assistant(assistant)
+                        if assistant.stop_reason == StopReason::Deferred
+                ) {
+                    messages.push(message.message);
+                }
+            }
+            Entry::Compaction(compaction) => {
+                messages.push(create_compaction_summary_message(
+                    &compaction.summary,
+                    compaction.tokens_before,
+                    compaction.base.timestamp,
+                ));
+                messages.extend(compaction.retained_tail);
+            }
+            Entry::BranchSummary(summary) if !summary.summary.is_empty() => {
+                messages.push(create_branch_summary_message(
+                    &summary.summary,
+                    &summary.from_id,
+                    summary.base.timestamp,
+                ));
+            }
+            // Custom entries have no registered projector on this fast path;
+            // all other entry kinds are state-only and model-invisible.
+            _ => {}
         }
     }
-    match compaction_index {
-        None => path_entries.to_vec(),
-        Some(i) => {
-            let mut out = Vec::with_capacity(path_entries.len() - i);
-            out.push(path_entries[i].clone());
-            out.extend(path_entries[i + 1..].iter().cloned());
-            out
+    ctx.messages = messages;
+    if let Some(started) = started {
+        eprintln!(
+            "RPI_CONTEXT_DIAGNOSTICS path_entries={} context_entries={} messages={} build_ns={}",
+            path_entry_count,
+            path_entry_count.saturating_sub(start),
+            ctx.messages.len(),
+            started.elapsed().as_nanos().min(u64::MAX as u128),
+        );
+    }
+    ctx
+}
+
+/// Build the default context directly from a validated branch walk. The state
+/// owns the entries, so only model-visible messages and retained-tail messages
+/// are cloned; old entries before the latest compaction are never cloned.
+pub(crate) fn build_session_context_from_borrowed(path_entries: &[&Entry]) -> SessionContext {
+    // Context edits need the projecting path; they are rare, so clone there.
+    if path_entries
+        .iter()
+        .any(|entry| matches!(entry, Entry::ContextEdit(_)))
+    {
+        let owned: Vec<Entry> = path_entries.iter().map(|entry| (*entry).clone()).collect();
+        return build_session_context(&owned, &SessionContextBuildOptions::default());
+    }
+    let diagnostics = std::env::var_os("RPI_AGENT_DIAGNOSTICS").is_some_and(|value| value != "0");
+    let started = diagnostics.then(Instant::now);
+    let mut ctx = derive_latest_state(path_entries.iter().copied().rev());
+    let start = path_entries
+        .iter()
+        .rposition(|entry| matches!(entry, Entry::Compaction(_)))
+        .unwrap_or(0);
+    let mut messages = Vec::new();
+    for entry in path_entries.iter().skip(start).copied() {
+        match entry {
+            Entry::Message(message) => {
+                if !matches!(
+                    &message.message,
+                    AgentMessage::Assistant(assistant)
+                        if assistant.stop_reason == StopReason::Deferred
+                ) {
+                    messages.push(message.message.clone());
+                }
+            }
+            Entry::Compaction(compaction) => {
+                messages.push(create_compaction_summary_message(
+                    &compaction.summary,
+                    compaction.tokens_before,
+                    compaction.base.timestamp,
+                ));
+                messages.extend(compaction.retained_tail.iter().cloned());
+            }
+            Entry::BranchSummary(summary) if !summary.summary.is_empty() => {
+                messages.push(create_branch_summary_message(
+                    &summary.summary,
+                    &summary.from_id,
+                    summary.base.timestamp,
+                ));
+            }
+            _ => {}
         }
     }
+    ctx.messages = messages;
+    if let Some(started) = started {
+        eprintln!(
+            "RPI_CONTEXT_DIAGNOSTICS path_entries={} context_entries={} messages={} build_ns={}",
+            path_entries.len(),
+            path_entries.len().saturating_sub(start),
+            ctx.messages.len(),
+            started.elapsed().as_nanos().min(u64::MAX as u128),
+        );
+    }
+    ctx
 }
 
 /// `buildContextEntries` — apply the default transform, then each caller
@@ -98,11 +244,7 @@ pub fn build_context_entries(
     path_entries: &[Entry],
     options: &SessionContextBuildOptions,
 ) -> Vec<Entry> {
-    let mut entries = default_context_entry_transform(path_entries);
-    for transform in &options.entry_transforms {
-        entries = transform(&entries);
-    }
-    entries
+    context_entries(path_entries, options).into_owned()
 }
 
 /// `sessionEntryToContextMessages` — project one entry to context messages.
@@ -229,25 +371,39 @@ pub fn project_context_messages(
 /// entries) to capture the latest `thinking_level`/`model`/`active_tool_names`.
 /// Mirrors TS `deriveSessionContextState`.
 pub fn derive_session_context_state(path_entries: &[Entry]) -> SessionContext {
-    let mut thinking_level = "off".to_string();
+    derive_latest_state(path_entries.iter().rev())
+}
+
+/// Inspect the path newest-first and stop once every derived field is known.
+fn derive_latest_state<'a>(path_entries: impl Iterator<Item = &'a Entry>) -> SessionContext {
+    let mut thinking_level = None;
     let mut model: Option<(String, String)> = None;
     let mut active_tool_names: Option<Vec<String>> = None;
     for entry in path_entries {
         match entry {
-            Entry::ThinkingLevel(t) => thinking_level = t.thinking_level.clone(),
-            Entry::ModelChange(m) => model = Some((m.provider.clone(), m.model_id.clone())),
-            Entry::Message(m) => {
+            Entry::ThinkingLevel(t) if thinking_level.is_none() => {
+                thinking_level = Some(t.thinking_level.clone());
+            }
+            Entry::ModelChange(m) if model.is_none() => {
+                model = Some((m.provider.clone(), m.model_id.clone()));
+            }
+            Entry::Message(m) if model.is_none() => {
                 if let AgentMessage::Assistant(a) = &m.message {
                     model = Some((a.provider.as_str().to_string(), a.model.clone()));
                 }
             }
-            Entry::ActiveTools(a) => active_tool_names = Some(a.active_tool_names.clone()),
+            Entry::ActiveTools(a) if active_tool_names.is_none() => {
+                active_tool_names = Some(a.active_tool_names.clone());
+            }
             _ => {}
+        }
+        if thinking_level.is_some() && model.is_some() && active_tool_names.is_some() {
+            break;
         }
     }
     SessionContext {
         messages: Vec::new(),
-        thinking_level,
+        thinking_level: thinking_level.unwrap_or_else(|| "off".to_string()),
         model,
         active_tool_names,
     }
@@ -260,12 +416,24 @@ pub fn build_session_context(
     path_entries: &[Entry],
     options: &SessionContextBuildOptions,
 ) -> SessionContext {
-    let mut ctx = derive_session_context_state(path_entries);
-    let context_entries = build_context_entries(path_entries, options);
+    let diagnostics = std::env::var_os("RPI_AGENT_DIAGNOSTICS").is_some_and(|value| value != "0");
+    let started = diagnostics.then(Instant::now);
+    let mut ctx = derive_latest_state(path_entries.iter().rev());
+    let context_entries = context_entries(path_entries, options);
+    let context_entry_count = context_entries.len();
     ctx.messages = project_context_messages(&context_entries, options)
         .into_iter()
         .map(|(_, message)| message)
         .collect();
+    if let Some(started) = started {
+        eprintln!(
+            "RPI_CONTEXT_DIAGNOSTICS path_entries={} context_entries={} messages={} build_ns={}",
+            path_entries.len(),
+            context_entry_count,
+            ctx.messages.len(),
+            started.elapsed().as_nanos().min(u64::MAX as u128),
+        );
+    }
     ctx
 }
 
@@ -274,6 +442,8 @@ mod tests {
     use super::*;
     use rpi_agent::message::AgentMessage;
     use rpi_ai::types::AssistantMessage;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
 
     fn user(text: &str) -> AgentMessage {
         AgentMessage::User(rpi_ai::types::UserMessage::new(text, 1))
@@ -405,6 +575,56 @@ mod tests {
     }
 
     #[test]
+    fn latest_state_wins_across_compaction_assistants_and_empty_tool_selection() {
+        use crate::session::types::{ActiveToolsEntry, EntryBase};
+        let active = |id: &str, parent: &str, tools: Vec<String>, seq| {
+            Entry::ActiveTools(ActiveToolsEntry {
+                base: EntryBase {
+                    entry_type: "active_tools_change".into(),
+                    id: id.into(),
+                    seq,
+                    parent_id: Some(parent.into()),
+                    timestamp: seq as i64,
+                },
+                active_tool_names: tools,
+            })
+        };
+        let mut entries = vec![
+            model_change("model", "root", "old", "old-model", 1),
+            thinking_level("thinking", "model", "high", 2),
+            active("tools", "thinking", vec!["read".into()], 3),
+            compaction_entry(
+                "compact",
+                "tools",
+                "summary",
+                vec![assistant("retained")],
+                4,
+            ),
+        ];
+        let old = derive_latest_state(entries.iter().rev());
+        assert_eq!(old.model, Some(("old".into(), "old-model".into())));
+        assert_eq!(old.thinking_level, "high");
+        assert_eq!(old.active_tool_names, Some(vec!["read".into()]));
+        entries.extend([
+            msg_entry_p("answer", "compact", assistant("latest"), 5),
+            active("empty-tools", "answer", vec![], 6),
+            thinking_level("off", "empty-tools", "off", 7),
+        ]);
+        let latest = derive_latest_state(entries.iter().rev());
+        assert_eq!(
+            latest.model,
+            Some(("anthropic".into(), "claude-sonnet-4-5".into()))
+        );
+        assert_eq!(latest.thinking_level, "off");
+        assert_eq!(latest.active_tool_names, Some(vec![]));
+        entries.push(model_change("switch", "off", "new", "new-model", 8));
+        assert_eq!(
+            derive_latest_state(entries.iter().rev()).model,
+            Some(("new".into(), "new-model".into()))
+        );
+    }
+
+    #[test]
     fn starts_at_latest_compaction_and_materializes_retained_tail() {
         let entries = vec![
             msg_entry("old", None, user("old"), 1),
@@ -419,22 +639,171 @@ mod tests {
             thinking_level("thinking", "model", "high", 4),
             msg_entry_p("tail", "thinking", user("tail"), 5),
         ];
-        let ctx = build_session_context(&entries, &SessionContextBuildOptions::default());
+        let borrowed = build_session_context(&entries, &SessionContextBuildOptions::default());
         assert_eq!(
-            ctx.messages
+            borrowed
+                .messages
                 .iter()
                 .map(|m| m.role().as_str().to_string())
                 .collect::<Vec<_>>(),
             ["compactionSummary", "user", "assistant", "user"]
         );
-        assert_eq!(ctx.model, Some(("openai".to_string(), "gpt-5".to_string())));
-        assert_eq!(ctx.thinking_level, "high");
+        assert_eq!(
+            borrowed.model,
+            Some(("openai".to_string(), "gpt-5".to_string()))
+        );
+        assert_eq!(borrowed.thinking_level, "high");
+        assert_eq!(borrowed.active_tool_names, None);
+
+        let projected = build_session_context_from_borrowed(&entries.iter().collect::<Vec<_>>());
+        assert_eq!(projected.messages, borrowed.messages);
+        assert_eq!(projected.model, borrowed.model);
+        assert_eq!(projected.thinking_level, borrowed.thinking_level);
+        assert_eq!(projected.active_tool_names, borrowed.active_tool_names);
+
+        let owned = build_session_context_owned(entries, &SessionContextBuildOptions::default());
+        assert_eq!(owned.messages, borrowed.messages);
+        assert_eq!(owned.thinking_level, borrowed.thinking_level);
+        assert_eq!(owned.model, borrowed.model);
+        assert_eq!(owned.active_tool_names, borrowed.active_tool_names);
     }
 
     #[test]
+    fn owned_default_path_preserves_deferred_tail_summary_and_state() {
+        let mut deferred =
+            AssistantMessage::empty(rpi_ai::types::Api::Faux, "anthropic", "claude", 6);
+        deferred.stop_reason = StopReason::Deferred;
+        deferred.deferred = Some(rpi_ai::types::DeferredHandle {
+            provider: "anthropic".into(),
+            model_id: "claude".into(),
+            api: "anthropic-messages".into(),
+            id: "response-2".into(),
+            expires_at: None,
+            poll_after_ms: None,
+            data: None,
+        });
+        let entries = vec![
+            model_change("old-model", "root", "old", "old-model", 1),
+            thinking_level("old-thinking", "old-model", "high", 2),
+            {
+                use crate::session::types::{ActiveToolsEntry, EntryBase};
+                Entry::ActiveTools(ActiveToolsEntry {
+                    base: EntryBase {
+                        entry_type: "active_tools_change".into(),
+                        id: "old-tools".into(),
+                        seq: 3,
+                        parent_id: Some("old-thinking".into()),
+                        timestamp: 3,
+                    },
+                    active_tool_names: vec!["read".into()],
+                })
+            },
+            compaction_entry(
+                "compact",
+                "old-tools",
+                "summary",
+                vec![user("retained"), assistant("answer")],
+                4,
+            ),
+            model_change("new-model", "compact", "anthropic", "claude", 5),
+            msg_entry_p(
+                "deferred",
+                "new-model",
+                AgentMessage::Assistant(Box::new(deferred)),
+                6,
+            ),
+            {
+                use crate::session::types::{ActiveToolsEntry, EntryBase};
+                Entry::ActiveTools(ActiveToolsEntry {
+                    base: EntryBase {
+                        entry_type: "active_tools_change".into(),
+                        id: "empty-tools".into(),
+                        seq: 7,
+                        parent_id: Some("deferred".into()),
+                        timestamp: 7,
+                    },
+                    active_tool_names: vec![],
+                })
+            },
+            thinking_level("off", "empty-tools", "off", 8),
+            msg_entry_p("tail", "off", user("tail"), 9),
+        ];
+        let borrowed = build_session_context(&entries, &SessionContextBuildOptions::default());
+        assert_eq!(
+            borrowed
+                .messages
+                .iter()
+                .map(|message| message.role().as_str().to_string())
+                .collect::<Vec<_>>(),
+            ["compactionSummary", "user", "assistant", "user"]
+        );
+        assert_eq!(borrowed.model, Some(("anthropic".into(), "claude".into())));
+        assert_eq!(borrowed.thinking_level, "off");
+        assert_eq!(borrowed.active_tool_names, Some(vec![]));
+
+        let owned = build_session_context_owned(entries, &SessionContextBuildOptions::default());
+        assert_eq!(owned.messages, borrowed.messages);
+        assert_eq!(owned.model, borrowed.model);
+        assert_eq!(owned.thinking_level, borrowed.thinking_level);
+        assert_eq!(owned.active_tool_names, borrowed.active_tool_names);
+    }
+
+    #[test]
+    fn owned_fallback_preserves_transform_and_projector_observation() {
+        let transform_calls = Arc::new(AtomicUsize::new(0));
+        let projector_calls = Arc::new(AtomicUsize::new(0));
+        let observations = Arc::new(Mutex::new(Vec::new()));
+        let transform: ContextEntryTransform = {
+            let calls = Arc::clone(&transform_calls);
+            Arc::new(move |entries: &[Entry]| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                entries.to_vec()
+            })
+        };
+        let projector: CustomEntryContextMessageProjector = {
+            let calls = Arc::clone(&projector_calls);
+            let observations = Arc::clone(&observations);
+            Arc::new(move |_entry: &CustomEntry, index, entries| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                observations.lock().unwrap().push((
+                    index,
+                    entries.len(),
+                    entries.first().map(|entry| entry.id().to_string()),
+                ));
+                vec![user("projected")]
+            })
+        };
+        let mut projectors = BTreeMap::new();
+        projectors.insert("note".into(), projector);
+        let options = SessionContextBuildOptions {
+            entry_transforms: vec![transform],
+            entry_projectors: projectors,
+        };
+        let entries = vec![
+            compaction_entry("compact", "root", "summary", vec![], 1),
+            custom_entry("custom", "compact", "note", "data", 2),
+            msg_entry_p("tail", "custom", user("tail"), 3),
+        ];
+
+        let context = build_session_context_owned(entries, &options);
+        assert_eq!(transform_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(projector_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *observations.lock().unwrap(),
+            vec![(1, 3, Some("compact".into()))]
+        );
+        assert_eq!(
+            context
+                .messages
+                .iter()
+                .map(|message| message.role().as_str().to_string())
+                .collect::<Vec<_>>(),
+            ["compactionSummary", "user", "user"]
+        );
+    }
+    #[test]
     fn applies_caller_transforms_after_compaction_boundary() {
         let entries = vec![
-            msg_entry("old", None, user("old"), 1),
             compaction_entry("compact", "old", "summary", vec![], 2),
             branch_summary_entry("branch", "compact", "abandoned", "branch summary", 3),
             msg_entry_p("tail", "branch", user("tail"), 4),

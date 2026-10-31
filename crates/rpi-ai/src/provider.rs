@@ -5,8 +5,10 @@
 
 use crate::event_stream::AssistantMessageEventStream;
 use crate::model::Model;
+use crate::redact::RedactedHeaders;
 use crate::types::{AssistantMessage, Context, DeferredHandle, ThinkingBudgets, ThinkingLevel};
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -139,24 +141,54 @@ impl Default for SimpleStreamOptions {
     }
 }
 
-impl std::fmt::Debug for SimpleStreamOptions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+/// `Debug` redacts credentials: `api_key` is shown only as present or absent,
+/// sensitive header values are masked, and request-local env and provider
+/// options are omitted. The destructuring below is exhaustive, so adding a
+/// field to the struct fails to compile until it is handled here too.
+impl fmt::Debug for SimpleStreamOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            identity,
+            stream_kind,
+            provider_options: _,
+            api_key,
+            authentication,
+            env: _,
+            response_observer,
+            timeout,
+            stream_idle_timeout,
+            max_retries,
+            max_retry_delay,
+            headers,
+            metadata,
+            cache_retention,
+            session_id,
+            signal,
+            reasoning,
+            max_tokens,
+            temperature,
+            thinking_budgets,
+        } = self;
         f.debug_struct("SimpleStreamOptions")
-            .field("stream_kind", &self.stream_kind)
-            .field("api_key", &self.api_key.as_ref().map(|_| "[redacted]"))
-            .field("authentication", &self.authentication)
-            .field("env", &"[redacted]")
-            .field("headers", &self.headers.as_ref().map(|_| "[redacted]"))
-            .field("timeout", &self.timeout)
-            .field("stream_idle_timeout", &self.stream_idle_timeout)
-            .field("max_retries", &self.max_retries)
-            .field("max_retry_delay", &self.max_retry_delay)
-            .field("cache_retention", &self.cache_retention)
-            .field("session_id", &self.session_id)
-            .field("reasoning", &self.reasoning)
-            .field("max_tokens", &self.max_tokens)
-            .field("temperature", &self.temperature)
-            .field("thinking_budgets", &self.thinking_budgets)
+            .field("identity", identity)
+            .field("stream_kind", stream_kind)
+            .field("api_key", &api_key.as_ref().map(|_| "<redacted>"))
+            .field("authentication", authentication)
+            .field("env", &"<redacted>")
+            .field("response_observer", &response_observer.is_some())
+            .field("timeout", timeout)
+            .field("stream_idle_timeout", stream_idle_timeout)
+            .field("max_retries", max_retries)
+            .field("max_retry_delay", max_retry_delay)
+            .field("headers", &headers.as_ref().map(RedactedHeaders))
+            .field("metadata", metadata)
+            .field("cache_retention", cache_retention)
+            .field("session_id", session_id)
+            .field("signal", signal)
+            .field("reasoning", reasoning)
+            .field("max_tokens", max_tokens)
+            .field("temperature", temperature)
+            .field("thinking_budgets", thinking_budgets)
             .finish_non_exhaustive()
     }
 }
@@ -268,6 +300,43 @@ mod tests {
     }
 
     #[test]
+    fn debug_output_redacts_api_key_and_sensitive_headers() {
+        let options = SimpleStreamOptions {
+            api_key: Some("sk-live-SECRET-KEY".into()),
+            headers: Some(std::collections::BTreeMap::from([
+                ("Authorization".into(), "Bearer SECRET-BEARER".into()),
+                ("x-api-key".into(), "SECRET-XAPIKEY".into()),
+                ("Proxy-Authorization".into(), "SECRET-PROXY".into()),
+                ("Cookie".into(), "SECRET-COOKIE".into()),
+                ("x-session-token".into(), "SECRET-TOKEN".into()),
+                ("x-client-secret".into(), "SECRET-CLIENT".into()),
+                ("X-Tenant".into(), "tenant-visible".into()),
+            ])),
+            max_retries: Some(3),
+            ..Default::default()
+        };
+        let debug = format!("{options:?}");
+        for secret in [
+            "SECRET-KEY",
+            "SECRET-BEARER",
+            "SECRET-XAPIKEY",
+            "SECRET-PROXY",
+            "SECRET-COOKIE",
+            "SECRET-TOKEN",
+            "SECRET-CLIENT",
+        ] {
+            assert!(!debug.contains(secret), "leaked {secret} in {debug}");
+        }
+        assert!(debug.contains("api_key: Some(\"<redacted>\")"), "{debug}");
+        assert!(
+            debug.contains("\"X-Tenant\": \"tenant-visible\""),
+            "{debug}"
+        );
+        assert!(debug.contains("max_retries: Some(3)"), "{debug}");
+        assert!(debug.contains("stream_idle_timeout"), "{debug}");
+    }
+
+    #[test]
     fn llm_api_timeout_allows_override_and_none_uses_provider_fallback() {
         let mut options = SimpleStreamOptions::default();
         options.timeout = Some(Duration::from_secs(15));
@@ -283,7 +352,7 @@ mod tests {
         let debug = format!("{options:?}");
         assert!(debug.contains("stream_idle_timeout"));
         assert!(!debug.contains("sk-secret-sample-key-12345"));
-        assert!(debug.contains("[redacted]"));
+        assert!(debug.contains("<redacted>"));
     }
 }
 

@@ -18,6 +18,11 @@
 这也是本指南默认推荐的形态：本地用内嵌 Agent 调试，线上/交互用全局 `rpi` 加载
 同一个扩展。只有当需求足够单一时才只做其中一种。
 
+如果扩展还承担 Web/ACP 或其他 native RPC 适配器，需要会话、工作区、事件重放或
+durable 状态时，可以复用 crates.io 的 `rpi-extcore = "0.1"`。它是普通 Rust 服务库，
+不替代 `rpi-plugin-sdk` 的 `cdylib` ABI，也不自行提供 HTTP/ACP 前端；普通工具插件
+保持 `rpi-plugin-sdk` 单一依赖即可。
+
 ## 2. 推荐目录结构
 
 ```text

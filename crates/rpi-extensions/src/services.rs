@@ -117,7 +117,7 @@ impl Services {
         state.subscriptions.retain(|_, sub| {
             sub.scope
                 .as_ref()
-                .map_or(true, |scope| scope.strong_count() > 0)
+                .is_none_or(|scope| scope.strong_count() > 0)
         });
         if state.subscriptions.len() != before {
             self.changed.notify_waiters();

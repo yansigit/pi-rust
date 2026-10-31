@@ -20,6 +20,22 @@
 对应注册槽位是否为 `Some`。缺少能力时返回清晰错误并优雅降级，不要 panic、
 空指针或依赖 `undefined` 语义。
 
+### 先选复用层
+
+直接由 `rpi` 加载的 Rust `cdylib` 插件使用 `rpi-plugin-sdk` 完成 ABI、工具和事件注册。
+如果项目还需要 Web/ACP 适配器共享的 session、workspace、native RPC 或 durable 状态，
+可以额外复用 [`rpi-extcore`](https://crates.io/crates/rpi-extcore)：
+
+```toml
+[dependencies]
+rpi-plugin-sdk = "0.8"
+rpi-extcore = "0.1" # 需要共享 native RPC 服务时再添加
+```
+
+`rpi-extcore` 是普通 Rust 库，不是 `cdylib` 入口，也不替代 `rpi-plugin-sdk`；它需要
+兼容的 `rpi --mode rpc` 可执行文件，不会自行提供 HTTP/ACP 前端或第二份 transcript。
+只写普通工具插件时从 `examples/plugin-stub` 开始，不必引入 `rpi-extcore`。
+
 ## 2. 推荐结构
 
 ```text
@@ -48,7 +64,7 @@ repository = "https://github.com/example/my-rpi-extension"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rpi-plugin-sdk = "0.1"
+rpi-plugin-sdk = "0.8"
 serde_json = "1"
 ```
 

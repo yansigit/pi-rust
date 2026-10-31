@@ -76,7 +76,7 @@ impl Origin {
     fn alive(&self) -> bool {
         self.scope
             .as_ref()
-            .map_or(true, |scope| scope.strong_count() != 0)
+            .is_none_or(|scope| scope.strong_count() != 0)
     }
     fn matches(&self, owner: &NativeOwner, scope: &Option<Arc<ToolExecutionScope>>) -> bool {
         self.owner == *owner

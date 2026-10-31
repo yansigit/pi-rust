@@ -176,8 +176,13 @@ pub struct ToolCall {
     /// OpenAI Responses namespace for dynamic/namespaced tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
-    /// Completed external activity. Presence always forbids executable-tool dispatch,
-    /// including malformed or unavailable recordings.
+    /// Recorded result of a call that already ran upstream (for example, a
+    /// remote agent's tool execution streamed back to the host). When present,
+    /// the host must never execute the call: the recording becomes its tool
+    /// result, or an error result if the recording is invalid. Its presence is
+    /// the signal, so an explicit `null` counts as a (malformed) recording.
+    /// Absent on ordinary calls. The agent loop's `recorded_tool_result` decodes
+    /// the accepted shape.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -529,6 +534,12 @@ pub struct ThinkingBudgets {
     pub medium: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub high: Option<u64>,
+    /// Used only for models whose `thinkingLevelMap` offers `xhigh`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xhigh: Option<u64>,
+    /// Used only for models whose `thinkingLevelMap` offers `max`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u64>,
 }
 
 // ----------------------------------------------------------------------------

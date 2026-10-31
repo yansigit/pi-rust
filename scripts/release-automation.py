@@ -10,7 +10,6 @@ import tomllib
 
 REPOSITORY = "bigfish1913/pi-rust"
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
-SERIES = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
 
 def run(*args):
@@ -21,14 +20,36 @@ def api(path, *args):
     return json.loads(run("gh", "api", path, *args))
 
 
-def release_pr(pr, commit):
-    """A fork branch named release-plz-* cannot authorize publication."""
-    return (pr.get("merged_at") is not None
-            and pr.get("merge_commit_sha") == commit
-            and pr.get("base", {}).get("ref") == "main"
+def upstream_release_branch(pr):
+    """A fork branch named release-plz-* is not an upstream Release PR."""
+    return (pr.get("base", {}).get("ref") == "main"
             and (pr.get("base", {}).get("repo") or {}).get("full_name") == REPOSITORY
             and (pr.get("head", {}).get("repo") or {}).get("full_name") == REPOSITORY
             and pr.get("head", {}).get("ref", "").startswith("release-plz-"))
+
+
+def release_pr(pr, commit):
+    return (pr.get("merged_at") is not None
+            and pr.get("merge_commit_sha") == commit
+            and upstream_release_branch(pr))
+
+
+def draft_release_prs():
+    # Pagination matters: an existing Release PR need not be on the first page.
+    pages = api(f"repos/{REPOSITORY}/pulls?state=open&base=main&per_page=100",
+                "--paginate", "--slurp")
+    prs = [pr for page in pages for pr in page
+           if pr.get("state") == "open" and upstream_release_branch(pr)]
+    if len(prs) > 1:
+        raise ValueError("multiple open Release PRs; close obsolete ones before preparing a release")
+    if not prs:
+        return
+    pr = prs[0]
+    if not pr["draft"]:
+        run("gh", "pr", "ready", str(pr["number"]), "--undo", "--repo", REPOSITORY)
+    # release-plz may return no PR on a no-op retry. Still sync/validate this PR
+    # and mark it ready again, but only after preparation has succeeded.
+    output(pr=json.dumps({"number": pr["number"], "head_branch": pr["head"]["ref"]}))
 
 
 def check_version(version, tags, commit, existing_commit=None):
@@ -44,57 +65,6 @@ def check_version(version, tags, commit, existing_commit=None):
         raise ValueError("release version must be newer than all existing stable tags")
 
 
-def check_series(version, root):
-    series = root["workspace"].get("metadata", {}).get("release", {}).get("series")
-    if series is not None:
-        if not SERIES.fullmatch(series):
-            raise ValueError("release series must be a stable X.Y")
-        if not VERSION.fullmatch(version) or version.rsplit(".", 1)[0] != series:
-            raise ValueError(f"release version {version} is outside the configured {series}.x series")
-    return series
-
-
-def series_version(proposed, series, tags):
-    if not SERIES.fullmatch(series):
-        raise ValueError("release series must be a stable X.Y")
-    versions = [tuple(map(int, tag[1:].split("."))) for tag in tags
-                if tag.startswith(f"v{series}.") and VERSION.fullmatch(tag[1:])]
-    patch = max((v[2] for v in versions), default=-1) + 1
-    if VERSION.fullmatch(proposed) and proposed.rsplit(".", 1)[0] == series:
-        patch = max(patch, int(proposed.rsplit(".", 1)[1]))
-    return f"{series}.{patch}"
-
-
-def normalize_release(root, tags):
-    manifest_path = root / "Cargo.toml"
-    manifest = manifest_path.read_text(encoding="utf-8")
-    config = tomllib.loads(manifest)
-    proposed = config["workspace"]["package"]["version"]
-    series = config["workspace"].get("metadata", {}).get("release", {}).get("series")
-    if series is None:
-        return proposed
-    if f"v{proposed}" in tags:
-        raise ValueError("cannot normalize an already published release")
-    version = series_version(proposed, series, tags)
-    if version == proposed:
-        return version
-    changelog_path = root / "CHANGELOG.md"
-    changelog = changelog_path.read_text(encoding="utf-8")
-    # Only retarget the proposed release section, preserving historical notes.
-    section = re.search(rf"^## \[{re.escape(proposed)}\][^\n]*\n(?:(?!^## ).)*",
-                        changelog, re.MULTILINE | re.DOTALL)
-    if section is None:
-        raise ValueError("proposed release version is missing from CHANGELOG.md")
-    changelog = (changelog[:section.start()] + section[0].replace(proposed, version)
-                 + changelog[section.end():])
-    # The shared workspace version and internal dependency pins use this literal.
-    manifest = re.sub(rf'(\bversion\s*=\s*"){re.escape(proposed)}(")',
-                      lambda m: m[1] + version + m[2], manifest)
-    manifest_path.write_text(manifest, encoding="utf-8", newline="\n")
-    changelog_path.write_text(changelog, encoding="utf-8", newline="\n")
-    return version
-
-
 def output(**values):
     for key, value in values.items():
         line = f"{key}={value}\n"
@@ -106,11 +76,8 @@ def output(**values):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("detect", "tag", "normalize"))
+    parser.add_argument("command", choices=("detect", "tag", "draft-release-prs"))
     args = parser.parse_args()
-    if args.command == "normalize":
-        print(normalize_release(Path("."), run("git", "tag", "--list").splitlines()))
-        return
     if (os.environ.get("GITHUB_REPOSITORY") != REPOSITORY
             or os.environ.get("GITHUB_REF") != "refs/heads/main"
             or os.environ.get("GITHUB_EVENT_NAME") not in ("push", "workflow_dispatch")):
@@ -118,6 +85,9 @@ def main():
     commit = run("git", "rev-parse", "HEAD")
     if commit != os.environ["GITHUB_SHA"]:
         raise ValueError("checkout must match the tested main commit")
+    if args.command == "draft-release-prs":
+        draft_release_prs()
+        return
     # Use full PR metadata to check its origin, merge state and merge commit.
     prs = api(f"repos/{REPOSITORY}/commits/{commit}/pulls")
     if not any(release_pr(api(f"repos/{REPOSITORY}/pulls/{pr['number']}"), commit) for pr in prs):
@@ -127,7 +97,6 @@ def main():
         return
     root = tomllib.loads(Path("Cargo.toml").read_text(encoding="utf-8"))
     version = root["workspace"]["package"]["version"]
-    check_series(version, root)
     tag = f"v{version}"
     tags = run("git", "tag", "--list").splitlines()
     existing = run("git", "rev-parse", f"{tag}^{{commit}}") if tag in tags else None

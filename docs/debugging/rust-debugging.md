@@ -25,7 +25,7 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rpi-plugin-sdk = "0.1"
+rpi-plugin-sdk = "0.8"
 serde_json = "1"
 ```
 
@@ -238,6 +238,38 @@ rpi events tail        # 打印已有内容并持续跟踪（Ctrl+C 停止）
 `MessageEnd`）、`plugin`（扩展显示名）、`result`（`Continue` / `Error` / `Abort` /
 `Timeout` / `Panic` / `JoinFailed`）、`duration_ms` 和可选 `detail`。用它回答
 "我的扩展为什么没运行"这类问题。
+
+### 请求、上下文与帧写入诊断
+
+排查“模型请求很慢”“上下文构建耗时”或“流式进度写入阻塞”时，可临时开启
+stderr 诊断。两个开关都只在值存在且不等于字符串 `0` 时启用，不会把日志写入会话
+文件，也不会改变正常的持久化格式：
+
+```bash
+RPI_AGENT_DIAGNOSTICS=1 RPI_FRAME_DIAGNOSTICS=1 rpi -p "复现问题" 2>rpi-diagnostics.log
+```
+
+PowerShell：
+
+```powershell
+$env:RPI_AGENT_DIAGNOSTICS="1"
+$env:RPI_FRAME_DIAGNOSTICS="1"
+rpi -p "复现问题" 2> rpi-diagnostics.log
+```
+
+- `RPI_AGENT_DIAGNOSTICS` 输出上下文构建、assistant 请求转换/建流、工具执行和
+  session entry/record/batch append 的纳秒耗时；每次模型请求以
+  `RPI_AGENT_DIAGNOSTICS` 开头，每次工具以 `RPI_TOOL_DIAGNOSTICS` 开头。
+- `RPI_FRAME_DIAGNOSTICS` 只对持久化 session 的 assistant frame writer 生效，运行
+  结束清理时输出 `RPI_FRAME_DIAGNOSTICS` 汇总。重点看 `batch_records`、
+  `append_records_calls`、`flush_requests`、`writer_failures` 和各类 flush barrier。
+- frame writer 默认最多聚合 32 条记录，或等待约 50 ms 后写入；提交 assistant entry
+  和清理 stream/run 前后会强制 flush。诊断中的 `*_ns` 是累计耗时，不能直接当作单次
+  wall-clock 延迟或吞吐基准。
+
+这类诊断只用于复现和定位，可能包含工具名、调用 ID 与会话规模等元数据；不要把
+包含敏感 provider 响应的完整 stderr 直接提交到仓库。没有启用开关时不会输出这些
+诊断行。
 
 ### 系统提示词与资源检查
 

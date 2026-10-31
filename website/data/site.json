@@ -98,10 +98,10 @@
   ],
   "releases": [
     {
-      "version": "0.5.1",
+      "version": "0.9.0",
       "status": "current",
-      "title": "统一工具面板主题与零告警构建",
-      "description": "edit、read、write 等工具面板统一主题内边距与状态背景，修复更新日志版本解析，并在 Linux 和 Windows 的 PR 检查中强制编译零告警。"
+      "title": "Runtime 与性能优化",
+      "description": "抽取可复用 rpi-runtime，减少重复上下文与消息拷贝，并加入零拷贝归档 payload 与性能基准。"
     },
     {
       "version": "next",

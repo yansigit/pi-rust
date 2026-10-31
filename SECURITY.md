@@ -3,7 +3,7 @@
 ## Supported versions
 
 Security fixes are issued for the latest published version of each `rpi-*`
-crate. The workspace releases all nine crates together, so the version you see
+crate. The workspace releases its published crates together, so the version you see
 on crates.io is the supported one.
 
 | Version        | Supported |

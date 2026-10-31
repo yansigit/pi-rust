@@ -1,10 +1,10 @@
 {
-  "checkedAt": "2026-10-13T14:46:19.6068769+00:00",
+  "checkedAt": "2026-10-25T03:40:52.786996Z",
   "sourceRepository": "https://github.com/pi-rust/rpi-package",
-  "sourceCommit": "5c4083118bcf50fdcaa6ab68694da2d3f194e6a8",
+  "sourceCommit": "7c8493b7762a4982a3bd994ec2983756606cff6a",
   "registry": "https://crates.io",
   "downloadsPeriodDays": 90,
-  "packageCount": 34,
-  "extensionCount": 25,
-  "coreCrateCount": 9
+  "packageCount": 32,
+  "extensionCount": 22,
+  "coreCrateCount": 10
 }

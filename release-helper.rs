@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 const RELEASE_CRATES: &[(&str, &str)] = &[
     ("rpi-telemetry", "crates/rpi-telemetry/Cargo.toml"),
     ("rpi-ai", "crates/rpi-ai/Cargo.toml"),
+    ("rpi-runtime", "crates/rpi-runtime/Cargo.toml"),
     ("rpi-agent", "crates/rpi-agent/Cargo.toml"),
     ("rpi-plugin-sdk", "crates/rpi-plugin-sdk/Cargo.toml"),
     ("rpi-extensions", "crates/rpi-extensions/Cargo.toml"),
@@ -20,6 +21,7 @@ const RELEASE_CRATES: &[(&str, &str)] = &[
 const INTERNAL_DEPENDENCIES: &[&str] = &[
     "rpi-telemetry",
     "rpi-ai",
+    "rpi-runtime",
     "rpi-agent",
     "rpi-plugin-sdk",
     "rpi-extensions",

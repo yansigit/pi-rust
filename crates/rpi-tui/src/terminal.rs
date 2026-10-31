@@ -14,7 +14,7 @@ use crossterm::{
 use thiserror::Error;
 
 /// Mouse tracking prevents native text selection in macOS terminal emulators.
-/// RPI only consumes wheel events, so keep the platform default selectable.
+/// Preserve that platform default; elsewhere the TUI handles selection and scrolling.
 const fn mouse_tracking_enabled_for(is_macos: bool) -> bool {
     !is_macos
 }
@@ -155,6 +155,22 @@ pub trait Terminal: Send + Sync {
     /// still gets a correct frame.
     fn refresh_size(&self);
 
+    /// The terminal's pixel size for its current character grid, when the
+    /// platform can report one.
+    ///
+    /// Image rows are derived from the size of a cell in pixels, and the
+    /// character grid can stay identical while that changes (font zoom, a move
+    /// to a monitor with another DPI). Asking the terminal object rather than a
+    /// process-wide cache keeps the answer attached to the terminal it came
+    /// from, and gives tests an injection point that needs no global state.
+    ///
+    /// Defaults to `None`: a terminal that cannot report pixels (Windows, or a
+    /// Unix terminal that leaves the ioctl fields at zero) leaves image sizing
+    /// at the previously known geometry.
+    fn window_size(&self) -> Option<crossterm::terminal::WindowSize> {
+        None
+    }
+
     /// Start terminal raw mode.
     fn start(
         &self,
@@ -180,6 +196,8 @@ pub struct ProcessTerminal {
     info: Mutex<TerminalInfo>,
     running: Mutex<bool>,
     writer: Mutex<Box<dyn Write + Send + Sync>>,
+    #[cfg(windows)]
+    mouse_captured: Mutex<bool>,
     #[cfg(any(unix, test))]
     keyboard: Mutex<KeyboardProtocolState>,
 }
@@ -214,6 +232,8 @@ impl ProcessTerminal {
             info: Mutex::new(info),
             running: Mutex::new(false),
             writer: Mutex::new(Box::new(io::stdout())),
+            #[cfg(windows)]
+            mouse_captured: Mutex::new(false),
             #[cfg(any(unix, test))]
             keyboard: Mutex::new(KeyboardProtocolState::default()),
         }
@@ -329,16 +349,62 @@ impl Terminal for ProcessTerminal {
     }
 
     fn enable_mouse(&self) {
+        #[cfg(windows)]
+        {
+            let mut captured = self
+                .mouse_captured
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if !*captured {
+                let mut writer = self.writer.lock().unwrap_or_else(|p| p.into_inner());
+                match crossterm::execute!(&mut *writer, event::EnableMouseCapture) {
+                    Ok(()) => *captured = true,
+                    Err(error) => tracing::warn!(%error, "Failed to enable mouse capture"),
+                }
+            }
+        }
+        #[cfg(not(windows))]
         // Enable mouse tracking (SGR mode)
         self.write("\x1b[?1000h\x1b[?1002h\x1b[?1006h");
     }
 
     fn disable_mouse(&self) {
+        #[cfg(windows)]
+        {
+            let mut captured = self
+                .mouse_captured
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if *captured {
+                // Crossterm caches the entire input mode on the FIRST capture,
+                // even across later activations. Preserve the current raw-mode
+                // state rather than resurrecting that potentially stale state.
+                let raw = cterm::is_raw_mode_enabled();
+                let mut writer = self.writer.lock().unwrap_or_else(|p| p.into_inner());
+                match crossterm::execute!(&mut *writer, event::DisableMouseCapture) {
+                    Ok(()) => {
+                        *captured = false;
+                        let restored = match raw {
+                            Ok(true) => cterm::enable_raw_mode(),
+                            Ok(false) => cterm::disable_raw_mode(),
+                            Err(error) => Err(error),
+                        };
+                        if let Err(error) = restored {
+                            tracing::warn!(%error, "Failed to preserve raw mode after mouse capture");
+                        }
+                    }
+                    Err(error) => tracing::warn!(%error, "Failed to disable mouse capture"),
+                }
+            }
+        }
+        #[cfg(not(windows))]
         self.write("\x1b[?1006l\x1b[?1002l\x1b[?1000l");
     }
 
     fn enter_raw_mode(&self) {
-        let _ = cterm::enable_raw_mode();
+        if let Err(error) = cterm::enable_raw_mode() {
+            tracing::warn!(%error, "Failed to enter terminal raw mode");
+        }
         if let Ok(mut running) = self.running.lock() {
             *running = true;
         }
@@ -364,12 +430,22 @@ impl Terminal for ProcessTerminal {
         self.write("\x1b[?2004l");
         #[cfg(unix)]
         self.disable_keyboard_protocol();
+        #[cfg(windows)]
+        self.disable_mouse();
         self.flush();
-        let _ = cterm::disable_raw_mode();
+        // Mouse capture may restore a cached raw input mode. Always restore
+        // the shell's line discipline AFTER disabling capture.
+        if let Err(error) = cterm::disable_raw_mode() {
+            tracing::warn!(%error, "Failed to exit terminal raw mode");
+        }
     }
 
     fn refresh_size(&self) {
         self.update_size();
+    }
+
+    fn window_size(&self) -> Option<crossterm::terminal::WindowSize> {
+        cterm::window_size().ok()
     }
 
     fn start(
@@ -401,7 +477,12 @@ impl Terminal for ProcessTerminal {
                         if let Ok(event) = event::read() {
                             match event {
                                 Event::Key(key) => on_input(InputEvent::Key(
-                                    normalize_key_event_with_protocol(key, supports_kitty_keyboard),
+                                    // Sample platform state as soon as the
+                                    // event is read; see `normalize_key_event`.
+                                    normalize_key_event_with_protocol(
+                                        normalize_key_event(key),
+                                        supports_kitty_keyboard,
+                                    ),
                                 )),
                                 Event::Mouse(mouse) => on_input(InputEvent::Mouse(mouse)),
                                 Event::Resize(cols, rows) => {
@@ -442,8 +523,10 @@ impl Terminal for ProcessTerminal {
         self.disable_keyboard_protocol();
         self.flush();
 
-        // Exit raw mode
-        let _ = cterm::disable_raw_mode();
+        // Exit raw mode only after mouse capture has restored its input mode.
+        if let Err(error) = cterm::disable_raw_mode() {
+            tracing::warn!(%error, "Failed to exit terminal raw mode");
+        }
     }
 
     fn is_tty(&self) -> bool {
@@ -467,19 +550,43 @@ impl Terminal for ProcessTerminal {
     }
 }
 
-/// Apple Terminal sends the same CR for Enter and Shift+Enter. Like Pi's
-/// native helper, consult the local modifier state only for that legacy key.
-/// SSH input belongs to the remote user, not the Mac's physical keyboard.
+/// Apple Terminal and the Windows console both send the same bare CR for Enter
+/// and Shift+Enter. Like Pi's native helper, consult the local modifier state
+/// only for that legacy key, and only for a local session: SSH input belongs to
+/// the remote user, not to this machine's physical keyboard.
+///
+/// Call this once, as soon as an event is decoded — `rpi-cli`'s
+/// `normalize_decoded_event` does, on the way out of `crossterm::event::read`.
+/// The sample describes the keyboard at call time, so it is only as good as how
+/// close the call is to the keypress; repeating it later, after routing or
+/// rendering, can attribute a *later* Shift press to an older Enter.
+///
+/// Event-time data wins wherever the transport still carries it. crossterm maps
+/// `KEY_EVENT_RECORD::dwControlKeyState` onto `KeyModifiers` for every key,
+/// Enter included, so a console record that says `SHIFT_PRESSED` arrives
+/// already modified and neither branch below touches it. The Windows branch
+/// covers only the case where that bit never reached the record: legacy VT
+/// input through ConPTY encodes both chords as `\r`
+/// (microsoft/terminal#4999), which is what `RPI_DEBUG_KEYS=1` shows as
+/// `code=Enter mods=NONE kind=Press` for either key.
+///
+/// That fallback is best effort, not a reconstruction of the original chord.
+/// The information is gone by the time the record exists; only
+/// `win32-input-mode` (`CSI ? 9001 h`) would put it back, and it leaves the
+/// user's shell unusable if rpi dies without resetting it
+/// (microsoft/terminal#19576, fish-shell#11877), so it is deliberately not
+/// enabled for one keybinding. Consequences, accepted deliberately:
+///
+/// * Shift+Enter sampled after the user already released Shift submits, which
+///   is what it did before the fallback existed.
+/// * Plain Enter sampled after Shift went down for the *next* keystroke inserts
+///   a newline instead of submitting. Nothing is lost: the next Enter with
+///   Shift up submits the draft.
 pub fn normalize_key_event(key: KeyEvent) -> KeyEvent {
     #[cfg(target_os = "macos")]
     if key.code == event::KeyCode::Enter
         && key.modifiers.is_empty()
-        && local_apple_terminal(
-            std::env::var("TERM_PROGRAM").ok().as_deref(),
-            ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
-                .iter()
-                .any(|name| std::env::var_os(name).is_some()),
-        )
+        && local_apple_terminal(std::env::var("TERM_PROGRAM").ok().as_deref(), ssh_session())
     {
         #[link(name = "CoreGraphics", kind = "framework")]
         extern "C" {
@@ -490,19 +597,27 @@ pub fn normalize_key_event(key: KeyEvent) -> KeyEvent {
         let shift_pressed = unsafe { CGEventSourceFlagsState(0) } & (1 << 17) != 0;
         return normalize_native_shift_enter(key, shift_pressed);
     }
+    #[cfg(windows)]
+    if key.code == event::KeyCode::Enter && key.modifiers.is_empty() {
+        return normalize_windows_key_event(key, shift_key_pressed(), ssh_session());
+    }
     key
 }
 
 /// Normalize decoded input using the protocol negotiated by this terminal.
 /// Legacy iTerm2 uses CSI 1;9 A/B/C/D for Option+arrows; crossterm decodes
 /// modifier 9 as Super (the kitty meaning). Keep actual kitty Super keys intact.
+///
+/// Platform sampling stays in [`normalize_key_event`], which callers run once
+/// when the event is read; it is not repeated here. A second sample at dispatch
+/// time could turn a plain Enter into a newline because Shift went down for a
+/// later keystroke while the event waited in the queue.
 pub fn normalize_key_event_with_protocol(key: KeyEvent, supports_kitty_keyboard: bool) -> KeyEvent {
-    let key = normalize_legacy_iterm_arrow(
+    normalize_legacy_iterm_arrow(
         key,
         std::env::var("TERM_PROGRAM").ok().as_deref(),
         supports_kitty_keyboard,
-    );
-    normalize_key_event(key)
+    )
 }
 
 fn normalize_legacy_iterm_arrow(
@@ -525,12 +640,61 @@ fn normalize_legacy_iterm_arrow(
     key
 }
 
+/// SSH sessions deliver a remote user's keys; a physical-keyboard check on this
+/// machine must never rewrite them. Same gate for both platform fallbacks.
+#[cfg(any(target_os = "macos", windows))]
+fn ssh_session() -> bool {
+    ["SSH_CONNECTION", "SSH_CLIENT", "SSH_TTY"]
+        .iter()
+        .any(|name| std::env::var_os(name).is_some())
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn local_apple_terminal(term_program: Option<&str>, ssh: bool) -> bool {
     term_program == Some("Apple_Terminal") && !ssh
 }
 
-#[cfg(any(target_os = "macos", test))]
+/// `true` when rpi runs on this machine's console rather than serving a remote
+/// user. A Shift check makes sense only against the local physical keyboard;
+/// remote input must stay untouched, mirroring the macOS gate above.
+#[cfg(any(windows, test))]
+fn local_windows_session(ssh: bool) -> bool {
+    !ssh
+}
+
+/// Restore `SHIFT` on a bare Enter from the Windows console, or leave the event
+/// alone for a remote session. Split out from [`normalize_key_event`] so the
+/// decision is testable off Windows; `shift_down` is the physical state sampled
+/// by [`shift_key_pressed`] when the event was read.
+#[cfg(any(windows, test))]
+fn normalize_windows_key_event(key: KeyEvent, shift_down: bool, ssh: bool) -> KeyEvent {
+    if local_windows_session(ssh) {
+        normalize_native_shift_enter(key, shift_down)
+    } else {
+        key
+    }
+}
+
+/// Read the physical Shift state alongside the console's input thread.
+///
+/// crossterm's Windows reader delivers each key as a console `INPUT_RECORD`,
+/// and for the Enter key pair the modifier never survives the terminal: both
+/// Enter and Shift+Enter arrive as a bare CR. `GetAsyncKeyState` reports the
+/// physical key state at call time — the Windows analog of the macOS
+/// `CGEventSourceFlagsState` read above, and the reason [`normalize_key_event`]
+/// is called as soon as the event is read rather than at dispatch.
+/// `GetKeyState` is not usable here: its per-thread state only updates as a
+/// thread reads window messages, and a console input thread pumps none, so it
+/// is unreliable in console apps.
+#[cfg(windows)]
+fn shift_key_pressed() -> bool {
+    use winapi::um::winuser::{GetAsyncKeyState, VK_SHIFT};
+    // The high bit is set while the physical key is down; the low bit ("pressed
+    // since the last call") is documented as unreliable and is ignored.
+    (unsafe { GetAsyncKeyState(VK_SHIFT as i32) } as u16) & 0x8000 != 0
+}
+
+#[cfg(any(target_os = "macos", windows, test))]
 fn normalize_native_shift_enter(mut key: KeyEvent, shift_pressed: bool) -> KeyEvent {
     if key.code == event::KeyCode::Enter && key.modifiers.is_empty() && shift_pressed {
         key.modifiers.insert(event::KeyModifiers::SHIFT);
@@ -664,6 +828,62 @@ mod tests {
     }
 
     #[test]
+    fn windows_native_shift_enter_only_touches_unmodified_enter_of_a_local_session() {
+        use event::{KeyCode, KeyModifiers};
+        assert!(local_windows_session(false));
+        assert!(!local_windows_session(true));
+        // `shift_down` stands in for the GetAsyncKeyState sample taken when the
+        // event is read; the real call needs a console session and is covered
+        // by the real-machine matrix instead.
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(
+            normalize_windows_key_event(enter, true, false).modifiers,
+            KeyModifiers::SHIFT
+        );
+        assert_eq!(normalize_windows_key_event(enter, false, false), enter);
+        // A remote session never consults this machine's keyboard.
+        assert_eq!(normalize_windows_key_event(enter, true, true), enter);
+        // The console record stays authoritative: whatever it already carries
+        // is left alone, so a transport that preserves SHIFT_PRESSED needs no
+        // fallback at all.
+        for key in [
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::CONTROL),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::ALT),
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::SHIFT),
+        ] {
+            assert_eq!(normalize_windows_key_event(key, true, false), key);
+        }
+    }
+
+    /// The physical sample is taken once, when the event is read, and the
+    /// dispatch-time protocol pass must not sample again: a Shift press that
+    /// lands after an Enter was read belongs to the next keystroke, not to that
+    /// Enter.
+    #[test]
+    fn windows_native_shift_enter_is_decided_once_when_the_event_is_read() {
+        use event::{KeyCode, KeyModifiers};
+        let enter = KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE);
+
+        // Read while Shift is down: the chord reaches the editor intact.
+        let chord = normalize_key_event_with_protocol(
+            normalize_windows_key_event(enter, true, false),
+            false,
+        );
+        assert_eq!(chord.modifiers, KeyModifiers::SHIFT);
+
+        // Read with Shift up, Shift pressed for a later key before dispatch:
+        // still a plain Enter. A second sample in the protocol pass would turn
+        // this into a newline; on Linux the pass never samples, so this is a
+        // Windows-build regression guard rather than a Linux assertion.
+        let plain = normalize_key_event_with_protocol(
+            normalize_windows_key_event(enter, false, false),
+            false,
+        );
+        assert_eq!(plain, enter);
+    }
+
+    #[test]
     fn native_shift_enter_inserts_a_line_before_plain_enter_submits() {
         use event::{KeyCode, KeyModifiers};
         let editor = crate::Editor::simple();
@@ -680,6 +900,106 @@ mod tests {
         assert!(submitted.lock().unwrap().is_empty());
         editor.handle_key(normalize_native_shift_enter(enter, false));
         assert_eq!(submitted.lock().unwrap().as_slice(), &["first\nsecond"]);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_mouse_capture_restores_console_across_repeated_raw_mode_cycles() {
+        use std::os::windows::io::AsRawHandle;
+        use winapi::um::{
+            consoleapi::{GetConsoleMode, SetConsoleMode},
+            wincon::{ENABLE_EXTENDED_FLAGS, ENABLE_MOUSE_INPUT, ENABLE_QUICK_EDIT_MODE},
+        };
+
+        // A redirected test runner may still have CONIN$; test the same real
+        // console crossterm uses, not stdout's TTY status. Never allocate one.
+        let console = match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open("CONIN$")
+        {
+            Ok(console) => console,
+            Err(error) => {
+                eprintln!("SKIP windows mouse capture: no real console ({error})");
+                return;
+            }
+        };
+        fn mode(console: &std::fs::File) -> io::Result<u32> {
+            let mut mode = 0;
+            if unsafe { GetConsoleMode(console.as_raw_handle().cast(), &mut mode) } == 0 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(mode)
+            }
+        }
+        let original = match mode(&console) {
+            Ok(mode) => mode,
+            Err(error) => {
+                eprintln!("SKIP windows mouse capture: no console input mode ({error})");
+                return;
+            }
+        };
+        struct RestoreConsole(std::fs::File, u32);
+        impl Drop for RestoreConsole {
+            fn drop(&mut self) {
+                if unsafe { SetConsoleMode(self.0.as_raw_handle().cast(), self.1) } == 0 {
+                    eprintln!(
+                        "Failed to restore test console: {}",
+                        io::Error::last_os_error()
+                    );
+                }
+            }
+        }
+        let restore = RestoreConsole(console, original);
+        let terminal = ProcessTerminal::new();
+        *terminal.writer.lock().unwrap() =
+            Box::new(RecordedOutput(Arc::new(Mutex::new(Vec::new()))));
+        let assert_capture = || {
+            let mode = mode(&restore.0).unwrap();
+            assert_ne!(mode & ENABLE_MOUSE_INPUT, 0);
+            assert_ne!(mode & ENABLE_EXTENDED_FLAGS, 0);
+            assert_eq!(mode & ENABLE_QUICK_EDIT_MODE, 0);
+            assert!(cterm::is_raw_mode_enabled().unwrap());
+            assert!(*terminal.mouse_captured.lock().unwrap());
+        };
+
+        // Disabling before enabling must not ask crossterm to restore an
+        // uninitialized cache or modify the console at all.
+        terminal.disable_mouse();
+        assert_eq!(mode(&restore.0).unwrap(), original);
+        for _ in 0..2 {
+            terminal.enter_raw_mode();
+            terminal.enter_raw_mode();
+            terminal.enable_mouse();
+            assert_capture();
+            terminal.disable_mouse();
+            terminal.disable_mouse();
+            assert!(cterm::is_raw_mode_enabled().unwrap());
+            terminal.enable_mouse();
+            assert_capture();
+            terminal.exit_raw_mode();
+            terminal.exit_raw_mode();
+            assert!(!*terminal.mouse_captured.lock().unwrap());
+            assert!(!cterm::is_raw_mode_enabled().unwrap());
+            terminal.stop();
+            terminal.stop();
+            assert!(!cterm::is_raw_mode_enabled().unwrap());
+        }
+        terminal.enter_raw_mode();
+        assert_capture();
+        terminal.stop();
+        terminal.stop();
+        assert!(!*terminal.mouse_captured.lock().unwrap());
+        assert!(!cterm::is_raw_mode_enabled().unwrap());
+
+        // A capture started outside raw mode must not make a later explicit
+        // disable_mouse unexpectedly leave raw mode.
+        terminal.enable_mouse();
+        terminal.enter_raw_mode();
+        terminal.disable_mouse();
+        assert!(cterm::is_raw_mode_enabled().unwrap());
+        terminal.stop();
+        assert!(!cterm::is_raw_mode_enabled().unwrap());
     }
 
     #[test]

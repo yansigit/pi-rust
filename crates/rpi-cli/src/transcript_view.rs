@@ -162,6 +162,10 @@ impl TranscriptView {
     pub fn add_notice(&self, text: &str) {
         self.chat
             .add_child(Arc::new(rpi_tui::Text::new(format!("· {text}"), 1, 0)));
+        // One convention for every transcript entry: a trailing blank row,
+        // never a leading one — without it the next block would render flush
+        // against the notice.
+        self.chat.add_child(Arc::new(Spacer::new(1)));
     }
 
     /// Fold one normalized event into the retained components. `width` is the
@@ -377,6 +381,9 @@ impl TranscriptView {
             };
             let mut tools = self.tool_components.lock().unwrap();
             if let Some(existing) = tools.get(&call.id) {
+                if let Some(skill) = skill_tool_name(&call.name, &call.args) {
+                    existing.set_skill_name(skill);
+                }
                 if !display.trim().is_empty() && display.trim() != "{}" {
                     existing.set_args(&display);
                 }
@@ -432,6 +439,9 @@ impl TranscriptView {
             if ask_user {
                 existing.set_display_title("ASK USER");
             }
+            if let Some(skill) = skill_tool_name(name, args) {
+                existing.set_skill_name(skill);
+            }
             existing.set_args(&display);
         } else {
             let comp = Arc::new(ToolExecutionComponent::new(name, &display));
@@ -475,6 +485,9 @@ impl TranscriptView {
         let existing = self.tool_components.lock().unwrap().get(id).cloned();
         match existing {
             Some(comp) => {
+                if let Some(skill) = skill_tool_name(name, args) {
+                    comp.set_skill_name(skill);
+                }
                 if ask_user {
                     comp.set_display_title("ASK USER");
                     comp.set_args(&ask_user_args_display(args));
@@ -980,6 +993,7 @@ fn finalize_bash(comp: &Arc<BashExecutionComponent>, result: &Value, is_error: b
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rpi_tui::{strip_ansi, Component};
     use serde_json::json;
 
     fn view() -> TranscriptView {
@@ -987,8 +1001,123 @@ mod tests {
     }
 
     #[test]
+    fn adjacent_transcript_blocks_separated_by_exactly_one_blank() {
+        // The seam invariant: any two adjacent transcript blocks — whatever
+        // their kinds — are separated by exactly one blank line. Every entry
+        // contributes one trailing blank (assistant trailing spacing, panel
+        // trailing spacer, host trailing Spacer for user/notice entries), and
+        // no block opens with a leading spacer, so the gap never depends on
+        // which kind sits on top. Old behavior: a panel above an assistant
+        // message gave 0 blanks (thinking glued to the code card) while an
+        // assistant message above a panel gave 2 (trailing spacing + panel
+        // top spacer stacking).
+        //
+        // Only *truly* empty rows count as a gap: a panel's own padding rows
+        // carry a background color (non-empty ANSI payload) and belong to the
+        // panel, not to the seam.
+        let view = view();
+        view.add_user("question");
+        view.apply(
+            &UiEvent::AssistantStart {
+                blocks: vec![AssistantBlock::Thinking("reasoning".into())],
+            },
+            80,
+        );
+        view.apply(
+            &UiEvent::AssistantUpdate {
+                blocks: vec![AssistantBlock::Thinking("reasoning".into())],
+                tool_calls: vec![UiToolCall {
+                    id: "t1".into(),
+                    name: "read".into(),
+                    args: json!({"path": "f.txt"}),
+                }],
+            },
+            80,
+        );
+        view.apply(
+            &UiEvent::ToolEnd {
+                id: "t1".into(),
+                name: "read".into(),
+                result: json!({"content": [{"type": "text", "text": "done"}]}),
+                is_error: false,
+            },
+            80,
+        );
+        view.apply(
+            &UiEvent::AssistantStart {
+                blocks: vec![AssistantBlock::Text("answer".into())],
+            },
+            80,
+        );
+        view.apply(
+            &UiEvent::ToolStart {
+                id: "b1".into(),
+                name: "bash".into(),
+                args: json!({"command": "ls"}),
+            },
+            80,
+        );
+        view.apply(&UiEvent::AgentEnd, 80);
+
+        let lines = view.chat.render(80);
+        let plain: Vec<String> = lines
+            .iter()
+            .map(|l| strip_ansi(l).trim().to_string())
+            .collect();
+        // Anchor each block by its LAST content line, so the rows between two
+        // anchors are exactly the seam between the two blocks.
+        let find = |needle: &str| {
+            plain
+                .iter()
+                .rposition(|l| l.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} missing: {plain:?}"))
+        };
+        let user = find("question");
+        let thinking = find("reasoning");
+        let panel = find("done");
+        let answer = find("answer");
+        let bash = find("$ ls");
+        assert!(user < thinking && thinking < panel && panel < answer);
+        assert!(answer < bash);
+        for (top_name, top, bottom_name, bottom) in [
+            ("user", user, "thinking", thinking),
+            ("thinking", thinking, "panel", panel),
+            ("panel", panel, "answer", answer),
+            ("answer", answer, "bash", bash),
+        ] {
+            let gap = lines[top + 1..bottom]
+                .iter()
+                .filter(|l| l.is_empty())
+                .count();
+            assert_eq!(
+                gap, 1,
+                "{top_name}→{bottom_name} seam must be exactly one blank row: {plain:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn retry_notice_ends_with_a_trailing_spacer() {
+        // A notice is a transcript entry like any other: without its own
+        // trailing blank it would render flush against the next block.
+        let view = view();
+        view.apply(
+            &UiEvent::Retry {
+                attempt: 1,
+                max_retries: 3,
+                delay_ms: 500,
+                error: "boom".into(),
+            },
+            80,
+        );
+        let lines = view.chat.render(80);
+        let rendered = strip_ansi(&lines.join("\n"));
+        assert!(rendered.contains("retry 1/3"));
+        assert_eq!(lines.last(), Some(&String::new()));
+    }
+
+    #[test]
     fn empty_assistant_start_and_whitespace_deltas_do_not_move_the_transcript() {
-        use rpi_tui::Component;
         for starts_with_event in [true, false] {
             let view = view();
             view.add_user("hi");
@@ -1225,7 +1354,6 @@ mod tests {
             .as_any()
             .downcast_ref::<ToolExecutionComponent>()
             .unwrap();
-        use rpi_tui::Component;
         let rendered = rpi_tui::ansi::strip_ansi(&panel.render(80).join("\n"));
         assert!(rendered.contains("1/1 completed"));
         assert!(rendered.contains("[✓] Run tests"));
@@ -1286,7 +1414,6 @@ mod tests {
             .as_any()
             .downcast_ref::<ToolExecutionComponent>()
             .unwrap();
-        use rpi_tui::Component;
         assert!(rpi_tui::ansi::strip_ansi(&panel.render(80).join("\n")).contains("Step 30"));
         assert!(update_plan_panel(
             &view.chat,

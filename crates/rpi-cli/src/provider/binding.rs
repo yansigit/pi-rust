@@ -1,6 +1,8 @@
 //! Private execution state. Public model snapshots never carry request headers
 //! or credentials; requests recover their configuration by model identity here.
 use super::*;
+use rpi_runtime::credentials::{oauth_needs_refresh, OAuthRefresher};
+use std::sync::{PoisonError, RwLock};
 
 #[derive(Clone, Default)]
 pub(super) enum RequestAuth {
@@ -10,12 +12,59 @@ pub(super) enum RequestAuth {
     Headers(BTreeMap<String, String>),
 }
 
+impl RequestAuth {
+    /// Whether `token` is the credential this auth sends.
+    pub fn carries(&self, token: &str) -> bool {
+        match self {
+            Self::None => false,
+            Self::ApiKey(key) => key == token,
+            Self::Headers(headers) => headers.iter().any(|(name, value)| {
+                name.eq_ignore_ascii_case("authorization")
+                    && value.strip_prefix("Bearer ") == Some(token)
+            }),
+        }
+    }
+
+    /// Swap in a renewed token, keeping how it is sent.
+    fn renew(&mut self, token: &str) {
+        match self {
+            Self::None => {}
+            Self::ApiKey(key) => *key = token.into(),
+            Self::Headers(headers) => {
+                for (name, value) in headers.iter_mut() {
+                    if name.eq_ignore_ascii_case("authorization") {
+                        *value = format!("Bearer {token}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Renewal state for auth bound from the host's stored OAuth credential.
+pub(super) struct OAuthLease {
+    refresher: Arc<dyn OAuthRefresher>,
+    /// Serializes renewals; concurrent requests wait and reuse the result.
+    expires: tokio::sync::Mutex<i64>,
+}
+
+impl OAuthLease {
+    pub fn new(refresher: Arc<dyn OAuthRefresher>, expires: i64) -> Self {
+        Self {
+            refresher,
+            expires: tokio::sync::Mutex::new(expires),
+        }
+    }
+}
+
 pub(super) struct ExecutionBinding {
     provider_id: String,
     models: Vec<Model>,
     canonical_models: Vec<Model>,
     descriptors: Vec<Model>,
-    auth: RequestAuth,
+    /// Shared with catalog rebinds so a renewal reaches every view of it.
+    auth: Arc<RwLock<RequestAuth>>,
+    oauth: Option<Arc<OAuthLease>>,
     endpoint_override: Option<String>,
     headers:
         Arc<std::collections::HashMap<(rpi_ai::Api, String), Option<BTreeMap<String, String>>>>,
@@ -36,6 +85,21 @@ impl std::fmt::Debug for ExecutionBinding {
 pub(super) fn descriptor(model: &Model) -> Model {
     let mut model = model.clone();
     model.headers = None;
+    // Endpoint userinfo, queries and fragments can carry credentials too. Only
+    // the private binding needs the complete URL; public routing uses identity.
+    if let Ok(mut url) = reqwest::Url::parse(&model.base_url) {
+        if !url.username().is_empty()
+            || url.password().is_some()
+            || url.query().is_some()
+            || url.fragment().is_some()
+        {
+            let _ = url.set_username("");
+            let _ = url.set_password(None);
+            url.set_query(None);
+            url.set_fragment(None);
+            model.base_url = url.into();
+        }
+    }
     model
 }
 
@@ -45,6 +109,7 @@ impl ExecutionBinding {
         models: Vec<Model>,
         canonical_models: Vec<Model>,
         auth: RequestAuth,
+        oauth: Option<OAuthLease>,
     ) -> Self {
         let endpoint_override = models.iter().find_map(|bound| {
             canonical_models
@@ -80,7 +145,8 @@ impl ExecutionBinding {
             descriptors: models.iter().map(descriptor).collect(),
             models,
             canonical_models,
-            auth,
+            auth: Arc::new(RwLock::new(auth)),
+            oauth: oauth.map(Arc::new),
             endpoint_override,
             headers,
             common_headers,
@@ -111,12 +177,77 @@ impl ExecutionBinding {
                 .cloned()
                 .unwrap_or_else(|| self.common_headers.clone());
         }
-        let mut binding = Self::new(&self.provider_id, configured, models, self.auth.clone());
+        let mut binding = Self::new(
+            &self.provider_id,
+            configured,
+            models,
+            RequestAuth::None,
+            None,
+        );
+        binding.auth = self.auth.clone();
+        binding.oauth = self.oauth.clone();
         binding.endpoint_override = self.endpoint_override.clone();
         binding.headers = self.headers.clone();
         binding.common_headers = self.common_headers.clone();
         binding.credential_headers = self.credential_headers.clone();
         binding
+    }
+
+    fn bound_model(&self, requested: &Model) -> Option<&Model> {
+        self.models.iter().find(|model| {
+            requested.provider == self.provider_id
+                && model.provider == requested.provider
+                && model.api == requested.api
+                && model.id.eq_ignore_ascii_case(&requested.id)
+        })
+    }
+
+    pub fn binds(&self, requested: &Model) -> bool {
+        self.bound_model(requested).is_some()
+    }
+
+    /// Renew a stored OAuth credential that has expired or is about to, before
+    /// it is sent. An explicit request key or replacement auth bypasses it.
+    pub async fn renew_oauth(&self, options: &SimpleStreamOptions) -> Result<(), String> {
+        let Some(lease) = self.oauth.as_ref().filter(|_| {
+            options.api_key.is_none()
+                && !matches!(
+                    options.authentication,
+                    rpi_ai::auth::AttemptAuth::Replace(_)
+                )
+        }) else {
+            return Ok(());
+        };
+        if matches!(
+            &*self.auth.read().unwrap_or_else(PoisonError::into_inner),
+            RequestAuth::Headers(_)
+        ) && options.headers.as_ref().is_some_and(|headers| {
+            headers
+                .keys()
+                .any(|name| name.eq_ignore_ascii_case("authorization"))
+        }) {
+            return Ok(());
+        }
+        let mut expires = lease.expires.lock().await;
+        if !oauth_needs_refresh(*expires, now_unix_seconds()) {
+            return Ok(());
+        }
+        let refresher = Arc::clone(&lease.refresher);
+        let provider = self.provider_id.clone();
+        let renewed = tokio::task::spawn_blocking(move || refresher.refresh(&provider))
+            .await
+            .map_err(|_| "the refresh stopped unexpectedly".to_owned())??;
+        if renewed.access.trim().is_empty()
+            || (renewed.expires != 0 && renewed.expires <= now_unix_seconds())
+        {
+            return Err("the provider returned an invalid or expired credential".into());
+        }
+        self.auth
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .renew(&renewed.access);
+        *expires = renewed.expires;
+        Ok(())
     }
 
     pub fn prepare(
@@ -126,15 +257,11 @@ impl ExecutionBinding {
     ) -> Option<(Model, SimpleStreamOptions)> {
         // The caller may select a published model, but cannot substitute an
         // endpoint or headers to redirect an already-bound credential.
-        let mut model = self
-            .models
-            .iter()
-            .find(|model| {
-                requested.provider == self.provider_id
-                    && model.provider == requested.provider
-                    && model.api == requested.api
-                    && model.id.eq_ignore_ascii_case(&requested.id)
-            })?
+        let mut model = self.bound_model(requested)?.clone();
+        let bound_auth = self
+            .auth
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
             .clone();
         let mut options = options.clone();
         if let rpi_ai::auth::AttemptAuth::Replace(replacement) = &options.authentication {
@@ -165,7 +292,7 @@ impl ExecutionBinding {
                     && !model.headers.as_ref().is_some_and(|bound| {
                         bound.keys().any(|known| known.eq_ignore_ascii_case(name))
                     })
-                    && !matches!(&self.auth, RequestAuth::Headers(bound)
+                    && !matches!(&bound_auth, RequestAuth::Headers(bound)
                         if bound.keys().any(|known| known.eq_ignore_ascii_case(name)))
             });
             for (name, value) in &auth.headers {
@@ -179,7 +306,7 @@ impl ExecutionBinding {
             return Some((model, options));
         }
         if options.api_key.is_none() {
-            match &self.auth {
+            match &bound_auth {
                 RequestAuth::None => {}
                 RequestAuth::ApiKey(key) => options.api_key = Some(key.clone()),
                 RequestAuth::Headers(headers) => {
@@ -213,4 +340,10 @@ impl ExecutionBinding {
         }
         model
     }
+}
+
+fn now_unix_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(i64::MAX, |duration| duration.as_secs() as i64)
 }

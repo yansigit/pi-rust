@@ -249,7 +249,7 @@ async fn native_bound_tools_execute_once_and_recordings_execute_zero_times() {
         .unwrap();
         assert_eq!(
             result["isError"],
-            recording.as_ref().map_or(true, |v| v["isError"] != false)
+            recording.as_ref().is_none_or(|v| v["isError"] != false)
         );
         assert_eq!(
             std::fs::read_to_string(cwd.path().join("fixture.txt")).unwrap(),

@@ -37,8 +37,9 @@
 //! reason this is a deliberate trade rather than an oversight.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 use futures::future::BoxFuture;
 use rpi_agent::{AgentEmitter, AgentEvent, AgentMessage};
@@ -46,12 +47,104 @@ use rpi_ai::types::{AssistantMessage, StopReason};
 
 use crate::agent_harness::AgentHarness;
 use crate::session::types::{
-    ProvisionedEntry, ProvisionedKind, RecordBase, StepKind, ToolReplay, ToolStartedRecord,
+    ProvisionedEntry, ProvisionedKind, RecordBase, ToolReplay, ToolStartedRecord,
 };
 
-/// Whether a settled assistant message is part of the run's final history.
-/// Mirrors the retry loop's own eligibility test so the two cannot disagree
-/// about which attempt survives.
+static SETTLE_DIAGNOSTICS: OnceLock<bool> = OnceLock::new();
+
+fn settle_diagnostics_enabled() -> bool {
+    *SETTLE_DIAGNOSTICS
+        .get_or_init(|| std::env::var_os("RPI_AGENT_DIAGNOSTICS").is_some_and(|value| value != "0"))
+}
+
+#[derive(Clone, Copy)]
+enum SettlePhase {
+    Emit,
+    EmitHandle,
+    SettleAwait,
+    InnerEmit,
+    PrepareCommit,
+    AssistantEntryStep,
+    ClearStream,
+    ToolStarted,
+    ToolResultEntry,
+}
+
+struct SettleDiagnostics {
+    enabled: bool,
+    counts: [AtomicU64; 9],
+    elapsed_ns: [AtomicU64; 9],
+}
+
+impl SettleDiagnostics {
+    fn new() -> Self {
+        Self {
+            enabled: settle_diagnostics_enabled(),
+            counts: std::array::from_fn(|_| AtomicU64::new(0)),
+            elapsed_ns: std::array::from_fn(|_| AtomicU64::new(0)),
+        }
+    }
+
+    fn index(phase: SettlePhase) -> usize {
+        match phase {
+            SettlePhase::Emit => 0,
+            SettlePhase::EmitHandle => 1,
+            SettlePhase::SettleAwait => 2,
+            SettlePhase::InnerEmit => 3,
+            SettlePhase::PrepareCommit => 4,
+            SettlePhase::AssistantEntryStep => 5,
+            SettlePhase::ClearStream => 6,
+            SettlePhase::ToolStarted => 7,
+            SettlePhase::ToolResultEntry => 8,
+        }
+    }
+
+    fn start(&self) -> Option<Instant> {
+        self.enabled.then(Instant::now)
+    }
+
+    fn record(&self, phase: SettlePhase, started: Option<Instant>) {
+        if let Some(started) = started {
+            let index = Self::index(phase);
+            self.counts[index].fetch_add(1, Ordering::Relaxed);
+            self.elapsed_ns[index].fetch_add(
+                started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+                Ordering::Relaxed,
+            );
+        }
+    }
+
+    fn report(&self, run_id: &str) {
+        if !self.enabled {
+            return;
+        }
+        let names = [
+            "emit",
+            "emit_handle",
+            "settle_await",
+            "inner_emit",
+            "prepare_commit",
+            "assistant_entry_step",
+            "clear_stream",
+            "tool_started",
+            "tool_result_entry",
+        ];
+        let mut fields = String::new();
+        for (index, name) in names.iter().enumerate() {
+            use std::fmt::Write;
+            let _ = write!(
+                fields,
+                " {}_calls={} {}_ns={}",
+                name,
+                self.counts[index].load(Ordering::Relaxed),
+                name,
+                self.elapsed_ns[index].load(Ordering::Relaxed),
+            );
+        }
+        eprintln!("RPI_SETTLE_DIAGNOSTICS run_id={}{}", run_id, fields);
+    }
+}
+
 pub fn will_retry(
     message: &AssistantMessage,
     retry_enabled: bool,
@@ -120,6 +213,10 @@ pub struct SettleState {
     /// A final assistant normally waits for run-end persistence. If a queued
     /// message continues this run, commit that assistant before the injection.
     uncommitted_assistant: Mutex<Option<(usize, usize, AssistantMessage)>>,
+    /// The durable frame writer, installed after the run's emitter is created.
+    /// Commit paths flush it before binding an assistant entry.
+    frame_recorder: Mutex<Option<Arc<crate::frame_progress::FrameRecordingEmitter>>>,
+    diagnostics: SettleDiagnostics,
 }
 
 impl SettleState {
@@ -147,7 +244,26 @@ impl SettleState {
             reserved_results: Mutex::new(BTreeMap::new()),
             injected: Mutex::new(VecDeque::new()),
             uncommitted_assistant: Mutex::new(None),
+            frame_recorder: Mutex::new(None),
+            diagnostics: SettleDiagnostics::new(),
         }
+    }
+
+    pub(crate) fn set_frame_recorder(
+        &self,
+        recorder: Arc<crate::frame_progress::FrameRecordingEmitter>,
+    ) {
+        *self.frame_recorder.lock().unwrap() = Some(recorder);
+    }
+
+    async fn flush_frame_progress(&self) -> crate::result::HarnessResult<()> {
+        let recorder = self.frame_recorder.lock().unwrap().clone();
+        if let Some(recorder) = recorder {
+            recorder
+                .flush_with_reason(crate::frame_progress::FrameFlushReason::PrepareCommit)
+                .await?;
+        }
+        Ok(())
     }
 
     /// Register a message the run is about to inject, with the entry id its
@@ -210,6 +326,21 @@ impl SettleState {
         self.assistant_entries.lock().unwrap().get(&index).cloned()
     }
 
+    async fn flush_prepare_commit(&self) -> crate::result::HarnessResult<()> {
+        let prepare_started = self.diagnostics.start();
+        let prepare_result = self.flush_frame_progress().await;
+        self.diagnostics
+            .record(SettlePhase::PrepareCommit, prepare_started);
+        prepare_result
+    }
+
+    /// Flush frame progress before a commit whose binding is written together
+    /// with the entry. The binding itself is appended by the caller so it can
+    /// share the entry/step durable append.
+    pub(crate) async fn prepare_commit_for_assistant(&self) -> crate::result::HarnessResult<()> {
+        self.flush_prepare_commit().await
+    }
+
     /// Make assistant persistence idempotent across a crash between the entry
     /// write and frame retirement. Non-assistant indices have no stream.
     pub(crate) async fn prepare_commit(
@@ -218,6 +349,7 @@ impl SettleState {
         entry_id: &str,
         harness: &AgentHarness,
     ) -> crate::result::HarnessResult<()> {
+        self.flush_prepare_commit().await?;
         let stream_index = self.assistant_streams.lock().unwrap().get(&index).copied();
         if let Some(stream_index) = stream_index {
             crate::frame_progress::bind_stream_entry(
@@ -249,6 +381,12 @@ impl SettleState {
                 pending.insert(call.id.clone(), (entry_id.to_string(), ordinal as u32));
             }
         }
+    }
+}
+
+impl Drop for SettleState {
+    fn drop(&mut self) {
+        self.diagnostics.report(&self.run_id);
     }
 }
 
@@ -296,43 +434,42 @@ impl SettlingEmitter {
             },
         };
         let entry_id = entry.id.clone();
-        if let Err(error) = self
-            .state
-            .prepare_commit(index, &entry_id, &self.harness)
-            .await
-        {
+        if let Err(error) = self.state.prepare_commit_for_assistant().await {
             tracing::warn!(%error, "could not bind a settled assistant stream");
             return;
         }
-        match self.harness.append_provisioned(entry).await {
+        let entry_started = self.state.diagnostics.start();
+        let attempt = self.state.attempt.load(Ordering::Acquire) + 1;
+        let entry_result = self
+            .harness
+            .append_bound_provisioned_with_step_attempt(
+                entry,
+                &self.state.run_id,
+                attempt,
+                stream_index,
+            )
+            .await;
+        self.state
+            .diagnostics
+            .record(SettlePhase::AssistantEntryStep, entry_started);
+        match entry_result {
             Ok(_) => {
                 self.state.record_commit(index, &entry_id);
                 self.state.record_tool_calls(&entry_id, message);
                 // The message is an entry now, so its frames are no longer
                 // progress. Retiring the stream is what stops a crash in a *later*
                 // turn from replaying this one and duplicating it.
-                if let Err(error) = self.recorder.clear_stream(stream_index).await {
+                let clear_started = self.state.diagnostics.start();
+                let clear_result = self.recorder.clear_stream(stream_index).await;
+                self.state
+                    .diagnostics
+                    .record(SettlePhase::ClearStream, clear_started);
+                if let Err(error) = clear_result {
                     tracing::warn!(
                         stream_index,
                         %error,
                         "could not retire a committed assistant stream"
                     );
-                }
-                // One assistant generation = one step attempt. The entry id is
-                // the one just committed, so recovery can check whether the step
-                // actually landed.
-                if let Err(error) = self
-                    .harness
-                    .write_step_attempt_record(
-                        &self.state.run_id,
-                        StepKind::Assistant,
-                        self.state.attempt.load(Ordering::Acquire) + 1,
-                        &entry_id,
-                        None,
-                    )
-                    .await
-                {
-                    tracing::warn!(%error, "could not record a settled assistant step");
                 }
             }
             Err(error) => {
@@ -402,7 +539,12 @@ impl SettlingEmitter {
             result_entry_id,
             replay,
         };
-        if let Err(error) = self.harness.write_tool_started(record).await {
+        let tool_started_started = self.state.diagnostics.start();
+        let tool_started_result = self.harness.write_tool_started(record).await;
+        self.state
+            .diagnostics
+            .record(SettlePhase::ToolStarted, tool_started_started);
+        if let Err(error) = tool_started_result {
             tracing::warn!(%error, tool_call_id, "could not record a tool_started frame");
         }
     }
@@ -494,7 +636,12 @@ impl SettlingEmitter {
                 terminate: None,
             },
         };
-        match self.harness.append_provisioned(entry).await {
+        let result_entry_started = self.state.diagnostics.start();
+        let result_entry_result = self.harness.append_provisioned(entry).await;
+        self.state
+            .diagnostics
+            .record(SettlePhase::ToolResultEntry, result_entry_started);
+        match result_entry_result {
             Ok(_) => {
                 self.state.record_commit(index, &result_entry_id);
             }
@@ -657,7 +804,99 @@ impl SettlingEmitter {
                         .await;
                 }))
             }
+            AgentEvent::AgentEnd { .. } => {
+                // The final assistant message of a completed or aborted run is
+                // persisted by `run_core` AFTER its `MessageEnd` broadcast, so
+                // the log can still be missing the run's last turn here. Commit
+                // it now, before `AgentEnd` itself is forwarded: every consumer
+                // of the broadcast can then treat `AgentEnd` as the point where
+                // the durable log is complete for this run (the TUI's footer
+                // reconciliation is exactly such a consumer). Same fallback the
+                // injected-delivery path uses, minus an injection to deliver.
+                // `prepare_commit`/`append_provisioned` need await, so this runs
+                // inside the future `emit` polls, not in `handle`.
+                if self.state.uncommitted_assistant.lock().unwrap().is_none() {
+                    return None;
+                }
+                let emitter = Self {
+                    inner: Arc::clone(&self.inner),
+                    recorder: Arc::clone(&self.recorder),
+                    state: Arc::clone(&self.state),
+                    harness: self.harness.clone(),
+                };
+                Some(Box::pin(async move {
+                    emitter.settle_final_assistant().await;
+                }))
+            }
             _ => None,
+        }
+    }
+
+    /// Commit the run's final assistant message before `AgentEnd` is forwarded.
+    /// Called with the lock NOT held: everything here awaits.
+    async fn settle_final_assistant(&self) {
+        let Some((assistant_index, stream_index, assistant)) =
+            self.state.uncommitted_assistant.lock().unwrap().take()
+        else {
+            return;
+        };
+        let already_committed = self
+            .state
+            .committed
+            .lock()
+            .unwrap()
+            .contains(&assistant_index);
+        if already_committed {
+            // The normal settle path beat us to it; only the stream's frames
+            // still need retiring.
+            if let Err(error) = self.recorder.clear_stream(stream_index).await {
+                tracing::warn!(
+                    stream_index,
+                    %error,
+                    "could not retire the final assistant before AgentEnd"
+                );
+            }
+            return;
+        }
+        let assistant_id = self.state.reserve_entry_id(assistant_index, &self.harness);
+        if let Err(error) = self
+            .state
+            .prepare_commit(assistant_index, &assistant_id, &self.harness)
+            .await
+        {
+            // The message stays uncommitted, so `run_core`'s persistence pass
+            // will still write it after the emitter returns.
+            tracing::warn!(%error, "could not bind the final assistant before AgentEnd");
+            return;
+        }
+        let entry = ProvisionedEntry {
+            id: assistant_id.clone(),
+            kind: ProvisionedKind::Message {
+                message: AgentMessage::Assistant(Box::new(assistant)),
+                terminate: None,
+            },
+        };
+        match self.harness.append_provisioned(entry).await {
+            Ok(_) => {
+                self.state.record_commit(assistant_index, &assistant_id);
+            }
+            Err(error) => {
+                // Leave the message for `run_core`'s own persistence pass,
+                // which runs after this emitter returns; the log is then
+                // complete one step later than usual.
+                tracing::warn!(
+                    %error,
+                    "could not commit the final assistant before AgentEnd"
+                );
+                return;
+            }
+        }
+        if let Err(error) = self.recorder.clear_stream(stream_index).await {
+            tracing::warn!(
+                stream_index,
+                %error,
+                "could not retire the final assistant before AgentEnd"
+            );
         }
     }
 }
@@ -682,18 +921,33 @@ impl AgentEmitter for SettlingEmitter {
 impl SettlingEmitter {
     fn emit_inner(&self, event: AgentEvent, prepared: bool) -> BoxFuture<'static, ()> {
         let inner = Arc::clone(&self.inner);
+        let state = Arc::clone(&self.state);
+        let emit_started = state.diagnostics.start();
+        let handle_started = state.diagnostics.start();
         let settles = self.handle(&event);
+        state
+            .diagnostics
+            .record(SettlePhase::EmitHandle, handle_started);
         Box::pin(async move {
             // Commit *before* forwarding: a UI that renders the settled message
             // must not be able to observe it before it is durable.
+            let settle_started = state.diagnostics.start();
             if let Some(settles) = settles {
                 settles.await;
             }
+            state
+                .diagnostics
+                .record(SettlePhase::SettleAwait, settle_started);
+            let inner_started = state.diagnostics.start();
             if prepared {
                 inner.emit_prepared(event).await;
             } else {
                 inner.emit(event).await;
             }
+            state
+                .diagnostics
+                .record(SettlePhase::InnerEmit, inner_started);
+            state.diagnostics.record(SettlePhase::Emit, emit_started);
         })
     }
 }

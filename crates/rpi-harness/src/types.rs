@@ -117,6 +117,10 @@ pub struct AgentHarnessResources {
     /// Default CLI prompts include active tool guidance; custom prompts opt out.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub include_tool_guidance: bool,
+    /// Tools whose guidance the base prompt already renders (the CLI's
+    /// `ToolPromptMetadata` scaffold); tool guidance skips them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub base_prompt_tools: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt_templates: Option<Vec<PromptTemplate>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,12 +143,12 @@ impl ToolRegistrationPolicy {
             && self
                 .allow
                 .as_ref()
-                .map_or(true, |names| names.iter().any(|n| n == name))
+                .is_none_or(|names| names.iter().any(|n| n == name))
             && !self.deny.iter().any(|n| n == name)
             && self
                 .ceiling
                 .as_ref()
-                .map_or(true, |names| names.iter().any(|n| n == name))
+                .is_none_or(|names| names.iter().any(|n| n == name))
     }
 }
 
@@ -240,6 +244,8 @@ pub struct AgentHarnessStreamOptions {
     pub headers: Option<BTreeMap<String, String>>,
     pub metadata: Option<BTreeMap<String, serde_json::Value>>,
     pub cache_retention: Option<CacheRetention>,
+    /// Budgets for budget-based thinking (settings `thinkingBudgets`).
+    pub thinking_budgets: Option<rpi_ai::ThinkingBudgets>,
 }
 
 /// The harness's pinned subset folded into a real [`SimpleStreamOptions`] per
@@ -278,6 +284,9 @@ impl AgentHarnessStreamOptions {
         }
         if let Some(c) = self.cache_retention {
             base.cache_retention = c;
+        }
+        if self.thinking_budgets.is_some() {
+            base.thinking_budgets = self.thinking_budgets;
         }
         base
     }
@@ -668,6 +677,26 @@ mod tests {
         .apply(&mut overlay);
         assert_eq!(overlay.headers, None);
         assert_eq!(overlay.metadata.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn thinking_budgets_reach_the_provider_options() {
+        let budgets = rpi_ai::ThinkingBudgets {
+            high: Some(24576),
+            ..Default::default()
+        };
+        let options = super::AgentHarnessStreamOptions {
+            thinking_budgets: Some(budgets),
+            ..Default::default()
+        };
+        let merged = options.merge_into(rpi_ai::SimpleStreamOptions::default());
+        assert_eq!(merged.thinking_budgets, Some(budgets));
+        let unset = super::AgentHarnessStreamOptions::default().merge_into(merged);
+        assert_eq!(
+            unset.thinking_budgets,
+            Some(budgets),
+            "unset keeps the caller's budgets"
+        );
     }
 
     #[test]

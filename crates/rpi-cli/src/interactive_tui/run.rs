@@ -149,6 +149,21 @@ pub(super) fn reconcile_streamed_assistant_completion(
 /// `AgentEvent` drain task renders the response live and the completed outcome
 /// reconciles its final snapshot. When false (no `event_rx`), this falls back
 /// to the blocking await-final-text path.
+/// The TUI message for a refused session write.
+///
+/// Refusing to save is not a provider problem: retrying fails the same way, and
+/// the messages on screen are the only copy. The advice is accurate because
+/// `export_session` appends `AgentHarness::unsaved_messages` to the file — a
+/// refused append never becomes a session entry, so an export that read only the
+/// log would silently drop exactly the turns this warning is about.
+pub(super) fn tui_session_storage_notice(error: &rpi_harness::result::HarnessError) -> String {
+    format!(
+        "The conversation could not be saved: {error}. Your messages are still on \
+         screen, and /export writes the unsaved ones into the exported file — do \
+         that before exiting."
+    )
+}
+
 pub(super) async fn run_prompt_streaming(
     lane: &Arc<dyn AgentLane>,
     prompt: &str,
@@ -201,16 +216,35 @@ pub(super) async fn run_prompt_streaming(
     }
 
     state.set_status(RunStatus::Idle);
+    // Let the run's own writes reach the disk before this function returns.
+    // A forced exit (`emergency_exit`) bypasses the shutdown sequence entirely,
+    // and it is only taken while a run is in flight — i.e. exactly when there is
+    // work that has not been persisted yet. Draining here bounds that window to
+    // one run instead of the whole session.
+    lane.drain_session().await;
     // Guarantee the pending-messages display reconciles at the end of every
     // run/prompt — covers aborts and the non-streaming path, where no
     // `AgentEnd` event necessarily reaches the drain task.
     refresh_pending_messages(state, lane).await;
+    // The blocking path has no drain task, so `AgentEnd` never runs and this is
+    // the only place its write failures can surface.
+    super::events::report_write_failures(&state.chat_container, lane);
 
-    // Authoritative context-badge fallback. The streaming drain normally
-    // updates it from `MessageEnd`, but a `Lagged` broadcast or the blocking
-    // path can skip that event; reconcile from the run outcome so the badge
-    // always reflects the newest real response.
+    // Footer repair for a dropped `MessageEnd` used to live here, but that call
+    // raced the drain: the final assistant message can already be in the log
+    // while its `MessageEnd` is still queued, so the rebuild counted turns the
+    // drain was about to count again — and a distinct turn with the same
+    // timestamp and usage is indistinguishable from that delayed duplicate by
+    // content alone. Reconciliation now runs inside the drain's `AgentEnd`
+    // handler, which the FIFO broadcast turns into a consumption barrier: every
+    // event queued before it has been applied, so a `set_usage` rebuild can
+    // never be followed by a delayed duplicate of what it counted.
     if let Ok(result) = &outcome {
+        // The context badge keeps its run-outcome fallback: it shows one turn's
+        // measurement (set semantics, nothing accumulated), so racing the drain
+        // costs nothing — the drain's own `MessageEnd` handling just overwrites
+        // it. On the non-streaming path there is no drain at all, and this is
+        // the only place the badge gets a value from.
         let final_message: Option<&AssistantMessage> = match &result.outcome {
             HarnessRunOutcome::Completed { final_message, .. }
             | HarnessRunOutcome::Aborted { final_message, .. } => Some(final_message),
@@ -274,10 +308,94 @@ pub(super) async fn run_prompt_streaming(
             }
         },
         Err(e) => {
-            add_error_message(&state.chat_container, &e.to_string());
+            // A refused session write is not a provider problem: retrying will fail
+            // the same way, and the transcript on screen is the only copy left.
+            if e.tag() == rpi_harness::result::HarnessErrorTag::SessionStorage {
+                add_error_message(&state.chat_container, &tui_session_storage_notice(&e));
+            } else {
+                add_error_message(&state.chat_container, &e.to_string());
+            }
         }
     }
 
+    tui.request_render(false);
+}
+
+/// Drive an explicitly selected skill through the live transcript path.
+/// `AgentLane::skill` performs the canonical `<skill>` invocation; this helper
+/// keeps the TUI status, pending queue, final assistant message, and errors in
+/// sync with ordinary prompts.
+pub(super) async fn run_skill_streaming(
+    lane: &Arc<dyn AgentLane>,
+    name: &str,
+    additional_instructions: Option<&str>,
+    tui: &Arc<TuiAltScreen>,
+    state: &Arc<TuiState>,
+    streaming: bool,
+) {
+    state.set_status(RunStatus::Working);
+    tui.request_render(false);
+    let outcome = lane.skill(name, additional_instructions).await;
+    if streaming {
+        let final_message = match &outcome {
+            Ok(result) => match &result.outcome {
+                HarnessRunOutcome::Completed { final_message, .. }
+                | HarnessRunOutcome::Aborted { final_message, .. } => Some(final_message),
+                HarnessRunOutcome::Failed { final_message, .. } => final_message.as_ref(),
+                HarnessRunOutcome::Suspended { .. } => None,
+            },
+            Err(_) => None,
+        };
+        reconcile_streamed_assistant_completion(
+            &state.current_assistant,
+            &state.last_assistant_text,
+            final_message,
+        );
+    }
+
+    state.set_status(RunStatus::Idle);
+    refresh_pending_messages(state, lane).await;
+
+    match outcome {
+        Ok(result) => match result.outcome {
+            HarnessRunOutcome::Completed { final_message, .. } => {
+                if !streaming {
+                    let text = assistant_text(&final_message);
+                    if !text.is_empty() {
+                        add_assistant_message_blocking(
+                            &state.chat_container,
+                            &text,
+                            state.markdown_transformer(),
+                        );
+                        *state.last_assistant_text.lock().unwrap() = text;
+                    }
+                }
+            }
+            HarnessRunOutcome::Aborted { .. } => {
+                if !streaming {
+                    add_error_message(&state.chat_container, "Skill invocation aborted.");
+                }
+            }
+            HarnessRunOutcome::Suspended { .. } => add_error_message(
+                &state.chat_container,
+                "Skill invocation suspended (deferred) — resume is not supported in v1.",
+            ),
+            HarnessRunOutcome::Failed {
+                error,
+                final_message,
+                ..
+            } => {
+                if !(streaming && final_message.is_some()) {
+                    let message = final_message
+                        .as_ref()
+                        .and_then(|m| m.error_message.clone())
+                        .unwrap_or_else(|| format!("{error:?}"));
+                    add_error_message(&state.chat_container, &message);
+                }
+            }
+        },
+        Err(error) => add_error_message(&state.chat_container, &error.to_string()),
+    }
     tui.request_render(false);
 }
 
@@ -307,6 +425,16 @@ pub(super) async fn run_compact(
     tui.request_render(false);
 }
 
+/// Copy the fullscreen mouse selection, if present. `Some(false)` still
+/// means the selection handled the action: never silently copy another source
+/// when the clipboard write fails. Injection keeps tests off the OS clipboard.
+pub(super) fn copy_mouse_selection_with(
+    tui: &TuiAltScreen,
+    copy: impl FnOnce(&str) -> bool,
+) -> Option<bool> {
+    tui.selection_text().map(|text| copy(&text))
+}
+
 /// `/copy`: copy the last assistant reply to the clipboard. Best-effort —
 /// when no clipboard is available (or the `clipboard` feature is off), prints a
 /// hint instead. Mirrors the TS `/copy` (copies `this.messages.at(-1)` text).
@@ -334,46 +462,6 @@ pub(super) fn copy_last_assistant(state: &Arc<TuiState>, chat: &Arc<Container>) 
             ),
         );
     }
-}
-
-/// Extract text from the chat container within the given screen coordinates.
-/// Returns None if the selection is invalid or empty.
-pub(super) fn extract_selected_text(
-    chat_container: &Arc<Container>,
-    start: (u16, u16),
-    end: (u16, u16),
-) -> Option<String> {
-    use rpi_tui::Component;
-
-    // Get the rendered lines from the chat container
-    let lines = chat_container.render(80); // Use a reasonable width
-    if lines.is_empty() {
-        return None;
-    }
-
-    // Normalize coordinates (ensure start is before end)
-    let (start_row, end_row) = if start.1 <= end.1 {
-        (start.1 as usize, end.1 as usize)
-    } else {
-        (end.1 as usize, start.1 as usize)
-    };
-
-    // Clamp to valid range
-    let start_row = start_row.min(lines.len().saturating_sub(1));
-    let end_row = end_row.min(lines.len().saturating_sub(1));
-
-    if start_row > end_row {
-        return None;
-    }
-
-    // Extract the selected lines
-    let selected_lines: Vec<String> = lines[start_row..=end_row].to_vec();
-
-    if selected_lines.is_empty() {
-        return None;
-    }
-
-    Some(selected_lines.join("\n"))
 }
 
 /// Best-effort clipboard write. Enabled only with the `clipboard` feature

@@ -93,6 +93,10 @@ pub(crate) async fn replace_session_request(
         return Ok(SessionReplacement::Cancelled { reason });
     }
     let destination = match request {
+        // `--no-session` chose no persistence; `/new` keeps that choice.
+        HostSessionRequest::New if ctx.harness.session().storage().is_ephemeral() => {
+            ephemeral_session()
+        }
         HostSessionRequest::New => {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             create_jsonl_session(dir, cwd)
@@ -101,6 +105,7 @@ pub(crate) async fn replace_session_request(
         }
         HostSessionRequest::Resume(id) => open_session_by_id_in_dir(&id, cwd, dir)
             .await
+            .map(|restored| restored.session)
             .map_err(|e| e.to_string())?,
         HostSessionRequest::Import(path) => import_session_file(&path, cwd, dir).await?,
         HostSessionRequest::Fork { position, .. } => {

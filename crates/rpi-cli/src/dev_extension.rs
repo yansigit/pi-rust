@@ -161,7 +161,6 @@ impl DevExtension {
     /// successful Cargo build and copy, so failed reloads keep the live plugin.
     pub fn rebuild(&self) -> Result<PathBuf, String> {
         let _guard = self.build_lock.lock().unwrap();
-        eprintln!("dev: building extension {}...", self.project.package);
         let artifact = build_cdylib(&self.project, self.release)?;
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         let stage = self.stage_root.join(generation.to_string());
@@ -179,7 +178,6 @@ impl DevExtension {
             )
         })?;
         *self.current_stage.lock().unwrap() = Some(stage.clone());
-        eprintln!("dev: built {}", staged.display());
         Ok(stage)
     }
 
@@ -360,6 +358,7 @@ fn build_cdylib(project: &ExtensionProject, release: bool) -> Result<PathBuf, St
         .output()
         .map_err(|error| format!("could not execute cargo build: {error}"))?;
     let mut artifact = None;
+    let mut diagnostics = String::new();
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
             continue;
@@ -369,7 +368,7 @@ fn build_cdylib(project: &ExtensionProject, release: bool) -> Result<PathBuf, St
             .and_then(|message| message.get("rendered"))
             .and_then(serde_json::Value::as_str)
         {
-            eprint!("{rendered}");
+            append_diagnostic(&mut diagnostics, rendered);
         }
         if value.get("reason").and_then(serde_json::Value::as_str) != Some("compiler-artifact")
             || value
@@ -389,11 +388,12 @@ fn build_cdylib(project: &ExtensionProject, release: bool) -> Result<PathBuf, St
             .map(PathBuf::from)
             .find(|path| is_cdylib(path));
     }
-    if !output.stderr.is_empty() {
-        eprint!("{}", String::from_utf8_lossy(&output.stderr));
-    }
+    append_diagnostic(
+        &mut diagnostics,
+        String::from_utf8_lossy(&output.stderr).as_ref(),
+    );
     if !output.status.success() {
-        return Err(format!("cargo build exited with {}", output.status));
+        return Err(format_build_failure(output.status, &diagnostics));
     }
     artifact.ok_or_else(|| {
         format!(
@@ -401,6 +401,28 @@ fn build_cdylib(project: &ExtensionProject, release: bool) -> Result<PathBuf, St
             project.package, project.target
         )
     })
+}
+
+/// Keep Cargo output out of the terminal while the interactive TUI owns it.
+/// Successful diagnostics are intentionally discarded; failures are returned
+/// to the caller so the TUI can render them inside its transcript.
+fn append_diagnostic(buffer: &mut String, diagnostic: &str) {
+    if diagnostic.is_empty() {
+        return;
+    }
+    if !buffer.is_empty() && !buffer.ends_with('\n') {
+        buffer.push('\n');
+    }
+    buffer.push_str(diagnostic);
+}
+
+fn format_build_failure(status: impl std::fmt::Display, diagnostics: &str) -> String {
+    let diagnostics = diagnostics.trim();
+    if diagnostics.is_empty() {
+        format!("cargo build exited with {status}")
+    } else {
+        format!("cargo build exited with {status}:\n{diagnostics}")
+    }
 }
 
 fn is_cdylib(path: &Path) -> bool {
@@ -590,6 +612,28 @@ mod tests {
         assert!(args.extension.is_empty());
         assert!(args.skill.is_empty());
         assert!(args.prompt_template.is_empty());
+    }
+
+    #[test]
+    fn build_diagnostics_are_buffered_for_ui_errors() {
+        let mut diagnostics = String::new();
+        append_diagnostic(&mut diagnostics, "warning: unused import\n");
+        append_diagnostic(&mut diagnostics, "error: could not compile extension");
+
+        let message = format_build_failure("exit code: 101", &diagnostics);
+
+        assert_eq!(
+            message,
+            "cargo build exited with exit code: 101:\nwarning: unused import\nerror: could not compile extension"
+        );
+    }
+
+    #[test]
+    fn build_failure_without_diagnostics_stays_compact() {
+        assert_eq!(
+            format_build_failure("exit code: 101", "\n"),
+            "cargo build exited with exit code: 101"
+        );
     }
 
     #[test]

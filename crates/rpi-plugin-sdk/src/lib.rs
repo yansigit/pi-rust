@@ -66,6 +66,8 @@ use core::ffi::c_char;
 use core::ffi::c_void;
 use core::ptr;
 
+#[cfg(feature = "binary")]
+pub mod binary;
 pub mod callbacks;
 #[cfg(feature = "json")]
 pub mod dialogs;
@@ -720,7 +722,13 @@ pub const HOST_NAME: &str = "rpi";
 /// as of this SDK release — good for a user agent or a fallback label, and
 /// superseded at runtime by the `host.version` field of the `BeforeAgentStart`
 /// payload.
-pub const HOST_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// A preview build sets `RPI_BUILD_VERSION` so the executable and plugin
+/// bridge report the full prerelease version without changing the checked-in
+/// Cargo workspace version. Empty values are ignored for normal builds.
+pub const HOST_VERSION: &str = match option_env!("RPI_BUILD_VERSION") {
+    Some(version) if !version.is_empty() => version,
+    _ => env!("CARGO_PKG_VERSION"),
+};
 
 /// Environment variable carrying the id of the session this process serves.
 ///
@@ -1099,8 +1107,20 @@ pub enum RuntimeActionId {
     /// `{"ok":true,"chars":N}`. A headless host has no editor and accepts the
     /// write without rendering it, mirroring [`RuntimeActionId::SetStatus`].
     SetEditorText = 19,
-    /// Return the current session branch entries oldest-first as JSON.
-    /// Args: `{}`; result: `{"entries":[...]}`.
+    /// Query custom entries on the current main branch. Args:
+    /// `{"customTypes":["durable-state","other-custom-type"],"afterSeq":42,
+    /// "limit":20,"order":"newestFirst"}`. `customTypes` is required and
+    /// non-empty; the other fields are optional. Default order: `oldestFirst`.
+    /// `afterSeq` is exclusive: `seq > afterSeq` for oldestFirst, `seq < afterSeq`
+    /// for newestFirst. Ordering and
+    /// limit apply globally across types, within the selected branch only.
+    /// Result: `{"entries":[...],"count":N,"filtered":true}`. Empty `{}`,
+    /// unknown keys and legacy `customType`/`custom_type`/`custom_types`/
+    /// `after_seq` query arguments are errors, including mixed old/new requests.
+    /// This does not change AppendEntry's singular `customType` write argument.
+    /// Type identifiers match exactly (including case and whitespace).
+    /// Consumers must require `filtered == true`: older ABI-compatible hosts
+    /// may ignore the query and return the unfiltered branch instead.
     GetSessionBranch = 20,
     /// Inspect or finish a plugin-owned stdio server lifecycle. Args:
     /// `{"op":"status"}` or `{"op":"finish","exitCode":0}`. Only the
@@ -1321,8 +1341,9 @@ pub type ProviderStreamEmitFn = extern "C" fn(event_json: StbString, user_data: 
 /// Same request envelope and final-response contract as [`ProviderRequestFn`],
 /// plus a per-chunk channel and the cancellation protocol:
 ///
-/// - `req_json` — borrowed `{ model, context, options }` envelope (never freed by
-///   the plugin).
+/// - `req_json` — borrowed `{ model, context, options, capabilities }` envelope
+///   (never freed by the plugin). `capabilities` is absent on hosts that predate
+///   it; see `recorded` below.
 /// - `emit` + `emit_user_data` — the host's per-chunk callback. `emit` is `None`
 ///   only if the host cannot accept chunks; a plugin then degrades to buffering
 ///   and returning the message through `out`. While the caller is cancelled the
@@ -1371,6 +1392,20 @@ pub type ProviderStreamEmitFn = extern "C" fn(event_json: StbString, user_data: 
 /// Unknown `type` values are ignored (forward compatibility). A `*_delta` may
 /// carry an optional `partial` object (a full assistant message) to override the
 /// host-side accumulated snapshot; otherwise the host accumulates deltas itself.
+///
+/// A `toolcall_end` may carry `recorded` when the call already ran upstream: the
+/// host then uses the recording as the tool result and never executes the call
+/// locally. Its shape is `{"version":1,"isError":false,"result":{"content":[...],"terminate":false}}`,
+/// and a call without the key executes as usual. A host that predates
+/// `recorded` ignores it and executes the call, so a plugin may send `recorded`
+/// only when the request's top-level `capabilities.recordedToolCalls` is at
+/// least `1`. That value is the highest recording version the host decodes; a
+/// host that advertises `n` decodes every version from `1` to `n`. The
+/// `provider` bridge applies this check itself.
+/// The host holds `out` to every recorded `toolcall_end`: a final call with the
+/// same `id`, `name` and `arguments` but no `recorded` key gets the streamed
+/// recording, and a missing, repeated or conflicting call ends the turn with an
+/// error instead of running it.
 pub type ProviderStreamRequestFn = extern "C" fn(
     req_json: StbStringRef,
     emit: Option<ProviderStreamEmitFn>,
@@ -1694,6 +1729,21 @@ pub struct PluginApi {
     /// Optional plugin shutdown hooks, appended after wake-driven tools.
     pub register_plugin_lifecycle: Option<RegisterPluginLifecycleFn>,
 
+    /// Set explicit prompt metadata for a tool already registered by this plugin.
+    /// Upstream v0.15 slot: it directly follows `register_plugin_lifecycle`,
+    /// so plugins built against upstream load unchanged. Host-only slots follow.
+    /// `metadata_json` is an object with optional `promptSnippet` (string) and
+    /// `promptGuidelines` (string array), matching pi's tool definition fields.
+    /// Both arguments are borrowed and copied before this call returns.
+    ///
+    /// Returns 0 on success, 1 for an unknown tool, 2 for malformed metadata,
+    /// and -1 outside registration. Appended without changing StableToolSchema
+    /// or the ABI version. Older hosts supply None: skip the call; the tool's
+    /// schema and execution remain available without any prompt contribution.
+    pub register_tool_prompt:
+        Option<extern "C" fn(name: StbStringRef, metadata_json: StbStringRef) -> i32>,
+
+    /// Host-only slots start here, after the complete upstream v0.15 layout.
     /// Optional richer auth contract, appended without changing earlier slots.
     /// Packages requiring this contract must report its absence at registration.
     pub register_provider_auth: Option<RegisterProviderAuthFn>,
@@ -2134,6 +2184,7 @@ mod tests {
             register_streaming_provider: None,
             register_tool_with_wake: None,
             register_plugin_lifecycle: None,
+            register_tool_prompt: None,
             register_provider_auth: None,
             register_credential_store: None,
             register_provider_wrapper: None,
@@ -2244,8 +2295,12 @@ mod tests {
             core::mem::offset_of!(PluginApi, register_tool_with_wake) + size_of::<usize>()
         );
         assert_eq!(
-            core::mem::offset_of!(PluginApi, register_provider_auth),
+            core::mem::offset_of!(PluginApi, register_tool_prompt),
             core::mem::offset_of!(PluginApi, register_plugin_lifecycle) + size_of::<usize>()
+        );
+        assert_eq!(
+            core::mem::offset_of!(PluginApi, register_provider_auth),
+            core::mem::offset_of!(PluginApi, register_tool_prompt) + size_of::<usize>()
         );
         assert_eq!(
             core::mem::offset_of!(PluginApi, register_credential_store),
@@ -2370,6 +2425,7 @@ mod tests {
             register_streaming_provider: None,
             register_tool_with_wake: None,
             register_plugin_lifecycle: None,
+            register_tool_prompt: None,
             register_provider_auth: None,
             register_credential_store: None,
             register_provider_wrapper: None,
@@ -2434,6 +2490,7 @@ mod tests {
             core::mem::offset_of!(PluginApi, register_streaming_provider),
             core::mem::offset_of!(PluginApi, register_tool_with_wake),
             core::mem::offset_of!(PluginApi, register_plugin_lifecycle),
+            core::mem::offset_of!(PluginApi, register_tool_prompt),
             core::mem::offset_of!(PluginApi, register_provider_auth),
             core::mem::offset_of!(PluginApi, register_credential_store),
             core::mem::offset_of!(PluginApi, register_provider_wrapper),
@@ -2470,6 +2527,7 @@ mod tests {
                     assert!(api.register_streaming_provider.is_none());
                     assert!(api.register_tool_with_wake.is_none());
                     assert!(api.register_plugin_lifecycle.is_none());
+                    assert!(api.register_tool_prompt.is_none());
                     assert!(api.register_provider_auth.is_none());
                     assert!(api.register_credential_store.is_none());
                     assert!(api.register_provider_wrapper.is_none());

@@ -1,6 +1,7 @@
 # rpi 使用手册
 
-这是一份面向使用者和扩展作者的 rpi 手册。rpi 起步于对 Mario Zechner 的 [Pi TypeScript SDK](https://github.com/earendil-works/pi) 的 Rust 重新实现，核心能力以 crate 形式提供，`rpi` 是开箱即用的 CLI。来源与许可说明见 [NOTICE](../../NOTICE)。本文记录当前版本已经实现的命令和行为，随 `rpi-cli` 一起发布。
+这是一份面向使用者和扩展作者的 rpi 手册，涵盖安装、配置、会话、插件、远程模式和故障排查。
+具体实现以当前仓库和已安装的 rpi 二进制为准。
 
 ## 1. 安装
 

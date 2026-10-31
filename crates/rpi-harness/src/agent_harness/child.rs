@@ -81,7 +81,7 @@ impl AgentHarness {
         Ok(serde_json::json!({
             "model": Self::public_model(&inner.model),
             "thinkingLevel":inner.thinking_level,
-            "isIdle":!inner.active_run.as_ref().is_some_and(|run| run.lane == self.lane),
+            "isIdle":inner.active_run.as_ref().is_none_or(|run| run.lane != self.lane),
             "hasPendingMessages":pending,
             "toolRegistration":inner.resources.tool_registration,
             "toolSelection":{"revision":inner.tool_selection_revision.to_string(), "state":inner.tool_selection_state},

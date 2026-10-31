@@ -1,6 +1,8 @@
 use super::*;
 use rpi_tui::Component;
 
+mod autocomplete_flicker;
+mod enter_completion;
 mod session_regressions;
 
 #[test]
@@ -473,6 +475,7 @@ fn test_tui_state() -> Arc<TuiState> {
         autocomplete_container: Arc::new(Container::new()),
         autocomplete_max_visible: 5,
         autocomplete_selection: std::sync::Mutex::new(0),
+        autocomplete_selection_stamped_for: std::sync::Mutex::new(None),
         pending_images: std::sync::Mutex::new(Vec::new()),
         theme_manager: Arc::new(ThemeManager::new()),
         tui: None,
@@ -483,6 +486,7 @@ fn test_tui_state() -> Arc<TuiState> {
         history_index: std::sync::Mutex::new(-1),
         history_draft: std::sync::Mutex::new(None),
         cache_tracker: std::sync::Mutex::new(rpi_harness::cache_stats::CacheMissTracker::new()),
+        events_lagged: std::sync::atomic::AtomicBool::new(false),
         scoped_edit: std::sync::Mutex::new(None),
         markdown_transformer: Arc::new(std::sync::Mutex::new(None)),
         extension_claimed_keys: Mutex::new(Default::default()),
@@ -496,8 +500,6 @@ fn test_tui_state() -> Arc<TuiState> {
         pending_snapshot: std::sync::Mutex::new(
             rpi_harness::agent_harness::QueuedMessages::default(),
         ),
-        selection_start: std::sync::Mutex::new(None),
-        selection_end: std::sync::Mutex::new(None),
     })
 }
 
@@ -747,12 +749,25 @@ fn hot_cycle_crosses_providers_and_anchors_duplicate_ids_to_the_live_lane() {
                         .await
                         .unwrap();
                 assert!(note.contains("second/shared"));
+                assert!(
+                    note.contains("Not saved as the default"),
+                    "the note should say the switch was not persisted: {note}"
+                );
                 assert_eq!(lane.get_model().await.unwrap(), second);
                 assert!(
                     strip_ansi(&state.footer.render(120).join("\n")).contains("(second) shared")
                 );
                 let saved = crate::settings::load_settings().unwrap();
-                assert_eq!(saved.default_provider.as_deref(), Some("second"));
+                assert_eq!(
+                    saved.default_provider.as_deref(),
+                    None,
+                    "a session-scoped switch must not save a default provider"
+                );
+                assert_eq!(
+                    saved.default_model.as_deref(),
+                    None,
+                    "a session-scoped switch must not save a default model"
+                );
                 assert_eq!(
                     cycle_model(&lane, &catalog, true).await.unwrap().unwrap(),
                     first
@@ -792,6 +807,47 @@ fn hot_cycle_crosses_providers_and_anchors_duplicate_ids_to_the_live_lane() {
                     crate::settings::load_settings().unwrap().default_provider,
                     saved.default_provider
                 );
+            });
+    });
+}
+
+/// The only path allowed to touch `settings.json`: `/settings` → Default model
+/// passes `save_default = true` and must still persist the pair.
+#[test]
+fn explicit_default_model_selection_still_persists() {
+    with_isolated_config_dir(|| {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let harness = AgentHarness::create(Default::default()).await.unwrap();
+                let lane: Arc<dyn AgentLane> = harness.lane("main");
+                let state = test_tui_state();
+                let model = rpi_ai::Model::new(
+                    "saved-model",
+                    "Saved",
+                    rpi_ai::Api::OpenaiCompletions,
+                    "saved",
+                    "http://saved.invalid",
+                );
+                lane.set_model(model.clone()).await.unwrap();
+                let note = apply_model_selection(
+                    &lane,
+                    &state,
+                    model.clone(),
+                    true,
+                    ModelSelectionSource::Set,
+                )
+                .await
+                .unwrap();
+                assert!(note.contains("saved/saved-model"), "{note}");
+                assert!(note.contains("Default saved."), "{note}");
+                assert_eq!(lane.get_model().await.unwrap(), model);
+                let saved = crate::settings::load_settings().unwrap();
+                assert_eq!(saved.default_provider.as_deref(), Some("saved"));
+                assert_eq!(saved.default_model.as_deref(), Some("saved-model"));
+                harness.close().await.unwrap();
             });
     });
 }
@@ -855,6 +911,43 @@ fn settings_menu_covers_the_wired_settings_surface() {
     assert_eq!(value("cache-miss-notices"), "false");
     assert_eq!(value("terminal-progress"), "true");
     assert_eq!(value("collapse-changelog"), "false");
+}
+
+#[test]
+fn enabling_images_on_an_unsupported_terminal_says_so() {
+    // Driven through the public setting entry point, and the expectation is
+    // derived from the same capability the note is built from, so the probe is
+    // deterministic on any developer terminal (Kitty/Ghostty/WezTerm on CI).
+    // It is a behaviour assertion, not a compile assertion: on the previous
+    // code the note is always "Inline images enabled." and the `None` cell
+    // below fails.
+    let state = test_tui_state();
+    let mut settings = crate::settings::Settings::default();
+    let supported = rpi_tui::get_capabilities().protocol != rpi_tui::ImageProtocol::None;
+
+    let note = apply_setting_change(&state, "show-images", "true", &mut settings)
+        .expect("user-visible note");
+    assert_eq!(settings.show_images, Some(true));
+    assert!(*state.show_images.lock().unwrap());
+
+    if supported {
+        assert_eq!(note, "Inline images enabled.");
+    } else {
+        assert!(
+            note.contains("cannot display them"),
+            "a terminal without an image protocol must not be told images are on: {note}"
+        );
+        assert!(
+            note.contains("placeholder"),
+            "the note must say what the user will see instead: {note}"
+        );
+    }
+
+    // Disabling never carries the capability warning: it is always accurate.
+    let note = apply_setting_change(&state, "show-images", "false", &mut settings)
+        .expect("user-visible note");
+    assert_eq!(note, "Inline images disabled.");
+    assert!(!*state.show_images.lock().unwrap());
 }
 
 #[test]
@@ -1280,6 +1373,27 @@ fn test_chat_container_has_welcome_content() {
 }
 
 #[test]
+fn skills_panel_lists_and_documents_explicit_invocation() {
+    let chat = Arc::new(Container::new());
+    let resources = rpi_harness::types::AgentHarnessResources {
+        skills: Some(vec![rpi_harness::types::Skill {
+            name: "release".into(),
+            description: "Publish the current workspace".into(),
+            content: "# Release".into(),
+            file_path: "/skills/release/SKILL.md".into(),
+            disable_model_invocation: Some(true),
+        }]),
+        ..Default::default()
+    };
+
+    show_skills_panel(&chat, &resources);
+    let plain = strip_ansi(&chat.render(100).join("\n"));
+    assert!(plain.contains("release [hidden]"));
+    assert!(plain.contains("Publish the current workspace"));
+    assert!(plain.contains("/skills <name> [instructions]"));
+}
+
+#[test]
 fn reload_updates_context_header_and_context_panel_without_stale_paths() {
     use rpi_harness::types::AgentHarnessResources;
     let chat = Arc::new(Container::new());
@@ -1613,6 +1727,7 @@ fn test_slash_command_dispatch() {
     resolves_to("/tools", "/tools");
     resolves_to("/images", "/images");
     resolves_to("/context", "/context");
+    resolves_to("/skills", "/skills");
     // Out-of-v1-scope commands resolve to their own UnsupportedCommand entry.
     resolves_to("/settings", "/settings");
     resolves_to("/name", "/name");
@@ -1654,6 +1769,7 @@ fn test_registry_visible_entries_cover_dispatch() {
         "/images",
         "/thinking",
         "/usage",
+        "/skills",
     ] {
         assert!(
             names.contains(&recognized.to_string()),
@@ -1715,6 +1831,7 @@ fn test_agent_event_mapping_creates_assistant_and_tool() {
         autocomplete_container: Arc::new(Container::new()),
         autocomplete_max_visible: 5,
         autocomplete_selection: std::sync::Mutex::new(0),
+        autocomplete_selection_stamped_for: std::sync::Mutex::new(None),
         pending_images: std::sync::Mutex::new(Vec::new()),
         theme_manager: Arc::new(ThemeManager::new()),
         tui: None,
@@ -1725,6 +1842,7 @@ fn test_agent_event_mapping_creates_assistant_and_tool() {
         history_index: std::sync::Mutex::new(-1),
         history_draft: std::sync::Mutex::new(None),
         cache_tracker: std::sync::Mutex::new(rpi_harness::cache_stats::CacheMissTracker::new()),
+        events_lagged: std::sync::atomic::AtomicBool::new(false),
         scoped_edit: std::sync::Mutex::new(None),
         markdown_transformer: Arc::new(std::sync::Mutex::new(None)),
         extension_claimed_keys: Mutex::new(Default::default()),
@@ -1738,8 +1856,6 @@ fn test_agent_event_mapping_creates_assistant_and_tool() {
         pending_snapshot: std::sync::Mutex::new(
             rpi_harness::agent_harness::QueuedMessages::default(),
         ),
-        selection_start: std::sync::Mutex::new(None),
-        selection_end: std::sync::Mutex::new(None),
     });
 
     // The drain handler takes `Arc<TuiAltScreen>`, which needs a real
@@ -2788,6 +2904,7 @@ fn test_autocomplete_slash_suggestions_render() {
         autocomplete_container: Arc::new(Container::new()),
         autocomplete_max_visible: 5,
         autocomplete_selection: std::sync::Mutex::new(0),
+        autocomplete_selection_stamped_for: std::sync::Mutex::new(None),
         pending_images: std::sync::Mutex::new(Vec::new()),
         theme_manager: Arc::new(ThemeManager::new()),
         tui: None,
@@ -2798,6 +2915,7 @@ fn test_autocomplete_slash_suggestions_render() {
         history_index: std::sync::Mutex::new(-1),
         history_draft: std::sync::Mutex::new(None),
         cache_tracker: std::sync::Mutex::new(rpi_harness::cache_stats::CacheMissTracker::new()),
+        events_lagged: std::sync::atomic::AtomicBool::new(false),
         scoped_edit: std::sync::Mutex::new(None),
         markdown_transformer: Arc::new(std::sync::Mutex::new(None)),
         extension_claimed_keys: Mutex::new(Default::default()),
@@ -2811,8 +2929,6 @@ fn test_autocomplete_slash_suggestions_render() {
         pending_snapshot: std::sync::Mutex::new(
             rpi_harness::agent_harness::QueuedMessages::default(),
         ),
-        selection_start: std::sync::Mutex::new(None),
-        selection_end: std::sync::Mutex::new(None),
     });
     {
         let mut combined = CombinedAutocompleteProvider::new();
@@ -2882,6 +2998,7 @@ fn test_select_list_swap_restores_editor() {
         autocomplete_container: Arc::new(Container::new()),
         autocomplete_max_visible: 5,
         autocomplete_selection: std::sync::Mutex::new(0),
+        autocomplete_selection_stamped_for: std::sync::Mutex::new(None),
         pending_images: std::sync::Mutex::new(Vec::new()),
         theme_manager: Arc::new(ThemeManager::new()),
         tui: None,
@@ -2892,6 +3009,7 @@ fn test_select_list_swap_restores_editor() {
         history_index: std::sync::Mutex::new(-1),
         history_draft: std::sync::Mutex::new(None),
         cache_tracker: std::sync::Mutex::new(rpi_harness::cache_stats::CacheMissTracker::new()),
+        events_lagged: std::sync::atomic::AtomicBool::new(false),
         scoped_edit: std::sync::Mutex::new(None),
         markdown_transformer: Arc::new(std::sync::Mutex::new(None)),
         extension_claimed_keys: Mutex::new(Default::default()),
@@ -2905,8 +3023,6 @@ fn test_select_list_swap_restores_editor() {
         pending_snapshot: std::sync::Mutex::new(
             rpi_harness::agent_harness::QueuedMessages::default(),
         ),
-        selection_start: std::sync::Mutex::new(None),
-        selection_end: std::sync::Mutex::new(None),
     });
     let editor_container = Arc::new(Container::new());
     let editor = Arc::new(Editor::simple());
@@ -2979,6 +3095,7 @@ fn test_message_history_browse_restores_draft() {
         autocomplete_container: Arc::new(Container::new()),
         autocomplete_max_visible: 5,
         autocomplete_selection: std::sync::Mutex::new(0),
+        autocomplete_selection_stamped_for: std::sync::Mutex::new(None),
         pending_images: std::sync::Mutex::new(Vec::new()),
         theme_manager: Arc::new(ThemeManager::new()),
         tui: None,
@@ -2989,6 +3106,7 @@ fn test_message_history_browse_restores_draft() {
         history_index: std::sync::Mutex::new(-1),
         history_draft: std::sync::Mutex::new(None),
         cache_tracker: std::sync::Mutex::new(rpi_harness::cache_stats::CacheMissTracker::new()),
+        events_lagged: std::sync::atomic::AtomicBool::new(false),
         scoped_edit: std::sync::Mutex::new(None),
         markdown_transformer: Arc::new(std::sync::Mutex::new(None)),
         extension_claimed_keys: Mutex::new(Default::default()),
@@ -3002,8 +3120,6 @@ fn test_message_history_browse_restores_draft() {
         pending_snapshot: std::sync::Mutex::new(
             rpi_harness::agent_harness::QueuedMessages::default(),
         ),
-        selection_start: std::sync::Mutex::new(None),
-        selection_end: std::sync::Mutex::new(None),
     });
     let editor = Arc::new(Editor::simple());
 
@@ -3079,6 +3195,7 @@ fn test_accept_top_suggestion_replaces_prefix() {
         autocomplete_container: Arc::new(Container::new()),
         autocomplete_max_visible: 5,
         autocomplete_selection: std::sync::Mutex::new(0),
+        autocomplete_selection_stamped_for: std::sync::Mutex::new(None),
         pending_images: std::sync::Mutex::new(Vec::new()),
         theme_manager: Arc::new(ThemeManager::new()),
         tui: None,
@@ -3089,6 +3206,7 @@ fn test_accept_top_suggestion_replaces_prefix() {
         history_index: std::sync::Mutex::new(-1),
         history_draft: std::sync::Mutex::new(None),
         cache_tracker: std::sync::Mutex::new(rpi_harness::cache_stats::CacheMissTracker::new()),
+        events_lagged: std::sync::atomic::AtomicBool::new(false),
         scoped_edit: std::sync::Mutex::new(None),
         markdown_transformer: Arc::new(std::sync::Mutex::new(None)),
         extension_claimed_keys: Mutex::new(Default::default()),
@@ -3102,8 +3220,6 @@ fn test_accept_top_suggestion_replaces_prefix() {
         pending_snapshot: std::sync::Mutex::new(
             rpi_harness::agent_harness::QueuedMessages::default(),
         ),
-        selection_start: std::sync::Mutex::new(None),
-        selection_end: std::sync::Mutex::new(None),
     });
     {
         let mut combined = CombinedAutocompleteProvider::new();
@@ -3165,6 +3281,7 @@ fn autocomplete_test_state(max_visible: usize) -> Arc<TuiState> {
         autocomplete_container: Arc::new(Container::new()),
         autocomplete_max_visible: max_visible,
         autocomplete_selection: std::sync::Mutex::new(0),
+        autocomplete_selection_stamped_for: std::sync::Mutex::new(None),
         pending_images: std::sync::Mutex::new(Vec::new()),
         theme_manager: Arc::new(ThemeManager::new()),
         tui: None,
@@ -3175,6 +3292,7 @@ fn autocomplete_test_state(max_visible: usize) -> Arc<TuiState> {
         history_index: std::sync::Mutex::new(-1),
         history_draft: std::sync::Mutex::new(None),
         cache_tracker: std::sync::Mutex::new(rpi_harness::cache_stats::CacheMissTracker::new()),
+        events_lagged: std::sync::atomic::AtomicBool::new(false),
         scoped_edit: std::sync::Mutex::new(None),
         markdown_transformer: Arc::new(std::sync::Mutex::new(None)),
         extension_claimed_keys: Mutex::new(Default::default()),
@@ -3188,8 +3306,6 @@ fn autocomplete_test_state(max_visible: usize) -> Arc<TuiState> {
         pending_snapshot: std::sync::Mutex::new(
             rpi_harness::agent_harness::QueuedMessages::default(),
         ),
-        selection_start: std::sync::Mutex::new(None),
-        selection_end: std::sync::Mutex::new(None),
     })
 }
 
@@ -3396,6 +3512,227 @@ fn pasted_win_crlf_text_has_no_stray_carriage_returns() {
     editor.insert("alpha\r\nbeta\r\n");
     assert_eq!(editor.get_text(), "alpha\nbeta\n");
     assert!(!editor.get_text().contains('\r'));
+}
+
+/// An IME commit delivers a whole word with no gap between its characters, so a
+/// gap-based paste heuristic classified normal Chinese input as paste and held
+/// it in a buffer until the user stopped typing. The run must instead be handed
+/// to the editor on the very keystroke that arrives with nothing queued behind
+/// it — which is what this asserts about the state machine itself.
+#[test]
+fn ime_commit_is_not_buffered_as_paste() {
+    let mut run = WindowsPasteRun::default();
+    let now = std::time::Instant::now();
+
+    // `我们` arrives back-to-back: burst = true, but far too short to fold.
+    run.feed('我', now);
+    run.feed('们', now);
+    assert!(run.burst, "back-to-back characters are a burst");
+    assert!(
+        !run.is_paste_candidate(),
+        "a two-character IME commit must never be treated as a paste"
+    );
+
+    // Flushing it empties the buffer, so the next word starts clean.
+    let editor = rpi_tui::Editor::simple();
+    run.flush(&editor, now);
+    assert_eq!(editor.get_text(), "我们");
+    assert!(!run.is_buffering(), "flush must clear the buffer");
+
+    // A genuine clipboard paste clears the size threshold.
+    let mut big = WindowsPasteRun::default();
+    for _ in 0..PASTE_RUN_MIN_CHARS {
+        big.feed('x', now);
+    }
+    assert!(big.is_paste_candidate(), "a long run is still foldable");
+}
+
+/// The console can hand one clipboard payload over in several batches. When
+/// the batch holding the final newline arrives after the text batch was
+/// already flushed to the editor, the run is empty — but that newline still
+/// belongs to the paste and must not submit the prompt.
+///
+/// The flushed batch here carries an interior newline: a multi-line payload
+/// whose first console batch ends after its second line. That shape is what
+/// separates it from a coalesced IME commit, which is also queued behind
+/// itself but never contains a newline — see
+/// [`final_review_pr91_coalesced_ime_commit_never_leaves_a_tail_that_eats_enter`].
+#[test]
+fn paste_split_just_before_its_trailing_enter_is_not_a_submit() {
+    let now = std::time::Instant::now();
+    let clipboard = "alpha\nbeta\nc\nd\ne\nf\ng\nh\ni\nj\nk\n";
+    let editor = rpi_tui::Editor::simple();
+
+    let mut run = WindowsPasteRun::default();
+    for ch in "alpha\nbeta".chars() {
+        run.feed(ch, now);
+    }
+    // The console proved this is a paste: input was still queued behind it.
+    run.mark_collected();
+    run.flush(&editor, now);
+    assert_eq!(editor.get_text(), "alpha\nbeta");
+    assert!(!run.is_buffering(), "the text batch is already inserted");
+
+    // The newline lands in the next batch, inside the carry window, and the
+    // clipboard confirms which text it belongs to.
+    let entered_at = now + std::time::Duration::from_millis(60);
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), entered_at),
+        "a newline split from its paste must not submit"
+    );
+
+    // A genuinely later Enter is the user's own and has to submit.
+    let typed_at = now + PASTE_CARRY_GAP + std::time::Duration::from_millis(1);
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), typed_at),
+        "a typed Enter after the carry window still submits"
+    );
+}
+
+/// The behaviour this whole change exists for: an IME commit must never absorb
+/// the Enter that submits it. Crucially this has to hold even when the clipboard
+/// happens to start with the committed word — otherwise the guard only works by
+/// accident, because the test clipboard did not match.
+#[test]
+fn ime_commit_then_enter_submits_even_when_the_clipboard_starts_with_it() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+
+    // Deliberately corroborating: same head word, and enough newlines for the
+    // clipboard check to pass if it were ever consulted.
+    let clipboard = "我们\n第二行\n3\n4\n5\n6\n7\n8\n9\n10\n11\n";
+
+    let mut ime = WindowsPasteRun::default();
+    ime.feed('我', now);
+    ime.feed('们', now);
+    // The typing path: the queue was empty, so nothing was collected.
+    ime.flush(&editor, now);
+
+    assert_eq!(editor.get_text(), "我们");
+    assert!(
+        !ime.has_paste_evidence(now),
+        "an IME commit must leave no paste evidence behind"
+    );
+    assert!(
+        ime.paste_tail_texts(now).is_empty(),
+        "an IME commit must not keep a paste tail"
+    );
+
+    let entered_at = now + std::time::Duration::from_millis(80);
+    assert!(
+        !windows_enter_in_paste(&ime, false, Some(clipboard), entered_at),
+        "an IME commit must never absorb the Enter that submits it, even when \
+         the clipboard starts with the committed word"
+    );
+}
+
+/// Two pastes inside the carry window are two separate pastes. Gluing the second
+/// batch onto the first makes the corroborated prefix match neither clipboard,
+/// which is exactly how a trailing Enter slips through and submits the prompt.
+#[test]
+fn consecutive_pastes_each_keep_their_own_trailing_enter() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let clipboard_a = "AAAA\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    let clipboard_b = "BBBB\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+
+    let mut run = WindowsPasteRun::default();
+    for ch in "AAAA".chars() {
+        run.feed(ch, now);
+    }
+    run.mark_collected();
+    run.flush(&editor, now);
+
+    // Second paste starts inside `PASTE_CARRY_GAP`.
+    let second_at = now + std::time::Duration::from_millis(120);
+    for ch in "BBBB".chars() {
+        run.feed(ch, second_at);
+    }
+    run.mark_collected();
+    run.flush(&editor, second_at);
+    assert_eq!(editor.get_text(), "AAAABBBB");
+
+    // The candidates must include the second paste alone, so its own trailing
+    // Enter corroborates — even though the first paste is still carried too.
+    assert!(
+        run.paste_tail_texts(second_at).iter().any(|t| t == "BBBB"),
+        "the tail has to include the head of the most recent paste alone"
+    );
+
+    // The trailing Enter trails its batch at machine speed — a console-level
+    // split of the payload, not a human key-to-key delay (two IME commits in
+    // the same shape must submit instead: the standalone lone-short window
+    // is `PASTE_BURST_GAP`).
+    let enter_at = second_at + std::time::Duration::from_millis(10);
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard_b), enter_at),
+        "the second paste's trailing Enter must not submit"
+    );
+    // And it must not corroborate against the *first* clipboard either.
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard_a), enter_at),
+        "a stale clipboard must not be accepted as evidence"
+    );
+}
+
+/// A paste that ends without a trailing newline must still leave its text
+/// available: the console can split the payload anywhere, not only before the
+/// final newline.
+#[test]
+fn paste_tail_is_dropped_once_the_carry_window_expires() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let clipboard = "alpha\nb\nc\nd\ne\nf\ng\nh\ni\nj\nk\n";
+
+    let mut run = WindowsPasteRun::default();
+    for ch in "alpha".chars() {
+        run.feed(ch, now);
+    }
+    run.mark_collected();
+    run.flush(&editor, now);
+
+    assert!(run.has_paste_evidence(now));
+    let expired = now + PASTE_CARRY_GAP + std::time::Duration::from_millis(1);
+    assert!(!run.has_paste_evidence(expired));
+    assert!(run.paste_tail_texts(expired).is_empty());
+    assert!(!windows_enter_in_paste(
+        &run,
+        false,
+        Some(clipboard),
+        expired
+    ));
+}
+
+/// Once a run crosses the fold threshold the loop must stop probing per
+/// character: the probe stashes the next event, and that stash is what made the
+/// native console drain unreachable.
+#[test]
+fn native_batch_read_is_reached_before_the_queue_probe() {
+    let now = std::time::Instant::now();
+
+    let mut run = WindowsPasteRun::default();
+    for _ in 0..PASTE_RUN_MIN_CHARS {
+        run.feed('x', now);
+    }
+    assert!(run.is_paste_candidate());
+    assert!(
+        !run.probe_needed(),
+        "an established paste must drain the console rather than stash a probe"
+    );
+    assert!(
+        should_drain_queued_text(&run, true),
+        "the native batch read has to be reachable"
+    );
+    assert!(
+        !should_drain_queued_text(&run, false),
+        "claimed extension keys keep ownership of the console"
+    );
+
+    // A short IME commit still probes, which is what keeps typing immediate.
+    let mut ime = WindowsPasteRun::default();
+    ime.feed('我', now);
+    ime.feed('们', now);
+    assert!(ime.probe_needed());
 }
 
 #[test]
@@ -3630,6 +3967,1126 @@ fn ask_user_bridge_answers_and_cancels_by_request_id() {
             "op": "open", "requestId": "r4", "ui": {"kind": "input"}
         }))
         .is_err());
+}
+
+// Local review probes for PR #91. Exercise the real state/probe methods using
+// the Press/Release queue consumed by the Windows text-key branch.
+fn review_pr91_deliver_batch(
+    run: &mut WindowsPasteRun,
+    editor: &rpi_tui::Editor,
+    text: &str,
+    trailing_enter: bool,
+    now: std::time::Instant,
+) -> bool {
+    let mut queue = std::collections::VecDeque::new();
+    for ch in text.chars() {
+        for kind in [KeyEventKind::Press, KeyEventKind::Release] {
+            queue.push_back(Event::Key(KeyEvent::new_with_kind(
+                KeyCode::Char(ch),
+                KeyModifiers::NONE,
+                kind,
+            )));
+        }
+    }
+    if trailing_enter {
+        queue.push_back(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+    }
+    let mut pending = None;
+    while let Some(event) = pending.take().or_else(|| queue.pop_front()) {
+        let Event::Key(key) = event else {
+            unreachable!()
+        };
+        if !should_dispatch_key(key.kind) {
+            continue;
+        }
+        if key.code == KeyCode::Enter {
+            assert!(queue.is_empty());
+            return true;
+        }
+        let KeyCode::Char(ch) = key.code else {
+            unreachable!()
+        };
+        run.feed(ch, now);
+        assert!(
+            run.probe_needed(),
+            "these short batches do not use the native drain"
+        );
+        let (more, stashed) = probe_paste_input(pending.take(), || queue.pop_front());
+        pending = stashed;
+        if more {
+            run.mark_collected();
+        } else {
+            run.flush(editor, now);
+        }
+    }
+    false
+}
+
+#[test]
+fn review_pr91_one_paste_split_into_three_queue_batches_keeps_its_prefix() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alphabeta\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    review_pr91_deliver_batch(
+        &mut run,
+        &editor,
+        "beta",
+        false,
+        now + std::time::Duration::from_millis(10),
+    );
+    assert_eq!(editor.get_text(), "alphabeta");
+    assert!(
+        windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            now + std::time::Duration::from_millis(20)
+        ),
+        "the third batch's Enter must not submit a partially received paste"
+    );
+}
+
+#[test]
+fn review_pr91_second_paste_enter_ignores_the_previous_paste_tail() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "BBBB\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "AAAA", false, now);
+    let second_at = now + std::time::Duration::from_millis(20);
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "BBBB", true, second_at
+    ));
+    assert_eq!(run.text, "BBBB");
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), second_at),
+        "a previous paste's tail must not prevent this paste's newline from matching"
+    );
+}
+
+#[test]
+fn review_pr91_queued_ime_commit_can_submit_after_two_hundred_ms() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, now);
+    assert_eq!(editor.get_text(), "我们");
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            now + std::time::Duration::from_millis(200)
+        ),
+        "queued IME characters must not swallow a subsequent typed Enter"
+    );
+}
+
+#[test]
+fn review_pr91_single_character_ime_batches_leave_no_tail() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "我", false, now);
+    review_pr91_deliver_batch(
+        &mut run,
+        &editor,
+        "们",
+        false,
+        now + std::time::Duration::from_millis(1),
+    );
+    assert_eq!(editor.get_text(), "我们");
+    assert!(!run.has_paste_evidence(now + std::time::Duration::from_millis(200)));
+}
+
+// Re-review probes for PR #91: boundary cases of the candidate construction.
+#[test]
+fn rereview_pr91_first_paste_with_queued_trailing_enter_does_not_submit() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let text = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+    let clipboard = format!("{text}\n");
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, text, true, now
+    ));
+    assert!(
+        run.tail.is_none(),
+        "nothing has been flushed before the queued Enter"
+    );
+    assert_eq!(run.text, text);
+    assert!(run.has_paste_evidence(now));
+    assert!(
+        windows_enter_in_paste(&run, false, Some(&clipboard), now),
+        "a live first paste must be corroborated without requiring an older flushed tail"
+    );
+}
+
+#[test]
+fn rereview_pr91_split_paste_includes_both_flushed_and_live_text() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alphabeta\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    let later = now + std::time::Duration::from_millis(10);
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "beta", true, later
+    ));
+    assert_eq!(run.tail.as_ref().unwrap().text, "alpha");
+    assert_eq!(run.text, "beta");
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), later),
+        "the clipboard prefix must include both alpha (flushed) and beta (still buffered)"
+    );
+}
+
+#[test]
+fn rereview_pr91_completed_paste_must_not_swallow_the_next_edited_submit() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let text = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10";
+    let clipboard = format!("{text}\n");
+    review_pr91_deliver_batch(&mut run, &editor, text, false, now);
+    let pasted_enter = now + std::time::Duration::from_millis(10);
+    assert!(windows_enter_in_paste(
+        &run,
+        false,
+        Some(&clipboard),
+        pasted_enter
+    ));
+    run.feed('\n', pasted_enter); // The actual Enter handler accepts the pasted newline.
+    let edited_at = now + std::time::Duration::from_millis(80);
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "X", true, edited_at
+    ));
+    assert_eq!(run.text, "\nX");
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(&clipboard), edited_at),
+        "a stale matching prefix must not override the unrelated live edit when Enter submits"
+    );
+}
+
+// Carry-review probes for PR #91: batch boundaries of the first line and
+// per-variant maturity of the tail.
+#[test]
+fn carry_review_pr91_first_line_can_end_at_a_console_batch_boundary() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    // Only the first line and its Enter have reached the queue. The rest of
+    // this same clipboard payload will arrive in a subsequent console batch.
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "alpha", true, now
+    ));
+    assert!(run.tail.is_none());
+    assert_eq!(run.text, "alpha");
+    assert!(run.burst && run.collected);
+    assert!(run.has_paste_evidence(now));
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), now),
+        "the first pasted newline must not submit just because later lines are in another batch"
+    );
+}
+
+#[test]
+fn carry_review_pr91_a_prior_large_paste_must_not_extend_a_new_ime_commits_window() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    // An already completed large paste leaves mature carry. It has no trailing
+    // newline, so there is no pending pasted Enter waiting to be attributed.
+    for _ in 0..PASTE_RUN_MIN_CHARS {
+        run.feed('x', now);
+    }
+    run.mark_collected();
+    run.flush(&editor, now);
+    assert!(run.tail.as_ref().unwrap().mature);
+    let commit_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, commit_at);
+    assert_eq!(run.tail.as_ref().unwrap().last, "我们");
+    assert!(run.text.is_empty());
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    let typed_enter = commit_at + std::time::Duration::from_millis(200);
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), typed_enter),
+        "the previous paste must not give a new two-character IME commit a 500ms carry window"
+    );
+}
+
+// Re-review probe (round 5) for PR #91: a coalesced IME commit delivered as
+// one queued batch sets `collected` through the queue probe, so its flush
+// leaves a short PasteTail. The clipboard happening to share the commit's
+// prefix must not make that tail eligible to swallow the user's Enter.
+#[test]
+fn final_review_pr91_coalesced_ime_commit_never_leaves_a_tail_that_eats_enter() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    // One queued batch: 我们's Press/Release pairs, exactly as a coalesced
+    // IME commit arrives. No newline ever enters this batch.
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, now);
+    assert_eq!(editor.get_text(), "我们");
+    // Enter arrives within the short carry window (~80 ms).
+    let entered_at = now + std::time::Duration::from_millis(80);
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), entered_at),
+        "a coalesced IME commit must not leave a tail that can consume a later Enter"
+    );
+}
+
+// Round-6 review probes for PR #91: the first newline can land in its own
+// console batch while the rest of the payload is still in transit, and a
+// carried tail must not re-enable a lone short last batch.
+#[test]
+fn latest_review_pr91_first_newline_can_be_its_own_console_batch() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    // The same clipboard arrives in order as [alpha], [Enter], [remaining lines].
+    // At the Enter, no later event has reached the queue within PASTE_PROBE.
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    let entered_at = now + std::time::Duration::from_millis(10);
+    assert_eq!(editor.get_text(), "alpha");
+    assert!(run.tail.as_ref().unwrap().lone_short);
+    assert!(run.has_paste_evidence(entered_at));
+    assert!(
+        windows_enter_in_paste(&run, false, Some(clipboard), entered_at),
+        "a batch boundary before the first newline must not submit the partial clipboard"
+    );
+}
+
+#[test]
+fn latest_review_pr91_old_paste_must_not_enable_a_short_ime_tail() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    for _ in 0..PASTE_RUN_MIN_CHARS {
+        run.feed('x', now);
+    }
+    run.mark_collected();
+    run.flush(&editor, now);
+    let commit_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, commit_at);
+    let tail = run.tail.as_ref().unwrap();
+    assert!(!tail.lone_short);
+    assert!(!tail.last_mature);
+    assert_eq!(tail.last, "我们");
+    let typed_at = commit_at + std::time::Duration::from_millis(80);
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), typed_at),
+        "an older paste must not make a new lone IME batch eligible to swallow Enter"
+    );
+}
+
+#[test]
+fn latest_review_pr91_two_ime_commits_must_not_enable_the_last_tail() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "你好", false, now);
+    let commit_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, commit_at);
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            commit_at + std::time::Duration::from_millis(80)
+        ),
+        "two newline-less IME commits must not enable the standalone last candidate"
+    );
+}
+
+// Flanking probes around the machine-speed boundary the fix draws for lone
+// short tails: corroborate at batch-trailing speed, submit beyond it.
+#[test]
+fn round6_pr91_lone_short_tail_corroborates_within_the_burst_gap() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    assert!(
+        windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            now + std::time::Duration::from_millis(15)
+        ),
+        "an Enter trailing its batch at machine speed is the paste's own newline"
+    );
+}
+
+#[test]
+fn round6_pr91_lone_short_tail_stops_corroborating_beyond_the_burst_gap() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "alpha\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "alpha", false, now);
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            now + std::time::Duration::from_millis(25)
+        ),
+        "beyond machine speed the Enter is the user's, even if the clipboard matches"
+    );
+}
+
+#[test]
+fn round6_pr91_carried_last_batch_corroborates_only_within_the_burst_gap() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "你好", false, now);
+    let commit_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, commit_at);
+    let clipboard = "我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    assert!(
+        windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            commit_at + std::time::Duration::from_millis(15)
+        ),
+        "a carried history must not change the machine-speed window of the last batch"
+    );
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            commit_at + std::time::Duration::from_millis(25)
+        ),
+        "the last batch alone is back to a typed Enter once machine speed is exceeded"
+    );
+}
+
+// Round-7 review probe for PR #91: concatenating short newline-less IME
+// batches must not give the accumulated candidate full carry eligibility.
+#[test]
+fn next_review_pr91_accumulated_ime_batches_must_not_swallow_submit() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "你好", false, now);
+    let second_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, second_at);
+    let entered_at = second_at + std::time::Duration::from_millis(80);
+    assert_eq!(editor.get_text(), "你好我们");
+    assert!(
+        run.tail.as_ref().unwrap().lone_short,
+        "the concatenated IME shape is lone-short as a whole"
+    );
+    let clipboard = "你好我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    assert!(
+        !windows_enter_in_paste(&run, false, Some(clipboard), entered_at),
+        "a concatenated pair of short IME commits must not become paste evidence at 80 ms"
+    );
+}
+
+// Flanking probe: the same concatenated shape corroborates only while an
+// Enter could trail the second batch at machine speed.
+#[test]
+fn round7_pr91_concatenated_short_batches_corroborate_only_at_machine_speed() {
+    let now = std::time::Instant::now();
+    let editor = rpi_tui::Editor::simple();
+    let mut run = WindowsPasteRun::default();
+    let clipboard = "你好我们\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n";
+    review_pr91_deliver_batch(&mut run, &editor, "你好", false, now);
+    let second_at = now + std::time::Duration::from_millis(50);
+    review_pr91_deliver_batch(&mut run, &editor, "我们", false, second_at);
+    assert!(
+        windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            second_at + std::time::Duration::from_millis(15)
+        ),
+        "a payload split into two newline-less batches keeps its newline at machine speed"
+    );
+    assert!(
+        !windows_enter_in_paste(
+            &run,
+            false,
+            Some(clipboard),
+            second_at + std::time::Duration::from_millis(25)
+        ),
+        "beyond machine speed the accumulated newline-less text is IME-shaped, not paste evidence"
+    );
+}
+
+/// The fullscreen drag-selection extraction must use the real terminal
+/// geometry, not a hardcoded 80-column render.
+///
+/// Fail-on-old record: against `fcfc931` this probe panicked with
+/// `40-column selection leaked the 80-column layout's rows` -- the old
+/// `extract_selected_text` rendered the chat at `render(80)` and returned
+/// every row of the 80-column layout for a 40-column screen selection.
+/// The new selection pipeline (rpi-tui `selection`) slices the cached
+/// document at the live width, so the same drag returns only the wrapped
+/// rows the user saw.
+#[test]
+fn fullscreen_selection_extraction_uses_the_real_terminal_width() {
+    use crate::interactive_tui::selection_probe::{probe_extract_at_width, SelectionGeometry};
+    let geometry = SelectionGeometry {
+        width: 40,
+        rows: 12,
+    };
+    // Select the first two wrapped rows of a long message on a 40-column
+    // screen: must NOT leak rows that only exist in an 80-column layout.
+    let text = probe_extract_at_width(
+        "0123456789012345678901234567890123456789012345678901234567890123456789012345678",
+        "tail marker row",
+        geometry,
+    )
+    .expect("selection produced text");
+    assert!(
+        !text.contains("tail marker"),
+        "40-column selection leaked the 80-column layout's rows: {text:?}"
+    );
+}
+
+/// The reverse-video highlight must reach the terminal during the drag (the
+/// user sees what they are selecting), while a plain click must neither
+/// highlight nor leave any selection to copy.
+#[test]
+fn fullscreen_drag_paints_highlight_and_click_does_not() {
+    use crate::interactive_tui::selection_probe::{probe_click, probe_drag, SelectionGeometry};
+    let geometry = SelectionGeometry {
+        width: 40,
+        rows: 12,
+    };
+    let long_line =
+        "0123456789012345678901234567890123456789012345678901234567890123456789012345678";
+
+    // Drag: the Drag re-render writes the inverse-video span.
+    let (drag_frame, drag_text) = probe_drag(long_line, "tail marker row", geometry);
+    assert!(
+        drag_frame.contains("\x1b[7m"),
+        "drag must paint the reverse-video highlight: {drag_frame:?}"
+    );
+    assert!(drag_text.is_some(), "drag must produce extractable text");
+
+    // Click: no inverse-video ever written, no text selected.
+    let (click_frame, click_text) = probe_click(long_line, "tail marker row", geometry);
+    assert!(
+        !click_frame.contains("\x1b[7m"),
+        "a plain click must not paint a highlight: {click_frame:?}"
+    );
+    assert!(click_text.is_none(), "a plain click must not select text");
+}
+
+// ==== Reviewer probes for PR #106 (carried verbatim; the Windows ones call
+// the real state/paste-run/editor methods in the key loop's NEW order). ====
+
+fn review_pr106_slash_state() -> Arc<TuiState> {
+    let state = test_tui_state();
+    state.autocomplete.set_provider(Arc::new(
+        SlashCommandAutocompleteProvider::with_default_commands(),
+    ));
+    state
+}
+
+#[test]
+fn review_pr106_explicitly_selecting_row_zero_must_accept_it() {
+    let state = review_pr106_slash_state();
+    let editor = state.editor.clone();
+    editor.set_text("/c");
+    editor.set_cursor(0, 2);
+    assert!(navigate_autocomplete(&state, &editor, 1));
+    assert!(navigate_autocomplete(&state, &editor, -1));
+    assert_eq!(*state.autocomplete_selection.lock().unwrap(), 0);
+    assert_eq!(
+        enter_completion_action(&state, &editor),
+        Some(EnterCompletionAction::ApplyAndSubmit),
+        "Down then Up explicitly selected the first row; it is not a fresh ambiguous popup"
+    );
+}
+
+#[test]
+fn review_pr106_windows_queued_prefix_enter_must_submit_the_completed_command() {
+    let state = review_pr106_slash_state();
+    let editor = state.editor.clone();
+    let submitted = Arc::new(Mutex::new(Vec::<String>::new()));
+    let submitted_for_callback = submitted.clone();
+    editor.on_submit(Arc::new(move |text| {
+        submitted_for_callback
+            .lock()
+            .unwrap()
+            .push(text.to_string());
+    }));
+    let now = std::time::Instant::now();
+    let mut run = WindowsPasteRun::default();
+    assert!(review_pr91_deliver_batch(
+        &mut run, &editor, "/clea", true, now
+    ));
+    assert_eq!(run.text, "/clea");
+    assert!(editor.get_text().is_empty());
+    // Follow the production key-loop ordering at the NEW head: Windows Enter
+    // classification/flush FIRST, then the completion hook, then the editor.
+    assert!(!windows_enter_in_paste(&run, false, None, now));
+    run.flush(&editor, now);
+    // The production routing entry point: one resolution, the same snapshot
+    // applied, `true` only for an `@`-path completion.
+    assert!(
+        !route_enter_completion(&state, &editor),
+        "a slash command must not consume Enter as a path completion"
+    );
+    editor.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        *submitted.lock().unwrap(),
+        vec!["/clear".to_string()],
+        "the completion hook must see the buffered prefix before the submitting Enter"
+    );
+}
+
+#[test]
+fn review_pr106_windows_pasted_interior_enter_must_not_rewrite_the_draft() {
+    let state = review_pr106_slash_state();
+    let editor = state.editor.clone();
+    let now = std::time::Instant::now();
+    let mut run = WindowsPasteRun::default();
+    review_pr91_deliver_batch(&mut run, &editor, "/clea", false, now);
+    assert_eq!(editor.get_text(), "/clea");
+    // Production ordering at the NEW head: an interior pasted Enter is
+    // classified BEFORE the completion hook can look at the draft.
+    assert!(windows_enter_in_paste(&run, true, None, now));
+    run.feed('\n', now);
+    run.feed('X', now);
+    run.flush(&editor, now);
+    assert_eq!(
+        editor.get_text(),
+        "/clea\nX",
+        "an interior pasted Enter must be classified before completion can rewrite clipboard text"
+    );
+}
+
+#[test]
+fn rereview_pr106_enter_in_middle_of_complete_command_must_preserve_the_command() {
+    let state = review_pr106_slash_state();
+    let editor = state.editor.clone();
+    let submitted = Arc::new(Mutex::new(Vec::<String>::new()));
+    let capture = submitted.clone();
+    editor.on_submit(Arc::new(move |text| {
+        capture.lock().unwrap().push(text.to_string());
+    }));
+    editor.set_text("/clear");
+    // Move the caret back two columns, without changing any text.
+    editor.set_cursor(0, 4); // /cle|ar
+    let completion = resolve_enter_completion(&state, &editor).expect("a decision");
+    assert_eq!(completion.action, EnterCompletionAction::ApplyAndSubmit);
+    assert!(completion.apply(&state, &editor));
+    editor.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        *submitted.lock().unwrap(),
+        vec!["/clear".to_string()],
+        "Enter with the caret inside an already complete command must not duplicate its suffix"
+    );
+}
+
+/// Self-review probe: the whole-token resolution must not silently DROP the
+/// text the user typed after the caret. With `/clearXYZ` and the caret at
+/// column 4 the prefix `/cle` still completes to `/clear`, but the token as a
+/// whole does not — so Enter must submit the text exactly as typed instead
+/// of rewriting it to `/clear` (which would lose `XYZ`).
+#[test]
+fn rereview_pr106_enter_inside_an_unknown_token_keeps_the_typed_text() {
+    let state = review_pr106_slash_state();
+    let editor = state.editor.clone();
+    let submitted = Arc::new(Mutex::new(Vec::<String>::new()));
+    let capture = submitted.clone();
+    editor.on_submit(Arc::new(move |text| {
+        capture.lock().unwrap().push(text.to_string());
+    }));
+    editor.set_text("/clearXYZ");
+    editor.set_cursor(0, 4); // /cle|arXYZ
+    assert_eq!(
+        enter_completion_action(&state, &editor),
+        Some(EnterCompletionAction::Submit),
+        "a token that does not complete as a whole must be submitted as typed"
+    );
+    let completion = resolve_enter_completion(&state, &editor).expect("a decision");
+    assert!(
+        !completion.apply(&state, &editor),
+        "nothing may be applied when the whole token does not complete"
+    );
+    assert_eq!(editor.get_text(), "/clearXYZ");
+}
+
+/// Self-review probe: the same whole-token rule applies when the caret is
+/// inside a token that ends the input. `/clea` + `r` is the token `/clear`,
+/// so Enter must complete it to `/clear` — the same result as typing
+/// `/clear` and pressing Enter.
+#[test]
+fn rereview_pr106_enter_inside_a_token_completes_the_whole_token() {
+    let state = review_pr106_slash_state();
+    let editor = state.editor.clone();
+    editor.set_text("/clear");
+    editor.set_cursor(0, 4); // /cle|ar
+    let completion = resolve_enter_completion(&state, &editor).expect("a decision");
+    assert_eq!(completion.action, EnterCompletionAction::ApplyAndSubmit);
+    assert!(completion.apply(&state, &editor));
+    assert_eq!(
+        editor.get_text(),
+        "/clear",
+        "the whole token is completed, not just the prefix before the caret"
+    );
+}
+
+/// Self-review probe: a command with a space after it is two tokens. With
+/// the caret inside the first token (`/cle|ar now`) only the command token
+/// is completed — the trailing word must survive untouched.
+#[test]
+fn rereview_pr106_enter_inside_a_command_token_keeps_the_following_word() {
+    let state = review_pr106_slash_state();
+    let editor = state.editor.clone();
+    editor.set_text("/clear now");
+    editor.set_cursor(0, 4); // /cle|ar now
+    let completion = resolve_enter_completion(&state, &editor).expect("a decision");
+    assert_eq!(completion.action, EnterCompletionAction::ApplyAndSubmit);
+    assert!(completion.apply(&state, &editor));
+    assert_eq!(
+        editor.get_text(),
+        "/clear now",
+        "only the command token is replaced; the next word is untouched"
+    );
+}
+
+// ==== Reviewer probes for PR #106, round 3 (the two-lookup flow they model
+// is gone: the decision and the replacement are one snapshot, applied by
+// `route_enter_completion` — so the probes take the snapshot and apply it,
+// which is exactly what the key loop does). ====
+
+/// `@<root>/nested/repo` + Enter must complete the basename and KEEP the
+/// directory: the path provider spans the whole path prefix but returns a
+/// basename, so replacing its span would point the reference at a different
+/// file (`@report.txt`).
+#[test]
+fn final_review_pr106_enter_path_completion_must_preserve_the_parent_directory() {
+    let temporary = tempfile::tempdir().unwrap();
+    let nested = temporary.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let completed = nested.join("report.txt");
+    std::fs::write(&completed, "review fixture").unwrap();
+    assert!(!temporary.path().join("report.txt").exists());
+    let prefix = format!("@{}", nested.join("repo").display());
+    let expected = format!("@{} ", completed.display());
+    let state = test_tui_state();
+    state
+        .autocomplete
+        .set_provider(Arc::new(FilePathAutocompleteProvider::with_root(
+            temporary.path().to_path_buf(),
+        )));
+    let editor = state.editor.clone();
+    editor.set_text(&prefix);
+    set_editor_cursor_offset(&editor, &prefix, prefix.len());
+    let completion = resolve_enter_completion(&state, &editor).expect("a decision");
+    assert_eq!(completion.action, EnterCompletionAction::ApplyOnly);
+    assert!(completion.apply(&state, &editor));
+    assert_eq!(
+        editor.get_text(),
+        expected,
+        "Enter must complete the basename without discarding the directory from the file reference"
+    );
+}
+
+/// A path candidate that disappears between the decision and the apply must
+/// not turn the decided `ApplyOnly` into a submit of the unfinished prompt:
+/// the snapshot is applied as decided, and an `@`-path decision consumes the
+/// Enter independently of the apply result.
+#[test]
+fn final_review_pr106_disappearing_file_candidate_must_not_turn_enter_into_submit() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("notes.txt");
+    std::fs::write(&path, "review fixture").unwrap();
+    let state = test_tui_state();
+    state
+        .autocomplete
+        .set_provider(Arc::new(FilePathAutocompleteProvider::with_root(
+            temporary.path().to_path_buf(),
+        )));
+    let editor = state.editor.clone();
+    editor.set_text("@not");
+    editor.set_cursor(0, 4);
+    let submitted = Arc::new(Mutex::new(Vec::<String>::new()));
+    let capture = submitted.clone();
+    editor.on_submit(Arc::new(move |text| {
+        capture.lock().unwrap().push(text.to_string());
+    }));
+    // The decision is taken ONCE; the key loop keeps this snapshot.
+    let completion = resolve_enter_completion(&state, &editor).expect("a decision");
+    assert_eq!(completion.action, EnterCompletionAction::ApplyOnly);
+    // Model a real directory change after the decision, before the apply. No
+    // provider stub is used.
+    std::fs::remove_file(&path).unwrap();
+    // The production routing applies the SAME snapshot and consumes the Enter
+    // for an `@`-path completion; the key never reaches the editor.
+    let consumed = {
+        completion.apply(&state, &editor);
+        completion.consumes_enter()
+    };
+    if !consumed {
+        editor.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    }
+    assert!(
+        submitted.lock().unwrap().is_empty(),
+        "a disappearing path candidate must not cause ApplyOnly to submit the unfinished prompt"
+    );
+    assert_eq!(
+        editor.get_text(),
+        "@notes.txt ",
+        "the decided candidate is applied from the snapshot, not re-resolved"
+    );
+}
+
+/// Self-review probe: the key loop's actual entry point (`route_enter_completion`)
+/// resolves once, completes the basename, and consumes the Enter so the prompt
+/// is not submitted.
+#[test]
+fn final_review_pr106_path_completion_route_consumes_the_enter() {
+    let temporary = tempfile::tempdir().unwrap();
+    std::fs::write(temporary.path().join("notes.txt"), "review fixture").unwrap();
+    let state = test_tui_state();
+    state
+        .autocomplete
+        .set_provider(Arc::new(FilePathAutocompleteProvider::with_root(
+            temporary.path().to_path_buf(),
+        )));
+    let editor = state.editor.clone();
+    editor.set_text("@not");
+    editor.set_cursor(0, 4);
+    let submitted = Arc::new(Mutex::new(Vec::<String>::new()));
+    let capture = submitted.clone();
+    editor.on_submit(Arc::new(move |text| {
+        capture.lock().unwrap().push(text.to_string());
+    }));
+    assert!(
+        route_enter_completion(&state, &editor),
+        "an @-path completion consumes the Enter"
+    );
+    assert_eq!(editor.get_text(), "@notes.txt ");
+    assert!(
+        submitted.lock().unwrap().is_empty(),
+        "a path completion must never submit the prompt"
+    );
+}
+
+/// Self-review probe: the path segment rule matches the command-token rule —
+/// the whole segment around the caret is replaced (no duplicated suffix), and
+/// a segment that does not complete keeps the typed text instead of dropping
+/// it.
+#[test]
+fn final_review_pr106_path_segment_covers_the_text_after_the_caret() {
+    let temporary = tempfile::tempdir().unwrap();
+    let nested = temporary.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let completed = nested.join("report.txt");
+    std::fs::write(&completed, "review fixture").unwrap();
+    let state = test_tui_state();
+    state
+        .autocomplete
+        .set_provider(Arc::new(FilePathAutocompleteProvider::with_root(
+            temporary.path().to_path_buf(),
+        )));
+    let editor = state.editor.clone();
+    // Caret inside the basename: `.../nested/repo|rt.txt`.
+    let prefix = format!("@{}", nested.join("repo").display());
+    let text = format!("{prefix}rt.txt");
+    editor.set_text(&text);
+    set_editor_cursor_offset(&editor, &text, prefix.len());
+    assert!(
+        route_enter_completion(&state, &editor),
+        "a path completion consumes the Enter"
+    );
+    assert_eq!(
+        editor.get_text(),
+        format!("@{} ", completed.display()),
+        "the whole basename segment is completed, not just the part before the caret"
+    );
+
+    // A segment that does not complete as a whole keeps the typed text: the
+    // completion must not silently drop `zz` after the caret.
+    let unknown = format!("{prefix}zz.txt");
+    editor.set_text(&unknown);
+    set_editor_cursor_offset(&editor, &unknown, prefix.len());
+    assert!(
+        !route_enter_completion(&state, &editor),
+        "a segment that does not complete falls through to the normal submit"
+    );
+    assert_eq!(
+        editor.get_text(),
+        unknown,
+        "nothing may be rewritten when the whole segment does not complete"
+    );
+}
+
+#[test]
+fn merge_review_pr106_enter_after_directory_completion_must_not_duplicate_the_directory() {
+    let temporary = tempfile::tempdir().unwrap();
+    let nested = temporary.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    std::fs::write(nested.join("report.txt"), "review fixture").unwrap();
+    assert!(!nested.join("nested").exists());
+    let state = test_tui_state();
+    state
+        .autocomplete
+        .set_provider(Arc::new(FilePathAutocompleteProvider::with_root(
+            temporary.path().to_path_buf(),
+        )));
+    let editor = state.editor.clone();
+    let prefix = format!("@{}", temporary.path().join("nes").display());
+    editor.set_text(&prefix);
+    set_editor_cursor_offset(&editor, &prefix, prefix.len());
+    assert!(route_enter_completion(&state, &editor));
+    let first = editor.get_text();
+    assert!(
+        first.ends_with("nested/"),
+        "first directory completion: {first}"
+    );
+    refresh_autocomplete(&state, &editor);
+    // A directory completion leaves its separator at the caret, so the next
+    // Enter should operate inside that directory, not insert its name again.
+    let consumed = route_enter_completion(&state, &editor);
+    let second = editor.get_text();
+    let reference = second.trim().strip_prefix('@').unwrap();
+    assert!(
+        std::path::Path::new(reference).exists(),
+        "Enter after a directory completion must retain a valid reference; first={first:?}, second={second:?}, consumed={consumed}"
+    );
+}
+
+/// Self-review probe: a directory completion leaves its separator at the
+/// caret, so the NEXT Enter completes INSIDE that directory instead of
+/// inserting the directory's own name again (`…/nested/nested/`, a reference
+/// that does not exist). Pins the exact text and the consumed key.
+///
+/// The path provider marks a directory with `/` on EVERY platform (the
+/// upstream TS convention — `toDisplayPath` normalizes `\` to `/`; the
+/// upstream-derived provider probe pins `vec!["nested/"]`), while the part
+/// of the path the user typed keeps the platform separator. The completed
+/// text therefore mixes the two glyphs, and the raw string differs per
+/// platform even though it names the same file. The assertion normalizes
+/// the separators, so it pins the reference itself and not the glyph.
+#[test]
+fn final_review_pr106_enter_after_directory_completion_completes_inside_it() {
+    let temporary = tempfile::tempdir().unwrap();
+    let nested = temporary.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let report = nested.join("report.txt");
+    std::fs::write(&report, "review fixture").unwrap();
+    let state = test_tui_state();
+    state
+        .autocomplete
+        .set_provider(Arc::new(FilePathAutocompleteProvider::with_root(
+            temporary.path().to_path_buf(),
+        )));
+    let editor = state.editor.clone();
+    let prefix = format!(
+        "@{}{}nes",
+        temporary.path().display(),
+        std::path::MAIN_SEPARATOR
+    );
+    editor.set_text(&prefix);
+    set_editor_cursor_offset(&editor, &prefix, prefix.len());
+    assert!(
+        route_enter_completion(&state, &editor),
+        "the directory completion consumes the Enter"
+    );
+    let first = editor.get_text();
+    assert_eq!(
+        normalize_path_separators(&first),
+        normalize_path_separators(&format!("@{}/", nested.display())),
+        "the first Enter completes the directory and leaves its separator at the caret"
+    );
+    // The provider marks a directory with `/` on EVERY platform (upstream TS
+    // normalizes `\` to `/`), so the completed reference ends in a forward
+    // slash even where the typed path used the platform separator. The
+    // convention is the same on Linux and Windows — pinned here so a change
+    // to it cannot pass on one platform and fail on the other.
+    assert!(
+        first.ends_with("nested/"),
+        "the directory marker is `/` on every platform: {first:?}"
+    );
+    refresh_autocomplete(&state, &editor);
+    assert!(
+        route_enter_completion(&state, &editor),
+        "the completion inside the directory consumes the Enter too"
+    );
+    let second = editor.get_text();
+    assert_eq!(
+        normalize_path_separators(&second),
+        normalize_path_separators(&format!("@{} ", report.display())),
+        "the second Enter completes a child of the selected directory, not the directory itself"
+    );
+    // The reference must name the file that exists — the invariant behind
+    // the text comparison, independent of any separator glyph.
+    let reference = second.trim().strip_prefix('@').expect("an @-reference");
+    assert!(
+        std::path::Path::new(reference).exists(),
+        "the completed reference must name the real file: {second:?}"
+    );
+    assert!(
+        !nested.join("nested").exists(),
+        "no completion may invent a directory named after its own parent"
+    );
+}
+
+/// Normalize the path separators of a reference so an assertion compares the
+/// path a completion names, not the separator glyph it was typed with.
+///
+/// The path provider marks a directory with `/` on every platform, so a
+/// completed reference mixes the provider's separator with the platform one
+/// the user typed. The normalized form is the same string on every platform.
+fn normalize_path_separators(reference: &str) -> String {
+    reference.replace('\\', "/")
+}
+
+/// Self-review probe: the recorded Windows reproduction, kept in the tree so
+/// the platform-dependent comparison cannot come back unnoticed.
+///
+/// On the Windows checkout the completed reference ended in the provider's
+/// `/` while the typed path used the platform `\`:
+/// `@D:\Temp\...\nested/` (actual) vs `@D:\Temp\...\nested\` (expected) —
+/// the same file, two glyphs. The provider's `/` marker is the upstream
+/// convention and is pre-existing (it is in `rpi-tui` before this PR), so
+/// the comparison is the thing that has to be separator-agnostic.
+#[test]
+fn final_review_pr106_path_reference_comparison_is_separator_agnostic() {
+    // The exact shapes the Windows checkout produced.
+    let actual = "@D:\\Temp\\pr106\\nested/";
+    let expected = "@D:\\Temp\\pr106\\nested\\";
+    assert_ne!(
+        actual, expected,
+        "the raw texts differ: that is the platform difference the comparison must absorb"
+    );
+    assert_eq!(
+        normalize_path_separators(actual),
+        normalize_path_separators(expected),
+        "the normalized references are the same reference"
+    );
+    // The same holds for the file the reference ends at.
+    let actual_file = "@D:\\Temp\\pr106\\nested/report.txt ";
+    let expected_file = "@D:\\Temp\\pr106\\nested\\report.txt ";
+    assert_eq!(
+        normalize_path_separators(actual_file),
+        normalize_path_separators(expected_file),
+        "the normalized file references are the same reference"
+    );
+}
+
+/// Self-review probe: the completed reference must NAME THE FILE, on every
+/// platform — the invariant the text comparison cannot express.
+///
+/// The provider marks a directory with `/` on every platform, so on Windows
+/// the completed reference mixes the typed `\` with the provider's `/`. The
+/// reference is resolved as a path (the OS accepts both separators on
+/// Windows), so the file it names is the same on every platform. A probe
+/// that only compared the raw text could pass on Linux and fail on Windows
+/// while the feature worked; this one compares the resolved path.
+#[test]
+fn final_review_pr106_completed_path_reference_resolves_to_the_same_file() {
+    let temporary = tempfile::tempdir().unwrap();
+    let nested = temporary.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let report = nested.join("report.txt");
+    std::fs::write(&report, "review fixture").unwrap();
+    let state = test_tui_state();
+    state
+        .autocomplete
+        .set_provider(Arc::new(FilePathAutocompleteProvider::with_root(
+            temporary.path().to_path_buf(),
+        )));
+    let editor = state.editor.clone();
+    let prefix = format!(
+        "@{}{}nes",
+        temporary.path().display(),
+        std::path::MAIN_SEPARATOR
+    );
+    editor.set_text(&prefix);
+    set_editor_cursor_offset(&editor, &prefix, prefix.len());
+    assert!(route_enter_completion(&state, &editor));
+    refresh_autocomplete(&state, &editor);
+    assert!(route_enter_completion(&state, &editor));
+    let text = editor.get_text();
+    let reference = text.trim().strip_prefix('@').expect("an @-reference");
+    // The reference resolves to the file that exists — the invariant behind
+    // the text comparison, independent of any separator glyph.
+    let resolved = std::path::Path::new(reference);
+    assert!(
+        resolved.exists(),
+        "the completed reference must name the real file: {text:?}"
+    );
+    assert_eq!(
+        resolved.file_name().and_then(|name| name.to_str()),
+        Some("report.txt"),
+        "the completed reference must name the child file: {text:?}"
+    );
+    assert_eq!(
+        resolved.parent().and_then(|parent| parent.file_name()),
+        Some(std::ffi::OsStr::new("nested")),
+        "the completed reference must stay inside the selected directory: {text:?}"
+    );
+}
+
+/// Self-review probe: Tab applies the same basename-segment span as Enter.
+/// The path provider returns a basename while spanning the whole path prefix,
+/// so accepting its span dropped the directory: `@/abs/nested/repo` + Tab
+/// became `@report.txt`, a reference to a different file. A segment that does
+/// not complete as a whole is left exactly as typed.
+#[test]
+fn final_review_pr106_tab_path_completion_must_preserve_the_parent_directory() {
+    let temporary = tempfile::tempdir().unwrap();
+    let nested = temporary.path().join("nested");
+    std::fs::create_dir(&nested).unwrap();
+    let report = nested.join("report.txt");
+    std::fs::write(&report, "review fixture").unwrap();
+    assert!(!temporary.path().join("report.txt").exists());
+    let state = test_tui_state();
+    state
+        .autocomplete
+        .set_provider(Arc::new(FilePathAutocompleteProvider::with_root(
+            temporary.path().to_path_buf(),
+        )));
+    let editor = state.editor.clone();
+    let prefix = format!("@{}{}repo", nested.display(), std::path::MAIN_SEPARATOR);
+    editor.set_text(&prefix);
+    set_editor_cursor_offset(&editor, &prefix, prefix.len());
+    assert!(
+        accept_top_suggestion(&state, &editor),
+        "Tab accepts the candidate"
+    );
+    assert_eq!(
+        editor.get_text(),
+        format!("@{} ", report.display()),
+        "Tab must complete the basename without discarding the directory"
+    );
+
+    // The candidate does not complete the whole segment, so nothing is
+    // rewritten (the typed suffix after the caret survives).
+    let suffix = format!("{prefix}zz.txt");
+    editor.set_text(&suffix);
+    set_editor_cursor_offset(&editor, &suffix, prefix.len());
+    assert!(
+        !accept_top_suggestion(&state, &editor),
+        "an uncompletable segment is not rewritten"
+    );
+    assert_eq!(editor.get_text(), suffix);
 }
 
 #[test]

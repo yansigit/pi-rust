@@ -44,6 +44,35 @@ fn requires_auth_default() -> bool {
 // Registered-item records
 // ---------------------------------------------------------------------------
 
+/// Explicit system-prompt contributions, separate from the provider-facing
+/// schema. No snippet means the tool remains callable but is not listed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct ToolPromptMetadata {
+    pub prompt_snippet: Option<String>,
+    pub prompt_guidelines: Vec<String>,
+}
+
+impl ToolPromptMetadata {
+    /// Match pi's whitespace handling; cross-tool deduplication happens when
+    /// the CLI renders the active tool set.
+    pub fn normalized(self) -> Self {
+        let mut seen = std::collections::HashSet::new();
+        Self {
+            prompt_snippet: self
+                .prompt_snippet
+                .map(|snippet| snippet.split_whitespace().collect::<Vec<_>>().join(" "))
+                .filter(|snippet| !snippet.is_empty()),
+            prompt_guidelines: self
+                .prompt_guidelines
+                .into_iter()
+                .map(|rule| rule.trim().to_owned())
+                .filter(|rule| !rule.is_empty() && seen.insert(rule.clone()))
+                .collect(),
+        }
+    }
+}
+
 /// A tool an extension registered: the provider-facing [`Tool`] schema + the
 /// plugin's 4-function handle ([`PluginToolHandle`]) the host drives via
 /// [`PluginToolAdapter`](crate::PluginToolAdapter).
@@ -58,6 +87,8 @@ pub struct ExtensionTool {
     /// Host-stamped registration source, retained across snapshots and merges.
     pub plugin: Option<String>,
     pub metadata: crate::tool::ToolMetadata,
+    /// Optional prompt contributions owned by the same registration as the tool.
+    pub prompt: ToolPromptMetadata,
     pub(crate) handle: PluginToolHandle,
 }
 
@@ -68,6 +99,7 @@ impl ExtensionTool {
             handle,
             plugin: None,
             metadata: Default::default(),
+            prompt: ToolPromptMetadata::default(),
         }
     }
 
@@ -289,6 +321,7 @@ unsafe impl Sync for RegisteredRenderer {}
 /// One flat registration record, for iteration/diagnostics. Built on demand
 /// from the typed vecs in [`RegistrySnapshot`].
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum RegistryEntry {
     Tool(ExtensionTool),
     Command(RegisteredCommand),
@@ -461,8 +494,19 @@ impl ExtensionRegistry {
             handle,
             plugin,
             metadata: Default::default(),
+            prompt: ToolPromptMetadata::default(),
         });
         false
+    }
+
+    /// Attach prompt metadata only to a tool in this plugin-local registry.
+    /// Metadata follows the tool through first-wins merge and snapshot/reload.
+    pub fn register_tool_prompt(&mut self, name: &str, prompt: ToolPromptMetadata) -> bool {
+        let Some(tool) = self.tools.iter_mut().find(|tool| tool.tool.name == name) else {
+            return false;
+        };
+        tool.prompt = prompt.normalized();
+        true
     }
 
     /// Register a slash command (first-wins by name). `true` if a prior was kept.

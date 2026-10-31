@@ -97,19 +97,39 @@ pub(super) async fn share_session(harness: &AgentHarness, chat: &Arc<Container>)
 /// Hot-switch the harness to another saved session: abort any in-flight run,
 /// open the target session file, swap the durable backing, and re-render the
 /// transcript from the new history (mirrors pi's `/session` resume-in-place).
-/// Shared by the `/session` selector, `/import`, and `/fork`. The current
-/// model/footer stay put (v1 doesn't replay the session's ModelChange entries).
+/// Shared by the `/session` selector, `/import`, and `/fork`. The session's own
+/// last-used model is replayed ([`restore_session_model`]) and its recorded
+/// usage folded back into the footer ([`render_session_history`]).
 pub(super) async fn switch_to_session(
     harness: &AgentHarness,
-    _lane: &Arc<dyn AgentLane>,
+    lane: &Arc<dyn AgentLane>,
     id: &str,
-    _cwd: &std::path::Path,
+    cwd: &std::path::Path,
     chat: &Arc<Container>,
     state: &Arc<TuiState>,
     _tool_context: &rpi_extensions::ToolCallContext,
     reload_context: &crate::session::ReloadContext,
 ) -> bool {
-    match crate::session::replace_host_session(
+    // Same late-result race as `/new`: a running user `!command` finishes into
+    // the live lane, which would be the NEW session after this swap.
+    if state.user_bash_running() {
+        add_note_message(
+            chat,
+            "Wait for the !command to finish before switching sessions, or press Esc to cancel it.",
+        );
+        return false;
+    }
+    // Read the target's recorded directory before the swap claims its lock.
+    let recorded_cwd = crate::session::find_session_metadata(
+        id,
+        &cwd.to_string_lossy(),
+        &reload_context.session_dir(),
+    )
+    .await
+    .ok()
+    .flatten()
+    .map(|meta| crate::session_cwd::resolve_session_cwd(std::path::Path::new(&meta.cwd)));
+    let degraded = match crate::session::replace_host_session(
         harness,
         reload_context,
         crate::session::HostSessionRequest::Resume(id.to_owned()),
@@ -119,51 +139,69 @@ pub(super) async fn switch_to_session(
         Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
             add_note_message(chat, &format!("Session switch cancelled: {reason}"));
             state.set_status(RunStatus::Idle);
-            false
+            return false;
         }
-        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => {
-            chat.clear();
-            add_welcome_message(chat);
-            render_session_history(
-                harness,
-                chat,
-                state.markdown_transformer(),
-                Some(state.extension_session.clone()),
-                state.images_visible(),
-            )
-            .await;
-            add_error_message(chat, &format!("Extensions unavailable: {reason}"));
-            state.set_status(RunStatus::Idle);
-            true
-        }
-        Ok(crate::session::SessionReplacement::Replaced) => {
-            chat.clear();
-            add_welcome_message(chat);
-            render_session_history(
-                harness,
-                chat,
-                state.markdown_transformer(),
-                Some(state.extension_session.clone()),
-                state.images_visible(),
-            )
-            .await;
-            state.set_status(RunStatus::Idle);
-            add_note_message(chat, &format!("Switched to session {id}."));
-            true
-        }
+        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => Some(reason),
+        Ok(crate::session::SessionReplacement::Replaced) => None,
         Err(e) => {
             state.set_status(RunStatus::Idle);
             add_error_message(chat, &format!("Could not open session {id}: {e}"));
-            false
+            return false;
         }
+    };
+    // Replay the target session's own model. Without this the lane keeps
+    // whatever `/model` last selected, so a session resumed after a temporary
+    // switch silently runs on the wrong model — the session's own
+    // `ModelChange`/assistant entries are the authority.
+    restore_session_model(harness, lane, state, &reload_context.catalog).await;
+    chat.clear();
+    state.reset_session_state();
+    let (tools, skills, context_files) = current_capabilities(harness, lane).await;
+    add_welcome_message_with_capabilities(chat, &tools, &skills, &context_files);
+    render_session_history(
+        harness,
+        chat,
+        state.markdown_transformer(),
+        Some(state.extension_session.clone()),
+        state.images_visible(),
+        Some(&state.footer),
+    )
+    .await;
+    state.set_status(RunStatus::Idle);
+    if let Some(reason) = degraded {
+        // The session did switch; surface the missing authority (B-2).
+        add_error_message(chat, &format!("Extensions unavailable: {reason}"));
     }
+    add_note_message(chat, &format!("Switched to session {id}."));
+    // The tools' working directory is fixed by the run that built them; a
+    // hot-switch cannot move it (that would take a reload-level rebuild of the
+    // tool env, system prompt, and project resources). Say where the session
+    // belongs instead of implying the move.
+    match recorded_cwd {
+        Some(Some(dir)) if dir != cwd => add_note_message(
+            chat,
+            &format!(
+                "This session was created in {}. Tools still run in {}; \
+                 restart rpi in that directory to work there.",
+                dir.display(),
+                cwd.display()
+            ),
+        ),
+        Some(None) => add_note_message(
+            chat,
+            "This session's recorded directory no longer exists; \
+             tools keep using the current one.",
+        ),
+        _ => {}
+    }
+    true
 }
 
 /// `/import <path>`: validate and save a session in the selected repository,
 /// then activate it through the same funnel as other session switches.
 pub(super) async fn import_session(
     harness: &AgentHarness,
-    _lane: &Arc<dyn AgentLane>,
+    lane: &Arc<dyn AgentLane>,
     path: &str,
     _cwd: &std::path::Path,
     chat: &Arc<Container>,
@@ -186,21 +224,24 @@ pub(super) async fn import_session(
         add_error_message(chat, "Import source must be a .jsonl session file.");
         return;
     }
-    match crate::session::replace_host_session(
+    // Same late-result race as `/new`: a running user `!command` finishes into
+    // the live lane, which would be the NEW session after this swap.
+    if state.user_bash_running() {
+        add_note_message(
+            chat,
+            "Wait for the !command to finish before importing a session, or press Esc to cancel it.",
+        );
+        return;
+    }
+    let degraded = match crate::session::replace_host_session(
         harness,
         reload_context,
         crate::session::HostSessionRequest::Import(src.to_path_buf()),
     )
     .await
     {
-        Ok(crate::session::SessionReplacement::Replaced) => {}
-        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => {
-            state.set_status(RunStatus::Idle);
-            add_error_message(
-                chat,
-                &format!("Extensions unavailable after import: {reason}"),
-            );
-        }
+        Ok(crate::session::SessionReplacement::Replaced) => None,
+        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => Some(reason),
         Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
             state.set_status(RunStatus::Idle);
             add_note_message(chat, &format!("Import cancelled: {reason}"));
@@ -211,18 +252,30 @@ pub(super) async fn import_session(
             add_error_message(chat, &format!("Could not import session: {error}"));
             return;
         }
-    }
+    };
     chat.clear();
-    add_welcome_message(chat);
+    state.reset_session_state();
+    let (tools, skills, context_files) = current_capabilities(harness, lane).await;
+    add_welcome_message_with_capabilities(chat, &tools, &skills, &context_files);
+    // Same replay as `/session`: the imported session's own history names the
+    // model it was last using.
+    restore_session_model(harness, lane, state, &reload_context.catalog).await;
     render_session_history(
         harness,
         chat,
         state.markdown_transformer(),
         Some(state.extension_session.clone()),
         state.images_visible(),
+        Some(&state.footer),
     )
     .await;
     state.set_status(RunStatus::Idle);
+    if let Some(reason) = degraded {
+        add_error_message(
+            chat,
+            &format!("Extensions unavailable after import: {reason}"),
+        );
+    }
     add_note_message(chat, &format!("Imported session from {path}"));
 }
 
@@ -234,7 +287,16 @@ pub(super) async fn fork_session(
     _tool_context: &rpi_extensions::ToolCallContext,
     reload_context: &crate::session::ReloadContext,
 ) {
-    match crate::session::replace_host_session(
+    // Same late-result race as `/new`: a running user `!command` finishes into
+    // the live lane, which would be the NEW session after this swap.
+    if state.user_bash_running() {
+        add_note_message(
+            chat,
+            "Wait for the !command to finish before forking a session, or press Esc to cancel it.",
+        );
+        return;
+    }
+    let degraded = match crate::session::replace_host_session(
         harness,
         reload_context,
         crate::session::HostSessionRequest::Fork {
@@ -244,13 +306,8 @@ pub(super) async fn fork_session(
     )
     .await
     {
-        Ok(crate::session::SessionReplacement::Replaced) => {}
-        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => {
-            add_error_message(
-                chat,
-                &format!("Extensions unavailable after fork: {reason}"),
-            );
-        }
+        Ok(crate::session::SessionReplacement::Replaced) => None,
+        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => Some(reason),
         Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
             add_note_message(chat, &format!("Fork cancelled: {reason}"));
             return;
@@ -259,19 +316,123 @@ pub(super) async fn fork_session(
             add_error_message(chat, &format!("Could not fork session: {error}"));
             return;
         }
-    }
+    };
+    let lane = harness.lane("main");
     chat.clear();
-    add_welcome_message(chat);
+    state.reset_session_state();
+    let (tools, skills, context_files) = current_capabilities(harness, &lane).await;
+    add_welcome_message_with_capabilities(chat, &tools, &skills, &context_files);
+    // A fork continues the CURRENT conversation: a `/model` pick made after the
+    // last recorded turn is still the user's live intent, and `apply_model_selection`
+    // deliberately persists nothing for the replay to read. Restoring the older
+    // recorded model here would silently undo that pick, so the fork keeps the
+    // live model instead of replaying.
     render_session_history(
         harness,
         chat,
         state.markdown_transformer(),
         Some(state.extension_session.clone()),
         state.images_visible(),
+        Some(&state.footer),
     )
     .await;
     state.set_status(RunStatus::Idle);
+    if let Some(reason) = degraded {
+        add_error_message(
+            chat,
+            &format!("Extensions unavailable after fork: {reason}"),
+        );
+    }
     add_note_message(chat, "Forked into a new session.");
+}
+
+/// `/new`: begin a fresh session through the host replacement coordinator.
+///
+/// The coordinator creates the session (another in-memory one when the current
+/// session is ephemeral, `--no-session`), runs the replacement hooks and
+/// installs the fresh extension authority. This rebuilds the transcript with
+/// the session's REAL capability snapshot and drops every per-session counter
+/// in the footer.
+///
+/// The session being left behind is **not** deleted: its file stays on disk and
+/// remains reachable through `/session`. Removing user data is not something
+/// `/new` should do implicitly.
+///
+/// Returns `true` when the harness now serves a new session.
+pub(super) async fn start_new_session(
+    harness: &AgentHarness,
+    lane: &Arc<dyn AgentLane>,
+    chat: &Arc<Container>,
+    state: &Arc<TuiState>,
+    reload_context: &crate::session::ReloadContext,
+) -> bool {
+    // A user `!command` writes its result through the live lane when it
+    // finishes (`UserBashFinished`), with no originating-session identity.
+    // Swapping the session underneath it would record that result in the NEW
+    // conversation, so the switch waits for the shell run to finish. Merely
+    // cancelling would not close the race: the completion is still coming.
+    if state.user_bash_running() {
+        add_note_message(
+            chat,
+            "Wait for the !command to finish before starting a new session, or press Esc to cancel it.",
+        );
+        return false;
+    }
+    let degraded = match crate::session::replace_host_session(
+        harness,
+        reload_context,
+        crate::session::HostSessionRequest::New,
+    )
+    .await
+    {
+        Ok(crate::session::SessionReplacement::Replaced) => None,
+        Ok(crate::session::SessionReplacement::ReplacedDegraded { reason }) => Some(reason),
+        Ok(crate::session::SessionReplacement::Cancelled { reason }) => {
+            add_note_message(chat, &format!("New session cancelled: {reason}"));
+            state.set_status(RunStatus::Idle);
+            return false;
+        }
+        Err(error) => {
+            add_error_message(
+                chat,
+                &format!("Could not create session: {error} — the current session is still active"),
+            );
+            state.set_status(RunStatus::Idle);
+            return false;
+        }
+    };
+    let ephemeral = harness.session().storage().is_ephemeral();
+    let new_id = harness.session().storage().metadata().id.clone();
+    state.reset_session_state();
+    chat.clear();
+    let (tools, skills, context_files) = current_capabilities(harness, lane).await;
+    add_welcome_message_with_capabilities(chat, &tools, &skills, &context_files);
+    render_session_history(
+        harness,
+        chat,
+        state.markdown_transformer(),
+        Some(state.extension_session.clone()),
+        state.images_visible(),
+        // The fresh session has no recorded usage, so this replay folds
+        // nothing — the footer simply keeps the zeroed counters. Passing the
+        // footer anyway keeps every session-swap path on one shape.
+        Some(&state.footer),
+    )
+    .await;
+    state.set_status(RunStatus::Idle);
+    if let Some(reason) = degraded {
+        // The session did switch; surface the missing authority (B-2).
+        add_error_message(
+            chat,
+            &format!("Extensions unavailable after replacement: {reason}"),
+        );
+    }
+    if ephemeral {
+        add_note_message(chat, "Started a new ephemeral session (--no-session).");
+    } else {
+        add_note_message(chat, &format!("Started new session {new_id}."));
+    }
+    true
 }
 
 /// Render the restored session's prior transcript (user + assistant messages)
@@ -283,25 +444,48 @@ pub(super) async fn fork_session(
 /// the identity path. Each restored assistant component installs it so replayed
 /// history renders through the same `register_markdown_transformer` handlers
 /// the live stream does.
+///
+/// `footer` is the footer whose per-session counters the replayed usage belongs
+/// to. It is `None` at startup, where the footer has not been built yet.
 pub(super) async fn render_session_history(
     harness: &AgentHarness,
     chat: &Arc<Container>,
     transformer: Option<MarkdownTransformer>,
     extension_session: Option<crate::session::ExtensionSessionCell>,
     show_images: bool,
+    footer: Option<&rpi_tui::FooterComponent>,
 ) {
-    let tree = harness.session().view("main");
-    let entries = match tree
-        .find_entries(&EntryQuery {
-            entry_type: None,
-            custom_type: None,
-            // Session queries default to newest-first for selectors and
-            // pagination. The transcript appends children top-to-bottom, so
-            // restored history must explicitly be chronological.
-            order: Some(EntryOrder::OldestFirst),
-            limit: None,
-            cursor: None,
-        })
+    // Usage the replay accumulates, folded into `footer` at the end so
+    // returning to a session restores its counters instead of leaving the
+    // footer blank (or showing the previous session's numbers). Totals are
+    // sums; the cache-hit rate keeps the live `MessageEnd` semantics (the
+    // LATEST eligible turn's rate, not a session average), so reopening a
+    // history cannot change what the footer showed live.
+    let mut restored_input = 0i64;
+    let mut restored_output = 0i64;
+    let mut restored_cache_read = 0i64;
+    let mut restored_cache_write = 0i64;
+    let mut restored_cost = 0f64;
+    let mut restored_hit_rate: Option<f64> = None;
+    let mut restored_context: Option<i64> = None;
+    // Branch-scoped like `restore_session_model`: the transcript and the usage
+    // must reflect the main lane's SELECTED ancestry. The session-wide
+    // `find_entries` ignores which leaf is selected, so a child lane's later
+    // turn would otherwise supply the main context badge (and an abandoned
+    // sibling's history would render).
+    let entries = match harness
+        .find_entries_on_branch(
+            &EntryQuery {
+                entry_type: None,
+                custom_type: None,
+                // Branch results walk leaf→root; the transcript renders
+                // top-to-bottom, so reverse to chronological.
+                order: Some(EntryOrder::OldestFirst),
+                limit: None,
+                cursor: None,
+            },
+            &BranchBounds::default(),
+        )
         .await
     {
         Ok(e) => e,
@@ -327,6 +511,27 @@ pub(super) async fn render_session_history(
                     }
                     comp.update_blocks(&assistant_blocks(a));
                     chat.add_child(comp);
+                    // Accumulate under the same rules the live `MessageEnd`
+                    // handler applies (events.rs): totals sum across turns,
+                    // while the cache-hit rate is the LATEST turn's eligible
+                    // rate (each eligible turn overwrites, matching live).
+                    restored_input += a.usage.input;
+                    restored_output += a.usage.output;
+                    restored_cache_read += a.usage.cache_read;
+                    restored_cache_write += a.usage.cache_write;
+                    restored_cost += a.usage.cost.total;
+                    let denom = a.usage.input + a.usage.cache_read + a.usage.cache_write;
+                    if denom > 0 && (a.usage.cache_read + a.usage.cache_write) > 0 {
+                        restored_hit_rate = Some(a.usage.cache_read as f64 / denom as f64 * 100.0);
+                    }
+                    if a.stop_reason != rpi_ai::StopReason::Aborted
+                        && a.stop_reason != rpi_ai::StopReason::Error
+                    {
+                        let tokens = a.usage.context_tokens();
+                        if tokens > 0 {
+                            restored_context = Some(tokens);
+                        }
+                    }
                     // The component adds spacing only when it has visible content.
                     if let Some(text) = extension_usage_text(extension_session.as_ref(), &a.usage) {
                         add_note_message(chat, &text);
@@ -376,7 +581,8 @@ pub(super) async fn render_session_history(
                             add_image_preview(chat, image, show_images);
                         }
                     }
-                    chat.add_child(Arc::new(Spacer::new(1)));
+                    // The tool panel carries its own trailing spacer now (one
+                    // convention for every transcript entry) — no host spacer.
                     rendered_any = true;
                 }
                 AgentMessage::Custom(custom) => {
@@ -410,6 +616,11 @@ pub(super) async fn render_session_history(
                     ),
                 );
                 rendered_any = true;
+                // Same as the live `/compact` success path: the last assistant
+                // usage describes the PRE-compaction context, so the badge must
+                // reset to `?`/0.0% here too. A later valid assistant report on
+                // the branch re-populates it; usage totals stay intact.
+                restored_context = None;
             }
             Entry::BranchSummary(summary) => {
                 add_note_message(chat, &format!("Branch summary: {}", summary.summary));
@@ -472,6 +683,96 @@ pub(super) async fn render_session_history(
     if rendered_any {
         // No trailing spacer here — each entry already adds its own trailing
         // Spacer(1), so an extra would double the bottom gap.
+    }
+    if let Some(footer) = footer {
+        // The session's own name, which `/name` (and a session created by an
+        // extension) records in the log. `reset_session_counters` cleared the
+        // slot before this replay ran, so without this a switch to a named
+        // session left line 1 blank. Independent of the usage gate below: a
+        // session with no recorded turns can still be named.
+        if let Ok(name) = harness.get_name().await {
+            footer.set_session_name(name.as_deref());
+        }
+        // Only restore when the session actually recorded usage; a fresh or
+        // metadata-only session must not overwrite the live counters.
+        if restored_input > 0 || restored_output > 0 || restored_cost > 0.0 {
+            footer.add_usage(
+                restored_input,
+                restored_output,
+                restored_cache_read,
+                restored_cache_write,
+                restored_cost,
+            );
+            if let Some(rate) = restored_hit_rate {
+                footer.set_cache_hit_rate(Some(rate));
+            }
+            footer.set_context_tokens(restored_context);
+        }
+    }
+}
+
+/// Apply the model a freshly-opened session was last using.
+///
+/// The session log is the authority: `ModelChange` entries and every assistant
+/// turn record the provider/model that produced them. Without this replay the
+/// lane keeps whatever the previous session (or a temporary `/model` pick) left
+/// behind, so switching back to an older session silently ran it on the wrong
+/// model while the footer still showed the new one.
+///
+/// The derivation is **branch-scoped**: only the lane's selected ancestry
+/// counts (`find_entries_on_branch` from the lane leaf), never the session-wide
+/// entry list — an abandoned sibling branch or a child lane's later turn must
+/// not select the model.
+///
+/// Best-effort: a session with no recorded model, or a model that is no longer
+/// in the authenticated catalog, leaves the current lane model untouched rather
+/// than failing the switch. Resuming a session must not fail because one of its
+/// models became unavailable.
+pub(super) async fn restore_session_model(
+    harness: &AgentHarness,
+    lane: &Arc<dyn AgentLane>,
+    state: &Arc<TuiState>,
+    catalog: &Arc<std::sync::RwLock<Vec<rpi_ai::Model>>>,
+) {
+    // Branch-scoped, not `find_entries`: the lane view's session-wide query
+    // ignores which leaf is selected, so abandoned branches and child lanes
+    // would bleed into the derivation.
+    let Ok(entries) = harness
+        .find_entries_on_branch(
+            &EntryQuery {
+                entry_type: None,
+                custom_type: None,
+                order: Some(EntryOrder::OldestFirst),
+                limit: None,
+                cursor: None,
+            },
+            &BranchBounds::default(),
+        )
+        .await
+    else {
+        return;
+    };
+    let Some((provider, model_id)) = rpi_harness::session::build_session_context(
+        &entries,
+        &rpi_harness::session::SessionContextBuildOptions::default(),
+    )
+    .model
+    else {
+        return;
+    };
+    let models = catalog
+        .read()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone();
+    let Some(model) = models
+        .iter()
+        .find(|m| m.provider == provider && m.id.eq_ignore_ascii_case(&model_id))
+        .cloned()
+    else {
+        return;
+    };
+    if lane.set_model(model.clone()).await.is_ok() {
+        state.set_current_model(&model);
     }
 }
 

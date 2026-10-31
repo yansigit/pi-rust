@@ -19,7 +19,6 @@ use std::time::{Duration, Instant};
 use super::component::{Component, RenderedDocument};
 use crate::ansi::bold;
 use crate::ansi::strip_ansi;
-use crate::spacer::Spacer;
 use crate::theme::{theme, theme_revision, Theme, ThemeColors};
 use crate::tool_panel::ToolPanel;
 use crate::utils::{truncate_to_width, wrap_text_with_ansi};
@@ -29,8 +28,7 @@ use crate::visual_truncate::truncate_to_visual_lines;
 const PREVIEW_LINES: usize = 20;
 
 /// After this long without a result, a running bash panel shows the
-/// "Esc / Ctrl+C 中止" hint (the tool has no default timeout — the model must
-/// pass one, and a stuck command otherwise looks frozen).
+/// "Esc / Ctrl+C 中止" hint so users can cancel long commands before their deadline.
 const LONG_RUNNING_HINT_AFTER: Duration = Duration::from_secs(60);
 
 /// Bash execution status.
@@ -293,7 +291,7 @@ impl BashExecutionComponent {
         let content_width = panel.content_width;
         let panel_line = |content: &str| panel.line(content);
         let blank = panel.blank();
-        let mut lines = Spacer::new(1).render(width);
+        let mut lines = Vec::new();
         lines.extend(std::iter::repeat(blank.clone()).take(panel.padding_y));
 
         let excluded = *self.exclude_from_context.lock().unwrap();
@@ -363,6 +361,9 @@ impl BashExecutionComponent {
             }
         }
         lines.extend(std::iter::repeat(blank).take(panel.padding_y));
+        // Trailing spacer (one convention for every panel: each transcript
+        // entry ends with its own blank row; nothing adds a leading one).
+        lines.push(String::new());
         lines
     }
 }
@@ -500,6 +501,28 @@ mod tests {
     }
 
     #[test]
+    fn panel_carries_a_trailing_spacer_and_no_leading_one() {
+        // Trailing-spacing convention (see tool_execution tests): the panel
+        // ends with one blank row and opens directly with its border/padding.
+        let theme = Theme::default();
+        let c = BashExecutionComponent::new("echo hi");
+        *c.started_at.lock().unwrap() = None;
+        c.append_output("hi");
+        c.set_complete(Some(0), false, BashTruncation::default());
+        let lines = c.render_panel(40, BashStatus::Complete, &theme);
+        assert_eq!(
+            lines.last(),
+            Some(&String::new()),
+            "bash panel must end with the trailing spacer: {lines:?}"
+        );
+        assert_ne!(
+            lines.first(),
+            Some(&String::new()),
+            "bash panel must not open with a spacer: {lines:?}"
+        );
+    }
+
+    #[test]
     fn panel_has_themed_insets_in_every_execution_state() {
         let theme = Theme::default();
         let width = 40;
@@ -521,13 +544,19 @@ mod tests {
                 BashStatus::Error | BashStatus::Cancelled => theme.colors.tool_error_bg,
             };
             let lines = c.render_panel(width, status, &theme);
-            assert_eq!(lines[0], "", "outer spacer must remain uncolored");
-            assert_eq!(lines[1], bg.bg(&" ".repeat(width)));
-            assert_eq!(lines.last().unwrap(), &lines[1]);
-            let plain: Vec<_> = lines[1..].iter().map(|line| strip_ansi(line)).collect();
+            assert_eq!(lines[0], bg.bg(&" ".repeat(width)));
+            assert_eq!(
+                lines.last().unwrap(),
+                &String::new(),
+                "trailing spacer must remain uncolored"
+            );
+            let plain: Vec<_> = lines[..lines.len() - 1]
+                .iter()
+                .map(|line| strip_ansi(line))
+                .collect();
             assert_eq!(plain[1].trim_end(), "  $ echo hi");
             assert!(plain.iter().any(|line| line.trim_end() == "  hi"));
-            for (styled, text) in lines[1..].iter().zip(&plain) {
+            for (styled, text) in lines[..lines.len() - 1].iter().zip(&plain) {
                 assert!(styled.starts_with(&bg.to_bg()));
                 assert_eq!(crate::utils::visible_width(text), width);
                 assert!(text.starts_with("  ") && text.ends_with("  "), "{text:?}");
@@ -547,9 +576,13 @@ mod tests {
         c.set_complete(Some(0), false, BashTruncation::default());
         let lines = c.render_panel(40, BashStatus::Complete, &theme);
         let blank = theme.colors.tool_success_bg.bg(&" ".repeat(40));
-        assert_eq!(lines[1..3], [blank.clone(), blank.clone()]);
-        assert_eq!(lines[lines.len() - 2..], [blank.clone(), blank]);
-        assert_eq!(strip_ansi(&lines[3]).trim_end(), "    $ echo hi");
+        assert_eq!(lines[0..2], [blank.clone(), blank.clone()]);
+        assert_eq!(
+            lines[lines.len() - 3..],
+            [blank.clone(), blank, String::new()],
+            "panel ends with padding + trailing spacer"
+        );
+        assert_eq!(strip_ansi(&lines[2]).trim_end(), "    $ echo hi");
         assert!(lines
             .iter()
             .any(|line| strip_ansi(line).trim_end() == "    hi"));
@@ -557,8 +590,8 @@ mod tests {
         theme.spacing.tool_panel_padding_x = 0;
         theme.spacing.tool_panel_padding_y = 0;
         let lines = c.render_panel(40, BashStatus::Complete, &theme);
-        assert_eq!(strip_ansi(&lines[1]).trim_end(), "$ echo hi");
-        assert_eq!(strip_ansi(lines.last().unwrap()).trim_end(), "hi");
+        assert_eq!(strip_ansi(&lines[0]).trim_end(), "$ echo hi");
+        assert_eq!(strip_ansi(&lines[lines.len() - 2]).trim_end(), "hi");
     }
 
     #[test]
@@ -572,7 +605,7 @@ mod tests {
         for expanded in [false, true] {
             c.set_expanded(expanded);
             let lines = c.render_panel(12, BashStatus::Complete, &theme);
-            let output_rows = &lines[3..lines.len() - 1];
+            let output_rows = &lines[2..lines.len() - 2];
             let reconstructed: String = output_rows
                 .iter()
                 .map(|line| strip_ansi(line).trim().to_string())

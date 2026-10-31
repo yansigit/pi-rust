@@ -5,11 +5,318 @@ All notable changes to the `rpi-*` crate family are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The nine published crates share one workspace version and are released together
+The rpi-* crates share one workspace version and are released together
 in dependency order. `git tag vX.Y.Z` marks the commit that a release was cut
 from; the matching [GitHub Release](../../releases) carries the same notes.
 
 ## [Unreleased]
+
+## [0.15.0](https://github.com/bigfish1913/pi-rust/compare/v0.14.0...v0.15.0) - 2026-10-30
+
+### Added
+
+- *(extensions)* carry recorded tool results through plugin streams
+- *(ai)* add a recorded field to tool calls and stream frames
+- *(extensions)* advertise recorded tool calls in provider requests
+
+### Fixed
+
+- *(cli)* render each autocomplete row as exactly one screen line
+- *(cli)* compare the expiry too before writing a refresh back
+- *(prompt)* align tool snippets and guidelines with Pi
+- *(rpc)* [**breaking**] default to compact message deltas with migrated consumers
+- *(cli)* drop a refresh result when login or logout changed the credential
+- *(cli)* renew OAuth logins per provider, not under one global lock
+- *(runtime)* refresh stored OAuth logins before provider requests
+- *(agent)* never execute recorded tool calls
+- *(plugin-sdk)* refuse recorded calls on hosts that cannot honor them
+- *(extensions)* keep plugin call ids out of the fail-closed error text
+- *(extensions)* keep a streamed recording through the final message
+- *(tui)* drop the selected row's trailing space
+- *(tui)* size the settings label column to its labels
+- *(tui)* render overlays inside the frame's cell geometry scope
+- *(tui)* scope image geometry to the frame's polled cells
+- *(tui)* give each renderer its own polled cell geometry
+- *(tui)* poll cell geometry on the main screen and harden the probes
+- *(tui)* key image caches on cell geometry, not just width
+- *(tui)* size inline images from the terminal's real cell size
+
+### Other
+
+- *(extensions)* define recordedToolCalls as the highest decoded version
+- *(extensions)* document the recorded capability and the final out check
+- Merge branch 'main' into upstream/recorded-tool-calls
+- Merge branch 'main' into upstream/oauth-auto-refresh
+- Merge branch 'main' into fix/autocomplete-panel-flicker
+- Merge branch 'main' into upstream/oauth-auto-refresh
+- *(ai)* cover unversioned OpenAI proxy prefixes
+- *(ai)* frames written before the recorded field reduce to an ordinary call
+- *(agent)* a recorded call never reaches after_tool_call
+- *(agent)* an explicit retry of a recorded call runs once
+- *(extensions)* collapse two nested if-lets in the recorded-call tests
+- add the #183 review's provider-to-agent and JSONL recovery checks
+- *(extensions)* a toolcall_end without a recording stays an ordinary call
+- *(tui)* probe renderer-local cell geometry isolation
+
+### Changed
+
+- **Breaking (RPC wire format):** `--mode rpc` now defaults to `compact-deltas`. Text, thinking, and tool-call delta updates omit the cumulative `message` and `assistantMessageEvent.partial` snapshots while retaining nested delta fields and the top-level `eventType`, `contentIndex`, and `delta` mirrors. `ready.semantics.messageUpdates` identifies the selected mode; a missing field means legacy `snapshot`. Upgrade remote clients and protocol adapters before deploying the new host. `--rpc-message-updates=snapshot` is an explicit, temporary migration fallback, not the long-term default. Structural events, authoritative final messages, settlement and canonical branch-query contracts, plugin serialization, and `--mode json` are unchanged. This is not a fully snapshot-free or lossless replay protocol. ([#171](https://github.com/bigfish1913/pi-rust/issues/171))
+
+### Fixed
+
+- Remote TUI streaming now accumulates indexed compact text, thinking, and tool-argument updates and reconciles structural/final snapshots without appending deltas twice; older snapshot senders remain supported. Compact tool deltas include the provider's currently known `id`/`toolName` so identity discovered after start is not lost.
+- OpenAI Responses function-call deltas include any initial raw argument prefix exactly once on their first delta, matching the existing custom-tool behavior. This provider correctness fix applies to all event consumers; final message and snapshot contents are unchanged.
+- OpenAI Completions and Responses flush batched text/thinking before crossing channel/structural boundaries, preventing a snapshot from exposing content whose later compact delta would append it again. Real-provider offline SSE regressions compare both wire modes at every UI update.
+
+## [0.14.0](https://github.com/bigfish1913/pi-rust/compare/v0.13.0...v0.14.0) - 2026-10-30
+
+### Added
+
+- publish session entry commit events
+
+### Fixed
+
+- *(rpc)* bound branch queries and preserve type identities
+- *(tui)* keep the editor's wrap width independent of the caret row ([#165](https://github.com/bigfish1913/pi-rust/pull/165))
+- *(cli)* honor thinkingBudgets from settings.json ([#169](https://github.com/bigfish1913/pi-rust/pull/169))
+- *(rpc)* support multi-type branch filters ([#159](https://github.com/bigfish1913/pi-rust/pull/159))
+- *(rpc)* filter session branch reads ([#150](https://github.com/bigfish1913/pi-rust/pull/150))
+- *(rpc)* drain commit events and notify partial batch commits
+- *(rpc)* publish session commit events for atomic entry writes
+- *(ai)* give xhigh and max their own thinking budgets ([#170](https://github.com/bigfish1913/pi-rust/pull/170))
+- *(config)* keep compat on anthropic-messages models from models.json ([#168](https://github.com/bigfish1913/pi-rust/pull/168))
+
+### Other
+
+- bring preview canonical branch queries into main
+- *(rpc)* [**breaking**] require canonical customTypes branch queries ([#160](https://github.com/bigfish1913/pi-rust/pull/160))
+- Merge remote-tracking branch 'origin/main' into HEAD
+- Merge branch 'main' into preview
+- cover RPC session commit publication
+- centralize durable business state
+
+### Changed
+
+- **Breaking (rpc/extensions):** `get_session_branch` / `GetSessionBranch` now require an explicit non-empty `customTypes` array, support exclusive `afterSeq`, order and global limit, and reject unfiltered/legacy query arguments. Upgrade hosts and clients together; require `filtered: true` in replies because older ABI-compatible hosts may ignore filters. Custom-type identifiers match exactly, and bounded multi-type queries limit each storage read before merging. The append/write protocol and binary plugin ABI are unchanged.
+
+### Fixed
+
+- *(tui)* keep the editor's wrap width independent of the caret's row: a row used to wrap one column earlier while the caret sat on it, so the same draft reflowed (and the input box grew a line) once the caret moved away
+
+## [0.13.0](https://github.com/bigfish1913/pi-rust/compare/v0.12.0...v0.13.0) - 2026-10-29
+
+### Fixed
+
+- *(tui)* keep Windows mouse selections aligned with painted frames ([#166](https://github.com/bigfish1913/pi-rust/pull/166))
+- *(bash)* enforce a default tool execution timeout ([#164](https://github.com/bigfish1913/pi-rust/pull/164))
+- *(cli)* say when the terminal cannot render inline images ([#161](https://github.com/bigfish1913/pi-rust/pull/161))
+- *(cli)* classify session storage failures
+- *(cli)* stop footer counters freezing after dropped events
+- *(harness)* surface session write failures to the user ([#136](https://github.com/bigfish1913/pi-rust/pull/136))
+- *(ai)* redact credentials from stream and image option debug output ([#154](https://github.com/bigfish1913/pi-rust/pull/154))
+- *(bash)* read output while the command runs ([#163](https://github.com/bigfish1913/pi-rust/pull/163))
+- *(tui)* crop kitty images to the viewport ([#158](https://github.com/bigfish1913/pi-rust/pull/158))
+
+## [0.12.0](https://github.com/bigfish1913/pi-rust/compare/v0.11.1...v0.12.0) - 2026-10-28
+
+### Fixed
+
+- *(cli)* return to a restored session's working directory ([#141](https://github.com/bigfish1913/pi-rust/pull/141))
+- *(tui)* mark kitty image chunks as continued ([#145](https://github.com/bigfish1913/pi-rust/pull/145))
+
+### Changed
+
+- *(cli)* restoring a session (`-c`, `-r`, `--session`, an existing `--session-id`) now runs in the session's recorded working directory instead of the launch directory, and announces the switch (naming both directories) because tools, context files, and extensions follow it; when that directory no longer exists the launch directory is kept and the fallback is announced. Project trust is re-resolved against the adopted directory, so an untrusted project's settings, skills, and context files stay off until allowed
+
+### Fixed
+
+- *(tui)* switching to a session from another directory says where the session belongs instead of implying the tools moved
+
+## [0.11.1](https://github.com/bigfish1913/pi-rust/compare/v0.11.0...v0.11.1) - 2026-10-28
+
+### Added
+
+- *(rpc)* publish session entry commit invalidations ([#147](https://github.com/bigfish1913/pi-rust/pull/147))
+
+### Fixed
+
+- *(cli)* resolve CLI updates from GitHub releases ([#146](https://github.com/bigfish1913/pi-rust/pull/146))
+
+### Other
+
+- *(agent)* cover provider cache invalidation ([#148](https://github.com/bigfish1913/pi-rust/pull/148))
+
+## [0.11.0](https://github.com/bigfish1913/pi-rust/compare/v0.10.1...v0.11.0) - 2026-10-27
+
+### Added
+
+- *(rpc)* expose registered extension commands
+
+### Fixed
+
+- *(harness)* let the host wait for a session's durable writes
+- *(cli)* take the highlighted slash completion on Enter
+- *(prompt)* state each guideline once
+- *(harness)* run requests carry the session id, so providers can key caching on it
+- *(openai-responses)* send the session id as prompt_cache_key
+- *(tui)* keep a rewritten Shift+Enter from being dropped
+
+### Other
+
+- rustfmt the new prompt test
+- make stable release preparation manual
+
+## [0.10.1](https://github.com/bigfish1913/pi-rust/compare/v0.10.0...v0.10.1) - 2026-10-27
+
+### Added
+
+- *(tui)* expose skill activation and slash invocation
+
+### Fixed
+
+- *(cli)* browse into a directory when a path prefix ends at a separator
+- *(cli)* keep the path directory and apply one Enter snapshot
+- *(cli)* complete the whole command token on Enter
+- *(cli)* classify Windows paste before Enter completion and stamp explicit selection
+- *(cli)* resolve slash completion on Enter before submitting the prefix
+- *(session)* --fork takes a session file outside the session directory
+
+### Other
+
+- Merge branch 'main' into fix/enter-accept-completion
+- Merge branch 'main' into feat/tui-skill-invocation
+- *(cli)* compare the completed path reference by normalized separator
+- Merge branch 'main' into fix/fork-session-file
+
+## [0.10.0](https://github.com/bigfish1913/pi-rust/compare/v0.9.6...v0.10.0) - 2026-10-27
+
+### Added
+
+- add preview release channel
+- *(anthropic)* add per-phase build diagnostics and refactor clamping
+- *(harness)* add optional compressed frame sidecars
+- *(harness)* add opt-in frame sidecar storage
+- *(harness)* add optional frame sidecar codec
+
+### Fixed
+
+- restore RPC compatibility and remove perf artifacts
+- *(btw)* align side chat footer
+- *(btw)* animate side chat progress
+- *(session)* preserve durable commits and validate batched operations
+
+### Other
+
+- sync stable 0.9.6 into reviewed preview
+- sync latest stable 0.9.4 before preview build
+- integrate reviewed features-1025 fixes into preview
+- Merge remote-tracking branch 'origin/main' into preview
+- raise minimum supported Rust to 1.88
+- 更新文档开篇说明与来源许可章节
+- 补充 rpi-extcore 复用边界并更新 SDK 版本
+- *(harness)* batch durable recovery mutations
+- optimize long Anthropic request preparation
+- *(agent)* cache incrementally converted provider messages
+- *(agent)* preallocate provider message conversions
+- *(session)* 优化上下文构建与帧写入
+- *(harness)* await persisted retry frames before crash recovery
+- *(harness)* move JSONL append buffers without cloning
+- *(harness)* encode JSONL batches into one buffer
+- *(harness)* preallocate batched JSONL appends
+- *(harness)* remove unused frame sidecar prototype
+- *(harness)* keep sidecar codec out of core storage
+- *(harness)* deduplicate frame sidecar payloads
+- *(harness)* guard extension entries around frames
+- *(harness)* measure compressed frame sidecars
+- *(harness)* audit durable record sizes
+
+### Changed
+
+- Raise the minimum supported Rust version to 1.88 and check Linux and Windows.
+- Reduce repeated request preparation, context projection and stream-frame copies.
+
+### Fixed
+
+- Keep JSONL durable appends and reducer commits consistent after cancellation.
+- Reject conflicting JSONL sequence numbers without deleting source records.
+- Preserve SQLite concurrent writes and restore state after persistence failure.
+- Validate operation starts across batched record/message writes.
+
+## [0.9.6](https://github.com/bigfish1913/pi-rust/compare/v0.9.5...v0.9.6) - 2026-10-27
+
+### Fixed
+
+- *(cli)* preserve the two-argument default system prompt API for existing library callers
+- *(prompt)* list only the active tools and drop guidelines for absent ones ([#119](https://github.com/bigfish1913/pi-rust/pull/119))
+- *(edit)* the display diff shows replaced lines old then new ([#121](https://github.com/bigfish1913/pi-rust/pull/121))
+
+## [0.9.5](https://github.com/bigfish1913/pi-rust/compare/v0.9.4...v0.9.5) - 2026-10-27
+
+### Fixed
+
+- *(tui)* recognize Shift+Enter on Windows via native key state ([#108](https://github.com/bigfish1913/pi-rust/pull/108))
+
+## [0.9.4](https://github.com/bigfish1913/pi-rust/compare/v0.9.3...v0.9.4) - 2026-10-26
+
+### Fixed
+
+- *(cli)* keep dev build output out of the TUI
+
+## [0.9.3](https://github.com/bigfish1913/pi-rust/compare/v0.9.2...v0.9.3) - 2026-10-26
+
+### Added
+
+- *(tools)* add truncate_file to the FileSystem trait
+
+### Fixed
+
+- *(tui)* give every transcript block the same trailing spacer
+- *(tui)* highlight fullscreen mouse selections and extract at the live width
+- *(harness)* cut back a failed append before the session can retry
+
+### Other
+
+- keep the workspace buildable on the declared Rust 1.78 MSRV ([#112](https://github.com/bigfish1913/pi-rust/pull/112))
+
+## [0.9.2](https://github.com/bigfish1913/pi-rust/compare/v0.9.1...v0.9.2) - 2026-10-25
+
+### Fixed
+
+- *(cli)* restore the session's model and footer usage on switch ([#104](https://github.com/bigfish1913/pi-rust/pull/104))
+
+## [0.9.1](https://github.com/bigfish1913/pi-rust/compare/v0.9.0...v0.9.1) - 2026-10-25
+
+### Fixed
+
+- *(cli)* stop buffering IME commits as pastes on Windows ([#91](https://github.com/bigfish1913/pi-rust/pull/91))
+
+## [0.9.0](https://github.com/bigfish1913/pi-rust/compare/v0.8.5...v0.9.0) - 2026-10-25
+
+### Added
+
+- *(runtime)* extract reusable runtime and optimize execution
+- add optional binary serialization benchmark
+- add zero-copy archived payloads
+
+### Fixed
+
+- *(release)* sync workspace lock and embedded docs
+- *(cli)* keep temporary model switches out of settings.json
+
+### Other
+
+- Merge origin/main into feature-0.9.0
+- Merge branch 'main' into fix/model-switch-not-persisted
+- Merge remote-tracking branch 'origin/main' into feature-0.9.0
+- reduce repeated context and message copies
+- remove zero-copy from plugin sdk
+- compare zero-copy with json and cbor
+
+## [0.8.5](https://github.com/bigfish1913/pi-rust/compare/v0.8.4...v0.8.5) - 2026-10-24
+
+### Fixed
+
+- *(cli)* rebuild the banner and start a real session on /new ([#98](https://github.com/bigfish1913/pi-rust/pull/98))
 
 ## [0.8.4](https://github.com/bigfish1913/pi-rust/compare/v0.8.3...v0.8.4) - 2026-10-23
 

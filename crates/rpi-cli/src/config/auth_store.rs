@@ -180,6 +180,34 @@ pub(super) fn upsert(
     store.commit()
 }
 
+/// Upserts `value` only when `unchanged` accepts the stored entry. The read and
+/// compare happen under the file lock, so another process cannot interleave.
+pub(super) fn replace_if(
+    path: PathBuf,
+    provider: &str,
+    unchanged: impl FnOnce(Option<&super::Credential>) -> bool,
+    value: &super::Credential,
+) -> Result<bool, ConfigError> {
+    let mut store = LockedStore::acquire(path.clone(), &CancellationToken::new())?;
+    let current = store
+        .values
+        .get(provider)
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|source| ConfigError::Json {
+            path: path.clone(),
+            source,
+        })?;
+    if !unchanged(current.as_ref()) {
+        return Ok(false);
+    }
+    let value = serde_json::to_value(value).map_err(|source| ConfigError::Json { path, source })?;
+    store.values.insert(provider.into(), value);
+    store.commit()?;
+    Ok(true)
+}
+
 pub(super) fn delete(path: PathBuf, provider: &str) -> Result<bool, ConfigError> {
     let mut store = LockedStore::acquire(path, &CancellationToken::new())?;
     if store.values.remove(provider).is_none() {

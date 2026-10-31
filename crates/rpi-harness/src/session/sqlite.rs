@@ -222,6 +222,14 @@ impl SessionStorage for SqliteSessionStorage {
     ) -> SessionResult<Vec<Entry>> {
         self.read(|inner| immediate(inner.find_entries_on_branch(query, bounds, start)))
     }
+    async fn context_on_branch(
+        &self,
+        bounds: &BranchBounds,
+        start: &str,
+    ) -> SessionResult<crate::session::context::SessionContext> {
+        self.read(|inner| immediate(SessionStorage::context_on_branch(inner, bounds, start)))
+    }
+
     async fn find_records(&self, query: &RecordQuery) -> SessionResult<Vec<LaneRecord>> {
         self.read(|inner| immediate(inner.find_records(query)))
     }
@@ -280,6 +288,8 @@ impl SqliteSessionRepo {
         }
         let conn = Connection::open(&path)
             .map_err(|e| SessionError::storage(format!("open SQLite database: {e}")))?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|e| SessionError::storage(format!("configure SQLite busy timeout: {e}")))?;
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = FULL;
@@ -449,7 +459,7 @@ impl SessionRepo for SqliteSessionRepo {
 mod tests {
     use super::*;
     use crate::session::memory::{CounterIdGenerator, FakeClock};
-    use crate::session::types::{EntryQuery, ForkOptions, ProvisionedKind};
+    use crate::session::types::{EntryOrder, EntryQuery, ForkOptions, ProvisionedKind};
     use rpi_agent::message::AgentMessage;
 
     fn note(id: impl Into<String>) -> ProvisionedEntry {
@@ -566,6 +576,64 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn context_projection_refreshes_and_matches_branch_query() {
+        let (repo, _dir) = repo();
+        let first = repo
+            .create(&SessionCreateOptions {
+                id: Some("context".into()),
+                parent_session_id: None,
+                metadata: None,
+            })
+            .await
+            .unwrap();
+        first
+            .append_entry(
+                ProvisionedEntry {
+                    id: "m1".into(),
+                    kind: ProvisionedKind::Message {
+                        message: AgentMessage::from(rpi_ai::types::UserMessage::new("one", 1)),
+                        terminate: None,
+                    },
+                },
+                "main",
+            )
+            .await
+            .unwrap();
+        let second = repo.open(&first.metadata()).await.unwrap();
+        second
+            .append_entry(
+                ProvisionedEntry {
+                    id: "m2".into(),
+                    kind: ProvisionedKind::Message {
+                        message: AgentMessage::from(rpi_ai::types::UserMessage::new("two", 2)),
+                        terminate: None,
+                    },
+                },
+                "main",
+            )
+            .await
+            .unwrap();
+        let actual = first
+            .context_on_branch(&BranchBounds::default(), "m2")
+            .await
+            .unwrap();
+        let path = first
+            .find_entries_on_branch(
+                &EntryQuery {
+                    order: Some(EntryOrder::OldestFirst),
+                    ..Default::default()
+                },
+                &BranchBounds::default(),
+                "m2",
+            )
+            .await
+            .unwrap();
+        let expected = crate::session::context::build_session_context(&path, &Default::default());
+        assert_eq!(actual.messages, expected.messages);
+        assert_eq!(actual.messages.len(), 2);
+    }
+
+    #[tokio::test]
     async fn round_trip_append_and_fork() {
         let (repo, _dir) = repo();
         let session = repo
@@ -666,5 +734,127 @@ mod tests {
         .await
         .unwrap();
         assert!(repo.list().await.unwrap().is_empty());
+    }
+
+    #[derive(Default)]
+    struct ReviewGatedClock {
+        armed: std::sync::atomic::AtomicBool,
+        reached: std::sync::Mutex<usize>,
+        changed: std::sync::Condvar,
+    }
+    impl Clock for ReviewGatedClock {
+        fn now_ms(&self) -> i64 {
+            if self.armed.load(std::sync::atomic::Ordering::SeqCst) {
+                let mut reached = self.reached.lock().unwrap();
+                *reached += 1;
+                self.changed.notify_all();
+                if *reached < 2 {
+                    // A serialized implementation may hold its transaction while
+                    // stamping, so bound this gate instead of deadlocking it.
+                    let _ = self
+                        .changed
+                        .wait_timeout_while(reached, std::time::Duration::from_secs(2), |count| {
+                            *count < 2
+                        })
+                        .unwrap();
+                }
+            }
+            1
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn review_sqlite_two_handles_must_preserve_both_successful_appends() {
+        let dir = tempfile::tempdir().unwrap();
+        let clock = Arc::new(ReviewGatedClock::default());
+        let repo = SqliteSessionRepo::with_clock_ids(
+            dir.path().join("review.sqlite"),
+            clock.clone(),
+            Arc::new(CounterIdGenerator::new()),
+        )
+        .unwrap();
+        let first = repo
+            .create(&SessionCreateOptions {
+                id: Some("review".into()),
+                parent_session_id: None,
+                metadata: None,
+            })
+            .await
+            .unwrap();
+        let second = repo.open(&first.metadata()).await.unwrap();
+        let metadata = first.metadata();
+        clock.armed.store(true, std::sync::atomic::Ordering::SeqCst);
+        let append = |storage: SqliteSessionStorage, id: &'static str| {
+            tokio::spawn(async move {
+                storage
+                    .append_entry(
+                        ProvisionedEntry {
+                            id: id.into(),
+                            kind: ProvisionedKind::Message {
+                                message: AgentMessage::from(rpi_ai::types::UserMessage::new(id, 0)),
+                                terminate: None,
+                            },
+                        },
+                        "main",
+                    )
+                    .await
+                    .unwrap()
+            })
+        };
+        let left = append(first, "writer-one");
+        let right = append(second, "writer-two");
+        let (a, b) = tokio::join!(left, right);
+        let (a, b) = (a.unwrap(), b.unwrap());
+        clock
+            .armed
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        let reloaded = repo.open(&metadata).await.unwrap();
+        let all = reloaded.find_entries(&EntryQuery::default()).await.unwrap();
+        eprintln!(
+            "review SQLite concurrent handles: successful_seqs=({}, {}), reopened_entry_ids={:?}",
+            a.seq(),
+            b.seq(),
+            all.iter().map(Entry::id).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            all.len(),
+            2,
+            "both appends returned success, but one whole-state snapshot overwrote the other"
+        );
+    }
+
+    #[tokio::test]
+    async fn review_sqlite_failed_persist_rolls_back_memory_and_disk() {
+        let (repo, _dir) = repo();
+        let session = repo
+            .create(&SessionCreateOptions {
+                id: Some("rollback".into()),
+                parent_session_id: None,
+                metadata: None,
+            })
+            .await
+            .unwrap();
+        session
+            .db
+            .lock()
+            .unwrap()
+            .execute_batch("CREATE TRIGGER reject_session_update BEFORE UPDATE ON sessions BEGIN SELECT RAISE(ABORT, 'review rejection'); END;")
+            .unwrap();
+        let result = session
+            .append_entry(
+                ProvisionedEntry {
+                    id: "rejected".into(),
+                    kind: ProvisionedKind::Message {
+                        message: AgentMessage::from(rpi_ai::types::UserMessage::new("rejected", 1)),
+                        terminate: None,
+                    },
+                },
+                "main",
+            )
+            .await;
+        assert!(result.is_err());
+        assert!(session.get_entry("rejected").await.unwrap().is_none());
+        let reopened = repo.open(&session.metadata()).await.unwrap();
+        assert!(reopened.get_entry("rejected").await.unwrap().is_none());
     }
 }

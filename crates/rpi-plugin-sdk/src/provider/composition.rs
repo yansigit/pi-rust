@@ -497,6 +497,7 @@ mod tests {
                 register_streaming_provider: None,
                 register_tool_with_wake: None,
                 register_plugin_lifecycle: None,
+                register_tool_prompt: None,
                 register_provider_auth: None,
                 register_credential_store: None,
                 register_provider_wrapper: None,

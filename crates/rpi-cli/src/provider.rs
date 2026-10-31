@@ -98,6 +98,33 @@ pub(crate) fn native_auth_bindings(
     Ok(factories.with_native_auth_config(&config).auth)
 }
 
+/// Environment and `!command` values for the shared `rpi_runtime` config
+/// helpers (models.json parsing, credential resolution, header expansion).
+pub(crate) struct CliValues;
+impl rpi_runtime::ValueSource for CliValues {
+    fn env(&self, name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
+    fn command(&self, command: &str, cached: bool) -> Option<String> {
+        if cached {
+            config::resolve_command(command)
+        } else {
+            config::resolve_command_uncached(command)
+        }
+    }
+}
+
+pub(crate) fn declaration(
+    manifest: &rpi_extensions::ProviderManifest,
+) -> rpi_runtime::ProviderDeclaration {
+    rpi_runtime::ProviderDeclaration {
+        id: manifest.id.clone(),
+        models: manifest.models.clone(),
+        api_key_env: manifest.api_key_env.clone(),
+        requires_auth: manifest.requires_auth,
+    }
+}
+
 use crate::args::parse_thinking_level;
 #[cfg(test)]
 use crate::config::Credential;
@@ -213,6 +240,8 @@ pub enum ResolveError {
     NoApiKey { hint: &'static str },
     #[error("Could not read config: {0}")]
     Config(#[from] config::ConfigError),
+    #[error("Invalid provider HTTP/proxy configuration")]
+    HttpConfiguration,
 }
 
 /// Resolve the provider + model + thinking level from the CLI flags + env +
@@ -227,17 +256,79 @@ pub enum ResolveError {
 /// Build the provider HTTP client honoring system proxy settings and the
 /// `httpIdleTimeout` setting. Uses the model's own `base_url` when present (so
 /// `NO_PROXY` matches the real host), else `default_base_url`.
+fn proxy_env() -> std::collections::HashMap<String, String> {
+    // Explicit entries prevent proxy lookup from falling back to process env.
+    [
+        "http_proxy",
+        "https_proxy",
+        "all_proxy",
+        "no_proxy",
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "NO_PROXY",
+    ]
+    .into_iter()
+    .map(|name| {
+        let value = std::env::var(name)
+            .or_else(|_| std::env::var(name.to_ascii_uppercase()))
+            .unwrap_or_default();
+        (name.to_string(), value)
+    })
+    .collect()
+}
+
+/// Validate proxy settings and every configured endpoint before creating a
+/// usable provider. Error text must never include proxy URLs, which can carry
+/// usernames and passwords.
+fn validate_http_configuration(models: &[Model]) -> Result<(), ResolveError> {
+    let env = proxy_env();
+    // A redirect can leave the configured NO_PROXY hosts. Validate both proxy
+    // routes independently of those hosts, unless every URL is explicitly
+    // bypassed. Callback errors must not silently become direct connections.
+    let bypass_all = env["no_proxy"]
+        .split([',', ' ', '\t', '\n'])
+        .any(|host| host == "*");
+    if !bypass_all {
+        let mut policy = env.clone();
+        policy.insert("no_proxy".into(), String::new());
+        for target in [
+            "http://proxy-validation.invalid",
+            "https://proxy-validation.invalid",
+        ] {
+            rpi_ai::http::resolve_http_proxy_url_for_target(target, Some(&policy))
+                .map_err(|_| ResolveError::HttpConfiguration)?;
+        }
+    }
+    for model in models.iter().filter(|model| !model.base_url.is_empty()) {
+        rpi_ai::http::resolve_http_proxy_url_for_target(&model.base_url, Some(&env))
+            .map_err(|_| ResolveError::HttpConfiguration)?;
+    }
+    Ok(())
+}
+
+/// A client whose proxy routing uses each request URL, including NO_PROXY and
+/// scheme-specific proxy settings. [`validate_http_configuration`] runs first.
 fn provider_http_client(
-    models: &[Model],
-    default_base_url: &str,
+    _models: &[Model],
+    _default_base_url: &str,
     settings: &settings::Settings,
 ) -> reqwest::Client {
-    let base_url = models
-        .iter()
-        .map(|m| m.base_url.as_str())
-        .find(|u| !u.is_empty())
-        .unwrap_or(default_base_url);
-    rpi_ai::http::build_client(base_url, settings.http_idle_timeout_ms(), None)
+    let env = proxy_env();
+    // Disable reqwest's own implicit system proxy discovery as well.
+    let builder = reqwest::Client::builder()
+        .no_proxy()
+        .proxy(reqwest::Proxy::custom(move |url| {
+            rpi_ai::http::resolve_http_proxy_url_for_target(url.as_str(), Some(&env))
+                .ok()
+                .flatten()
+        }));
+    let timeout = settings
+        .http_idle_timeout_ms()
+        .unwrap_or(rpi_ai::http::DEFAULT_HTTP_IDLE_TIMEOUT_MS);
+    builder
+        .pool_idle_timeout((timeout > 0).then(|| std::time::Duration::from_millis(timeout as u64)))
+        .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 }
 
@@ -350,13 +441,20 @@ fn resolve_with_factories(
         Err(error) => return Err(error.into()),
     };
     let (anthropic_credentials, mut openai_credentials) = if auth_error.is_none() {
+        let credential_store = factories.refreshable_view(&auth_store);
         (
-            resolve_anthropic_credentials(&models_cfg, &auth_store, &factories.manifests, |id| {
-                factories.auth.contains_key(id)
-            }),
-            resolve_openai_credentials(&models_cfg, &auth_store, &factories.manifests, |id| {
-                factories.auth.contains_key(id)
-            }),
+            resolve_anthropic_credentials(
+                &models_cfg,
+                &credential_store,
+                &factories.manifests,
+                |id| factories.auth.contains_key(id),
+            ),
+            resolve_openai_credentials(
+                &models_cfg,
+                &credential_store,
+                &factories.manifests,
+                |id| factories.auth.contains_key(id),
+            ),
         )
     } else {
         // A failed store read must not execute unrelated credential commands.
@@ -668,9 +766,10 @@ fn resolve_with_factories(
         &canonical_catalog,
         selected_anthropic_credential.as_ref(),
         selected_openai_key.as_deref(),
+        cli_api_key.is_none().then_some(&auth_store),
         &settings,
         factories,
-    );
+    )?;
 
     // Build runtimes for every OTHER authenticated provider so the harness can
     // hot-switch providers by `model.provider` (its lazy resolve matches by
@@ -730,9 +829,10 @@ fn resolve_with_factories(
                 &canonical_catalog,
                 anth.as_ref(),
                 openai_key.as_deref(),
+                Some(&auth_store),
                 &settings,
                 factories,
-            );
+            )?;
             providers.push(runtime);
         }
     }
@@ -775,6 +875,7 @@ fn resolve_with_factories(
 /// Build one provider runtime from a pre-computed credential. Shared by
 /// [`resolve_with_settings`] (for the selected provider) and the
 /// all-provider runtime list built for `/model` hot-switching.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn build_runtime(
     provider_id: &str,
     api: &rpi_ai::Api,
@@ -782,9 +883,10 @@ fn build_runtime(
     canonical_catalog: &[Model],
     anthropic_credential: Option<&AnthropicCredential>,
     openai_key: Option<&str>,
+    auth_store: Option<&config::AuthStore>,
     settings: &settings::Settings,
     factories: &RuntimeFactories,
-) -> (Arc<dyn Provider>, Arc<ExecutionBinding>, bool) {
+) -> Result<(Arc<dyn Provider>, Arc<ExecutionBinding>, bool), ResolveError> {
     let anonymous = factories
         .manifests
         .iter()
@@ -793,7 +895,7 @@ fn build_runtime(
         || openai_key.is_some()
         || anonymous
         || factories.auth.contains_key(provider_id);
-    let models = catalog
+    let models: Vec<Model> = catalog
         .iter()
         .filter(|model| model.api == *api && model.provider == provider_id)
         .filter(|model| provider_has_auth || model_has_header_auth(model))
@@ -805,10 +907,20 @@ fn build_runtime(
         None => openai_key.map_or(RequestAuth::None, |key| RequestAuth::ApiKey(key.into())),
     };
     let has_provider_key = matches!(auth, RequestAuth::ApiKey(_)) || anonymous;
+    validate_http_configuration(&models)?;
+    let oauth = auth_store.and_then(|store| factories.oauth_lease(provider_id, store, &auth));
     let (provider, binding) = factories
-        .configure(provider_id, api, models, canonical_catalog, auth, settings)
+        .configure(
+            provider_id,
+            api,
+            models,
+            canonical_catalog,
+            auth,
+            oauth,
+            settings,
+        )
         .expect("supported protocol or registered provider factory");
-    (provider, binding, has_provider_key)
+    Ok((provider, binding, has_provider_key))
 }
 
 /// Credential-free descriptors for the selected provider. Authentication was
@@ -885,22 +997,6 @@ pub fn catalog_with_diagnostics(
     ))
 }
 
-/// Internal configuration view used only to evaluate header-based auth policy.
-pub(crate) fn execution_catalog_with_manifests(
-    manifests: &[rpi_extensions::ProviderManifest],
-) -> Result<Vec<Model>, config::ConfigError> {
-    execution_catalog_with_diagnostics(manifests).map(|(models, _)| models)
-}
-
-fn execution_catalog_with_diagnostics(
-    manifests: &[rpi_extensions::ProviderManifest],
-) -> Result<(Vec<Model>, Vec<String>), config::ConfigError> {
-    let mut cfg = config::load_models_config()?;
-    apply_manifest_defaults(&mut cfg, manifests);
-    let mut catalog = build_catalog(&cfg, manifests, |_| true);
-    sort_catalog(&mut catalog);
-    Ok((catalog, config::model_compat_warnings(&cfg)))
-}
 fn sort_catalog(catalog: &mut [Model]) {
     catalog.sort_by(|a, b| {
         a.provider
@@ -1215,7 +1311,7 @@ fn split_model_pattern(
         model.id.eq_ignore_ascii_case(&model_id)
             && provider
                 .as_deref()
-                .map_or(true, |requested| provider_matches(model, requested, cfg))
+                .is_none_or(|requested| provider_matches(model, requested, cfg))
     });
     let thinking = if has_full_exact_match {
         None
@@ -1250,7 +1346,7 @@ fn find_model(
         .iter()
         .find(|model| {
             model.id.eq_ignore_ascii_case(pattern)
-                && provider.map_or(true, |requested| provider_matches(model, requested, cfg))
+                && provider.is_none_or(|requested| provider_matches(model, requested, cfg))
         })
         .cloned()
 }
@@ -1271,7 +1367,7 @@ fn find_cli_model(
         .iter()
         .filter(|model| {
             model.id.eq_ignore_ascii_case(pattern)
-                && provider.map_or(true, |requested| provider_matches(model, requested, cfg))
+                && provider.is_none_or(|requested| provider_matches(model, requested, cfg))
         })
         .collect();
 
@@ -1441,7 +1537,7 @@ fn model_is_authed_for_resolution(
 /// CLI layer (rpi-ai's `has_header_auth` is private to the provider module, so
 /// we mirror it here over the model's `headers` map).
 fn model_has_header_auth(m: &Model) -> bool {
-    crate::credentials::has_header_auth(m.headers.as_ref())
+    rpi_runtime::credentials::has_header_auth(m.headers.as_ref())
 }
 
 /// Choose the default model when `--model` is absent. Mirrors upstream
@@ -1538,10 +1634,6 @@ mod tests {
         let (_, warnings) = catalog_with_diagnostics(&[]).unwrap();
         assert_eq!(warnings, resolved.compat_warnings);
         assert!(catalog_all()
-            .unwrap()
-            .iter()
-            .any(|model| model.provider == "fixture"));
-        assert!(execution_catalog_with_manifests(&[])
             .unwrap()
             .iter()
             .any(|model| model.provider == "fixture"));
@@ -2559,6 +2651,33 @@ mod tests {
         );
     }
 
+    /// models.json goes through the shared `rpi_runtime` parser, so an
+    /// anthropic-messages `compat` block reaches the host-resolved model (#168).
+    #[test]
+    fn models_json_anthropic_compat_reaches_the_resolved_model() {
+        let _env = TestEnv::new();
+        std::fs::write(
+            config::models_path().unwrap(),
+            r#"{"providers":{"gateway":{"api":"anthropic-messages","baseUrl":"https://gw.example.com",
+                "apiKey":"gw-secret","models":[{"id":"adaptive","compat":{"forceAdaptiveThinking":true}}]}}}"#,
+        )
+        .unwrap();
+        let r = resolve(Some("gateway"), Some("adaptive"), None, None, None).unwrap();
+        let Some(rpi_ai::StreamingProtocolCompat::AnthropicMessages(compat)) = &r.model.compat
+        else {
+            panic!(
+                "anthropic-messages compat must reach the model: {:?}",
+                r.model.compat
+            );
+        };
+        assert_eq!(compat.force_adaptive_thinking, Some(true));
+        let bound = r.execution.request_model(&r.model);
+        assert!(matches!(
+            bound.compat,
+            Some(rpi_ai::StreamingProtocolCompat::AnthropicMessages(_))
+        ));
+    }
+
     #[test]
     fn resolved_providers_include_all_authenticated_runtimes() {
         let _env = TestEnv::new();
@@ -3088,7 +3207,7 @@ mod tests {
             .request_model(&alpha.model)
             .headers
             .as_ref()
-            .map_or(true, |headers| {
+            .is_none_or(|headers| {
                 headers
                     .keys()
                     .all(|name| !name.eq_ignore_ascii_case("x-api-key"))
@@ -3331,7 +3450,7 @@ mod tests {
             .request_model(&r.model)
             .headers
             .as_ref()
-            .map_or(true, |headers| {
+            .is_none_or(|headers| {
                 headers.keys().all(|name| {
                     !name.eq_ignore_ascii_case("x-api-key")
                         && !name.eq_ignore_ascii_case("authorization")
@@ -3472,7 +3591,7 @@ mod tests {
             .request_model(&r2.model)
             .headers
             .as_ref()
-            .map_or(true, |headers| {
+            .is_none_or(|headers| {
                 headers.keys().all(|name| {
                     !name.eq_ignore_ascii_case("x-api-key")
                         && !name.eq_ignore_ascii_case("authorization")
@@ -3653,3 +3772,7 @@ mod tests {
         assert!(catalog.iter().any(|m| m.id == DEFAULT_MODEL_ID));
     }
 }
+
+#[cfg(test)]
+#[path = "provider/tests.rs"]
+mod package_tests;

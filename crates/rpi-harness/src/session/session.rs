@@ -12,10 +12,12 @@
 //! that lane. Lane resolution goes through `get_leaf_id_for_lane`, which throws
 //! `invalid_lane` when the lane does not exist — matching TS.
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Instant;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use rpi_agent::message::AgentMessage;
@@ -26,6 +28,17 @@ use crate::session::types::{
     LogOptions, OperationStartedRecord, ProvisionedEntry, ProvisionedKind, RecordQuery,
     SessionMetadata, SessionStats, SessionStorage, SessionTree,
 };
+
+static AGENT_DIAGNOSTICS: OnceLock<bool> = OnceLock::new();
+
+fn agent_diagnostics_enabled() -> bool {
+    *AGENT_DIAGNOSTICS
+        .get_or_init(|| std::env::var_os("RPI_AGENT_DIAGNOSTICS").is_some_and(|value| value != "0"))
+}
+
+fn elapsed_ns(started: Instant) -> u64 {
+    started.elapsed().as_nanos().min(u64::MAX as u128) as u64
+}
 
 // ---------------------------------------------------------------------------
 // IdGenerator default — uuidv7. Mirrors TS `{ next: () => uuidv7() }`.
@@ -129,18 +142,37 @@ pub fn assert_json_serializable(value: &Value) -> SessionResult<()> {
 // Session — the facade. Mirrors TS `class Session`.
 // ---------------------------------------------------------------------------
 
-/// The session facade over a [`SessionStorage`] + [`IdGenerator`]. Mirrors TS
+/// Metadata published after a session entry has been committed.
+///
+/// The event is an invalidation signal only; consumers must reread the branch
+/// when they need the canonical entry data.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionEntryCommit {
+    pub entry_id: String,
+    pub entry_type: String,
+    pub custom_type: Option<String>,
+    pub lane: String,
+}
+
+/// The session facade over a [`SessionStorage`] and [`IdGenerator`]. Mirrors TS
 /// `Session<TMetadata>`. Holds shared handles (`Arc`) so it is cheaply
 /// [`Clone`] — a `view` of any lane shares the same storage + id generator.
 pub struct Session {
-    storage: Arc<RwLock<Arc<dyn SessionStorage>>>,
+    binding: Arc<RwLock<SessionBinding>>,
     id_generator: Arc<dyn IdGenerator>,
+}
+
+#[derive(Clone)]
+struct SessionBinding {
+    storage: Arc<dyn SessionStorage>,
+    volatile_progress: Option<crate::frame_progress::SharedVolatileProgress>,
+    entry_commit_publisher: Option<broadcast::Sender<SessionEntryCommit>>,
 }
 
 impl Clone for Session {
     fn clone(&self) -> Self {
         Self {
-            storage: Arc::clone(&self.storage),
+            binding: Arc::clone(&self.binding),
             id_generator: Arc::clone(&self.id_generator),
         }
     }
@@ -154,27 +186,86 @@ impl Session {
         id_generator: Option<Arc<dyn IdGenerator>>,
     ) -> Self {
         Self {
-            storage: Arc::new(RwLock::new(storage)),
+            binding: Arc::new(RwLock::new(SessionBinding {
+                storage,
+                volatile_progress: None,
+                entry_commit_publisher: None,
+            })),
             id_generator: id_generator.unwrap_or_else(|| Arc::new(DefaultIdGenerator::new())),
         }
     }
 
     /// Atomically swap the backing storage (TUI `/session` hot-switch). The
-    /// facade is a thin `Arc` pair, so every existing `Session` clone — the
+    /// facade shares its binding, so every existing `Session` clone — the
     /// harness's field, lane handles, the config snapshot — observes the new
     /// storage immediately; no harness rebuild, no field restructure. The
-    /// caller is responsible for aborting any in-flight run first. Mirrors the
+    /// Raw storage replacement clears volatile recovery; harness session switches
+    /// adopt the target's recovery state instead. The caller is responsible for
+    /// aborting any in-flight run first. Mirrors the
     /// TS `SessionManager.rebind` intent (swap the durable backing without
     /// rebuilding the harness).
     pub fn set_storage(&self, storage: Arc<dyn SessionStorage>) {
-        *self.storage.write().unwrap() = storage;
+        let publisher = self.binding.read().unwrap().entry_commit_publisher.clone();
+        *self.binding.write().unwrap() = SessionBinding {
+            storage,
+            volatile_progress: None,
+            entry_commit_publisher: publisher,
+        };
+    }
+
+    /// Install or clear the optional publisher for successful entry commits.
+    /// Subscribers receive invalidation metadata, not message contents, and
+    /// must reread the canonical branch when they need current entry data.
+    pub fn set_entry_commit_publisher(
+        &self,
+        publisher: Option<broadcast::Sender<SessionEntryCommit>>,
+    ) {
+        self.binding.write().unwrap().entry_commit_publisher = publisher;
+    }
+
+    /// Keep the harness's generator, as on the existing session-switch path.
+    pub(crate) fn pin(&self, id_generator: Arc<dyn IdGenerator>) -> Self {
+        let binding = self.binding.read().unwrap().clone();
+        Self {
+            binding: Arc::new(RwLock::new(binding)),
+            id_generator,
+        }
+    }
+
+    /// Publish the prepared target without changing the shared facade handles.
+    /// The target's cache is adopted; the old session's cache is not carried over.
+    pub(crate) fn rebind_to(&self, target: &Self) {
+        let publisher = self.binding.read().unwrap().entry_commit_publisher.clone();
+        let mut binding = target.binding.read().unwrap().clone();
+        if binding.entry_commit_publisher.is_none() {
+            binding.entry_commit_publisher = publisher;
+        }
+        *self.binding.write().unwrap() = binding;
+    }
+
+    /// Keep recovery progress as typed frames in memory, without JSON records.
+    /// Use only for a session that does not need cross-process crash recovery.
+    /// Cloned handles share progress; rebinding storage resets this mode.
+    pub fn with_volatile_progress(self) -> Self {
+        self.binding
+            .write()
+            .unwrap()
+            .volatile_progress
+            .get_or_insert_with(|| Arc::new(std::sync::Mutex::new(Default::default())));
+        self
+    }
+
+    pub(crate) fn volatile_progress(
+        &self,
+    ) -> Option<crate::frame_progress::SharedVolatileProgress> {
+        self.binding.read().unwrap().volatile_progress.clone()
     }
 
     /// A cheap owned handle to the backing storage. Releases the read lock
     /// immediately, so the returned `Arc` is safe to hold across awaits (the
     /// lock guard itself is not `Send`).
     fn storage_arc(&self) -> Arc<dyn SessionStorage> {
-        self.storage.read().unwrap().clone()
+        Arc::clone(&self.binding.read().unwrap().storage)
     }
 
     /// The shared id generator. Mirrors TS `readonly idGenerator`.
@@ -288,6 +379,39 @@ impl Session {
         Ok(entries.pop())
     }
 
+    /// Build the default hook-free provider context directly from this lane's
+    /// validated branch. Custom transforms/projectors intentionally do not use
+    /// this method; callers retain the ordinary entry-reading path for hooks.
+    pub(crate) async fn context_on_branch_for_lane(
+        &self,
+        lane: &str,
+        bounds: &BranchBounds,
+    ) -> SessionResult<crate::session::context::SessionContext> {
+        // Pin the storage Arc before either await. Resolving the leaf through
+        // `self` and then reacquiring storage could mix two session bindings.
+        let storage = self.storage_arc();
+        let start = match &bounds.start {
+            Some(id) => id.clone(),
+            None => {
+                let leaf = storage
+                    .get_lanes()
+                    .await?
+                    .into_iter()
+                    .find(|pointer| pointer.lane == lane)
+                    .ok_or_else(|| SessionError::invalid_lane(format!("Lane not found: {lane}")))?
+                    .leaf_id;
+                let Some(id) = leaf else {
+                    return Ok(crate::session::context::build_session_context(
+                        &[],
+                        &Default::default(),
+                    ));
+                };
+                id
+            }
+        };
+        storage.context_on_branch(bounds, &start).await
+    }
+
     // -- Appends (main lane) -------------------------------------------------
 
     /// `appendMessage(message)` — mint an id, commit a message entry on `main`.
@@ -379,6 +503,62 @@ impl Session {
         self.commit_record(record).await
     }
 
+    /// Append a record, an entry, and a following record in that exact order.
+    pub(crate) async fn append_record_entry_and_record(
+        &self,
+        before: LaneRecord,
+        entry: ProvisionedEntry,
+        lane: &str,
+        after: LaneRecord,
+    ) -> SessionResult<(LaneRecord, Entry, LaneRecord)> {
+        for payload in [
+            serde_json::to_value(&before),
+            serde_json::to_value(&entry),
+            serde_json::to_value(&after),
+        ] {
+            let value = payload.map_err(|e| {
+                SessionError::invalid_payload(format!("Durable payload is not serializable: {e}"))
+            })?;
+            assert_json_serializable(&value)?;
+        }
+        let storage = self.storage_arc();
+        let entry_id = entry.id.clone();
+        let was_absent = self
+            .batch_entry_was_absent(storage.as_ref(), &entry_id)
+            .await;
+        let result = storage
+            .append_record_entry_and_record(before, entry, lane, after)
+            .await;
+        self.publish_batch_commit(
+            storage.as_ref(),
+            &entry_id,
+            was_absent,
+            result.as_ref().ok().map(|(_, entry, _)| entry),
+            lane,
+        )
+        .await;
+        result
+    }
+
+    /// Append a batch of records through the active storage backend.
+    pub(crate) async fn append_records(
+        &self,
+        records: Vec<LaneRecord>,
+    ) -> SessionResult<Vec<LaneRecord>> {
+        let diagnostics = agent_diagnostics_enabled();
+        let count = records.len();
+        let started = diagnostics.then(Instant::now);
+        let result = self.storage_arc().append_records(records).await;
+        if let Some(started) = started {
+            eprintln!(
+                "RPI_SESSION_DIAGNOSTICS kind=batch records={} append_ns={}",
+                count,
+                elapsed_ns(started),
+            );
+        }
+        result
+    }
+
     // -- Record queries ------------------------------------------------------
 
     /// `findRecords(query?)`. Mirrors TS `Session.findRecords`.
@@ -400,6 +580,15 @@ impl Session {
     /// `getLog(options?)`. Mirrors TS `Session.getLog`.
     pub async fn get_log(&self, options: &LogOptions) -> SessionResult<Vec<LogItem>> {
         self.query_log(options).await
+    }
+
+    /// Wait for any in-flight durable write to settle.
+    ///
+    /// The facade forwards to the backend. Only the JSONL backend has a write
+    /// that can still be in flight when its caller returns; the others commit
+    /// inside the call, so their `drain` is the trait's default no-op.
+    pub async fn drain(&self) {
+        self.storage_arc().drain().await;
     }
 
     // -- Private helpers (mirror TS privates) --------------------------------
@@ -558,7 +747,71 @@ impl Session {
             SessionError::invalid_payload(format!("Durable payload is not serializable: {e}"))
         })?;
         assert_json_serializable(&value)?;
-        self.storage_arc().append_entry(entry, lane).await
+        let diagnostics = agent_diagnostics_enabled();
+        let entry_type = entry.type_tag();
+        let started = diagnostics.then(Instant::now);
+        let result = self.storage_arc().append_entry(entry, lane).await;
+        if let Ok(stamped) = &result {
+            self.publish_entry_commit(stamped, lane);
+        }
+        if let Some(started) = started {
+            eprintln!(
+                "RPI_SESSION_DIAGNOSTICS kind=entry entry_type={} append_ns={}",
+                entry_type,
+                elapsed_ns(started),
+            );
+        }
+        result
+    }
+
+    /// Only observers need the preflight read. Some backends use the ordered
+    /// fallback rather than an atomic transaction, so a later record can fail
+    /// after the entry has committed. Remember whether this id was absent to
+    /// avoid reporting an old entry when a duplicate-id append is refused.
+    async fn batch_entry_was_absent(&self, storage: &dyn SessionStorage, id: &str) -> bool {
+        let observed = self
+            .binding
+            .read()
+            .unwrap()
+            .entry_commit_publisher
+            .is_some();
+        observed && matches!(storage.get_entry(id).await, Ok(None))
+    }
+
+    async fn publish_batch_commit(
+        &self,
+        storage: &dyn SessionStorage,
+        id: &str,
+        was_absent: bool,
+        committed: Option<&Entry>,
+        lane: &str,
+    ) {
+        if let Some(entry) = committed {
+            self.publish_entry_commit(entry, lane);
+        } else if was_absent {
+            // Preserve the original batch error. If the backend is unreadable,
+            // do not invent a commit; a recovery read is best-effort.
+            if let Ok(Some(entry)) = storage.get_entry(id).await {
+                self.publish_entry_commit(&entry, lane);
+            }
+        }
+    }
+
+    /// Publish confirmed entry commits using storage-stamped metadata.
+    fn publish_entry_commit(&self, entry: &Entry, lane: &str) {
+        let publisher = self.binding.read().unwrap().entry_commit_publisher.clone();
+        if let Some(publisher) = publisher {
+            let custom_type = match entry {
+                Entry::Custom(custom) => Some(custom.custom_type.clone()),
+                _ => None,
+            };
+            let _ = publisher.send(SessionEntryCommit {
+                entry_id: entry.base().id.clone(),
+                entry_type: entry.base().entry_type.clone(),
+                custom_type,
+                lane: lane.to_string(),
+            });
+        }
     }
 
     /// `commitRecord(record)` — `assertJsonSerializable` then
@@ -568,7 +821,18 @@ impl Session {
             SessionError::invalid_payload(format!("Durable payload is not serializable: {e}"))
         })?;
         assert_json_serializable(&value)?;
-        self.storage_arc().append_record(record).await
+        let diagnostics = agent_diagnostics_enabled();
+        let record_type = record.record_type();
+        let started = diagnostics.then(Instant::now);
+        let result = self.storage_arc().append_record(record).await;
+        if let Some(started) = started {
+            eprintln!(
+                "RPI_SESSION_DIAGNOSTICS kind=record record_type={} append_ns={}",
+                record_type,
+                elapsed_ns(started),
+            );
+        }
+        result
     }
 }
 
@@ -730,6 +994,7 @@ mod tests {
     use crate::session::types::{EntryQuery, SessionMetadata};
     use rpi_agent::message::AgentMessage;
     use rpi_ai::types::UserMessage;
+    use std::sync::{Arc, Mutex};
 
     fn fixture_session() -> Session {
         let metadata = SessionMetadata {
@@ -749,6 +1014,169 @@ mod tests {
         AgentMessage::User(UserMessage::new(text, 1))
     }
 
+    fn notification_record(id: &str) -> LaneRecord {
+        use crate::session::types::{OperationIntent, OperationStartedRecord, RecordBase};
+        LaneRecord::OperationStarted(OperationStartedRecord {
+            base: RecordBase {
+                id: id.into(),
+                seq: 0,
+                lane: "main".into(),
+                timestamp: 0,
+            },
+            source_leaf_id: None,
+            intent: OperationIntent::Run {
+                original_prompt: vec![],
+                initial_messages: vec![],
+                system_prompt_override: None,
+                resume_data: None,
+            },
+        })
+    }
+
+    fn notification_finish() -> LaneRecord {
+        use crate::session::types::{OperationFinishedRecord, OperationOutcome, RecordBase};
+        LaneRecord::OperationFinished(OperationFinishedRecord {
+            base: RecordBase {
+                id: "finish".into(),
+                seq: 0,
+                lane: "main".into(),
+                timestamp: 0,
+            },
+            run_id: "notification-op".into(),
+            outcome: OperationOutcome::Completed,
+            error: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn rejected_duplicate_batch_does_not_notify_an_existing_entry() {
+        let session = fixture_session();
+        let entry = || ProvisionedEntry {
+            id: "existing".into(),
+            kind: ProvisionedKind::Message {
+                message: user("old"),
+                terminate: None,
+            },
+        };
+        session.append_entry(entry(), "main").await.unwrap();
+        let (publisher, mut events) = broadcast::channel(4);
+        session.set_entry_commit_publisher(Some(publisher));
+        let result = session
+            .append_record_entry_and_record(
+                notification_record("notification-op"),
+                entry(),
+                "main",
+                notification_finish(),
+            )
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(
+            events.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn partial_batch_failure_still_notifies_committed_entry() {
+        let session = fixture_session();
+        let (publisher, mut events) = broadcast::channel(4);
+        session.set_entry_commit_publisher(Some(publisher));
+        let mut after = notification_finish();
+        if let LaneRecord::OperationFinished(record) = &mut after {
+            record.base.id = "notification-op".into(); // Reject only the final record.
+        }
+        let result = session
+            .append_record_entry_and_record(
+                notification_record("notification-op"),
+                ProvisionedEntry {
+                    id: "actually-committed".into(),
+                    kind: ProvisionedKind::Message {
+                        message: user("saved"),
+                        terminate: None,
+                    },
+                },
+                "main",
+                after,
+            )
+            .await;
+        assert!(result.is_err());
+        assert!(
+            session
+                .view("main")
+                .get_entry("actually-committed")
+                .await
+                .unwrap()
+                .is_some(),
+            "default storage fallback has already committed the entry"
+        );
+        let event = events.try_recv().expect("an entry that exists must not be omitted from invalidation just because the following record failed");
+        assert_eq!(event.entry_id, "actually-committed");
+    }
+
+    #[tokio::test]
+    async fn record_entry_record_commit_publishes_stamped_metadata_once() {
+        let session = fixture_session();
+        let (publisher, mut events) = broadcast::channel(4);
+        session.set_entry_commit_publisher(Some(publisher));
+        let (_, entry, _) = session
+            .append_record_entry_and_record(
+                notification_record("notification-op"),
+                ProvisionedEntry {
+                    id: "custom-notification".into(),
+                    kind: ProvisionedKind::Custom {
+                        custom_type: "state-update".into(),
+                        data: None,
+                    },
+                },
+                "main",
+                notification_finish(),
+            )
+            .await
+            .unwrap();
+        let event = events.try_recv().unwrap();
+        assert_eq!(event.entry_id, entry.base().id);
+        assert_eq!(event.entry_type, "custom");
+        assert_eq!(event.custom_type.as_deref(), Some("state-update"));
+        assert_eq!(event.lane, "main");
+        assert!(session
+            .view("main")
+            .get_entry(&event.entry_id)
+            .await
+            .unwrap()
+            .is_some());
+        assert!(matches!(
+            events.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
+    async fn failed_atomic_entry_writes_do_not_publish_commits() {
+        let session = fixture_session();
+        let (publisher, mut events) = broadcast::channel(4);
+        session.set_entry_commit_publisher(Some(publisher));
+        let entry = ProvisionedEntry {
+            id: "refused".into(),
+            kind: ProvisionedKind::Message {
+                message: user("refused"),
+                terminate: None,
+            },
+        };
+        assert!(session
+            .append_record_entry_and_record(
+                notification_record("notification-op"),
+                entry,
+                "missing-lane",
+                notification_finish()
+            )
+            .await
+            .is_err());
+        assert!(matches!(
+            events.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
     #[tokio::test]
     async fn default_id_generator_yields_uuidv7_shaped_ids() {
         let g = DefaultIdGenerator::new();
@@ -757,6 +1185,183 @@ mod tests {
         assert_eq!(id.len(), 36);
         assert_eq!(id.chars().filter(|c| *c == '-').count(), 4);
         assert_eq!(id.as_bytes()[14], b'7');
+    }
+
+    #[tokio::test]
+    async fn committed_entry_publishes_metadata_after_success() {
+        let session = fixture_session();
+        let (publisher, mut events) = tokio::sync::broadcast::channel(4);
+        session.set_entry_commit_publisher(Some(publisher));
+
+        session
+            .append_entry(
+                ProvisionedEntry {
+                    id: "durable-entry".into(),
+                    kind: ProvisionedKind::Custom {
+                        custom_type: "durable-state".into(),
+                        data: None,
+                    },
+                },
+                "main",
+            )
+            .await
+            .unwrap();
+
+        let event = events.recv().await.unwrap();
+        assert_eq!(event.entry_id, "durable-entry");
+        assert_eq!(event.entry_type, "custom");
+        assert_eq!(event.custom_type.as_deref(), Some("durable-state"));
+        assert_eq!(event.lane, "main");
+    }
+
+    #[tokio::test]
+    async fn empty_context_matches_legacy_builder() {
+        let session = fixture_session();
+        let context = session
+            .context_on_branch_for_lane("main", &BranchBounds::default())
+            .await
+            .unwrap();
+        let expected = crate::session::context::build_session_context(
+            &[],
+            &crate::session::context::SessionContextBuildOptions::default(),
+        );
+        assert_eq!(context.messages, expected.messages);
+        assert_eq!(context.thinking_level, "off");
+        assert_eq!(context.thinking_level, expected.thinking_level);
+    }
+
+    #[derive(Clone)]
+    struct RebindingStorage {
+        inner: Arc<dyn SessionStorage>,
+        callback: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl SessionStorage for RebindingStorage {
+        fn metadata(&self) -> SessionMetadata {
+            self.inner.metadata()
+        }
+        async fn get_lanes(&self) -> SessionResult<Vec<LanePointer>> {
+            if let Some(callback) = self.callback.lock().unwrap().take() {
+                callback();
+            }
+            self.inner.get_lanes().await
+        }
+        async fn create_lane(&self, lane: &str, at: Option<&str>) -> SessionResult<()> {
+            self.inner.create_lane(lane, at).await
+        }
+        async fn move_lane(&self, lane: &str, to: Option<&str>) -> SessionResult<()> {
+            self.inner.move_lane(lane, to).await
+        }
+        async fn append_entry(&self, entry: ProvisionedEntry, lane: &str) -> SessionResult<Entry> {
+            self.inner.append_entry(entry, lane).await
+        }
+        async fn append_record(&self, record: LaneRecord) -> SessionResult<LaneRecord> {
+            self.inner.append_record(record).await
+        }
+        async fn get_entry(&self, id: &str) -> SessionResult<Option<Entry>> {
+            self.inner.get_entry(id).await
+        }
+        async fn find_entries(&self, query: &EntryQuery) -> SessionResult<Vec<Entry>> {
+            self.inner.find_entries(query).await
+        }
+        async fn find_entries_on_branch(
+            &self,
+            query: &EntryQuery,
+            bounds: &BranchBounds,
+            start: &str,
+        ) -> SessionResult<Vec<Entry>> {
+            self.inner
+                .find_entries_on_branch(query, bounds, start)
+                .await
+        }
+        async fn find_records(&self, query: &RecordQuery) -> SessionResult<Vec<LaneRecord>> {
+            self.inner.find_records(query).await
+        }
+        async fn find_open_operations(
+            &self,
+            lane: &str,
+            limit: Option<usize>,
+        ) -> SessionResult<Vec<OperationStartedRecord>> {
+            self.inner.find_open_operations(lane, limit).await
+        }
+        async fn get_log(&self, options: &LogOptions) -> SessionResult<Vec<LogItem>> {
+            self.inner.get_log(options).await
+        }
+        async fn get_name(&self) -> SessionResult<Option<String>> {
+            self.inner.get_name().await
+        }
+        async fn set_name(&self, name: Option<&str>) -> SessionResult<()> {
+            self.inner.set_name(name).await
+        }
+        async fn get_label(&self, id: &str) -> SessionResult<Option<String>> {
+            self.inner.get_label(id).await
+        }
+        async fn set_label(&self, id: &str, label: Option<&str>) -> SessionResult<()> {
+            self.inner.set_label(id, label).await
+        }
+        async fn get_stats(&self) -> SessionResult<SessionStats> {
+            self.inner.get_stats().await
+        }
+    }
+
+    #[tokio::test]
+    async fn context_rebind_during_leaf_read_keeps_one_storage_binding() {
+        let old_storage: Arc<dyn SessionStorage> = Arc::new(InMemorySessionStorage::new(
+            SessionMetadata {
+                id: "old".into(),
+                created_at: 0,
+                parent_session_id: None,
+            },
+            Arc::new(SystemClock),
+            Arc::new(DefaultIdGenerator::new()),
+        ));
+        let new_storage: Arc<dyn SessionStorage> = Arc::new(InMemorySessionStorage::new(
+            SessionMetadata {
+                id: "new".into(),
+                created_at: 0,
+                parent_session_id: None,
+            },
+            Arc::new(SystemClock),
+            Arc::new(DefaultIdGenerator::new()),
+        ));
+        let old = Session::new(old_storage.clone(), None);
+        let new = Session::new(new_storage.clone(), None);
+        old.append_message(user("old storage")).await.unwrap();
+        new.append_message(user("new storage")).await.unwrap();
+
+        let callback: Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>> = Arc::new(Mutex::new(None));
+        let wrapper: Arc<dyn SessionStorage> = Arc::new(RebindingStorage {
+            inner: old_storage,
+            callback: callback.clone(),
+        });
+        let facade = Session::new(wrapper, None);
+        let replacement = new.storage();
+        *callback.lock().unwrap() = Some(Box::new({
+            let facade = facade.clone();
+            move || facade.set_storage(replacement)
+        }));
+
+        let context = facade
+            .context_on_branch_for_lane("main", &BranchBounds::default())
+            .await
+            .unwrap();
+        assert!(matches!(
+            &context.messages[0],
+            AgentMessage::User(message)
+                if message.content == rpi_ai::types::UserContent::Text("old storage".into())
+        ));
+        let current = facade
+            .get_leaf_id()
+            .await
+            .unwrap()
+            .expect("replacement leaf");
+        assert!(matches!(
+            facade.get_entry(&current).await.unwrap().unwrap(),
+            Entry::Message(message)
+                if matches!(message.message, AgentMessage::User(ref user)
+                    if user.content == rpi_ai::types::UserContent::Text("new storage".into()))
+        ));
     }
 
     #[tokio::test]

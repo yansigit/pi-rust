@@ -351,7 +351,7 @@ impl ModelRegistry {
                 .ok_or(RegistryError::RevisionExhausted)?;
         }
         for (id, sequence) in &state.provider_sequences {
-            if selected.map_or(true, |ids| ids.contains(id)) {
+            if selected.is_none_or(|ids| ids.contains(id)) {
                 providers.insert(id.clone(), *sequence);
             }
         }
@@ -424,7 +424,7 @@ impl ModelRegistry {
         config: &crate::config::ModelsConfig,
         selected: Option<&[String]>,
     ) -> Result<(), RegistryError> {
-        let chosen = |id: &str| selected.map_or(true, |ids| ids.iter().any(|known| known == id));
+        let chosen = |id: &str| selected.is_none_or(|ids| ids.iter().any(|known| known == id));
         if !config.providers.keys().any(|id| chosen(id))
             && !state.entries.iter().any(|entry| {
                 chosen(&entry.info.id) && (entry.config_base.is_some() || entry.config_only)

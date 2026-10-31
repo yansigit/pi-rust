@@ -1458,6 +1458,9 @@ fn linked_package_is_discovered_and_unlinked_cleanly() {
             .current_dir(temp.path())
             .env("RPI_CODING_AGENT_DIR", temp.path().join("agent"))
             .env("RPI_OFFLINE", "1")
+            // package link spawns Cargo. Do not contend with the parent test
+            // runner's target lock or another workspace's build artifacts.
+            .env("CARGO_TARGET_DIR", temp.path().join("cargo-target"))
             .stdin(Stdio::null())
             .args(args)
             .output()
@@ -1791,7 +1794,7 @@ async fn loaded_native_commands_await_rpc_dialogs_without_blocking_or_starting_a
         .unwrap();
     let commands = next(&mut lines).await;
     assert_eq!(commands["id"], 1);
-    assert!(commands["data"]
+    assert!(commands["data"]["commands"]
         .as_array()
         .unwrap()
         .iter()

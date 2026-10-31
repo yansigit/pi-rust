@@ -402,6 +402,38 @@ impl FileSystem for InMemoryExecutionEnv {
         }
     }
 
+    async fn truncate_file(
+        &self,
+        path: &str,
+        len: u64,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<(), FileError> {
+        check_cancel_file(cancel, Some(path))?;
+        let mut g = self.inner.lock().await;
+        let abs = Self::resolve_key(&g.cwd, path);
+        let mtime = self.bump_clock(&mut g).await;
+        match g.files.get_mut(&abs) {
+            Some(f) if f.kind == FileKind::File => {
+                if len > f.bytes.len() as u64 {
+                    return Err(FileError::new(
+                        FileErrorCode::Invalid,
+                        "truncation cannot grow a file",
+                    )
+                    .with_path(&abs));
+                }
+                f.bytes.truncate(len as usize);
+                f.mtime_ms = mtime;
+                Ok(())
+            }
+            Some(f) if f.kind == FileKind::Directory => Err(FileError::new(
+                FileErrorCode::IsDirectory,
+                "path is a directory",
+            )
+            .with_path(&abs)),
+            _ => Err(FileError::new(FileErrorCode::NotFound, "path not found").with_path(&abs)),
+        }
+    }
+
     async fn rename_file(
         &self,
         source: &str,

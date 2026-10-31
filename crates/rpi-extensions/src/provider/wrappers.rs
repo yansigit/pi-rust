@@ -258,7 +258,7 @@ impl Continuation {
             && self
                 .caller
                 .as_ref()
-                .map_or(true, |caller| caller.validate().is_ok())
+                .is_none_or(|caller| caller.validate().is_ok())
             && !self
                 .tool_scope
                 .as_ref()

@@ -5,7 +5,7 @@ use crate::event_stream::{
     AssistantMessageEventStreamProducer,
 };
 use crate::model::{Model, StreamingProtocolCompat};
-use crate::provider::{Provider, SimpleStreamOptions};
+use crate::provider::{CacheRetention, Provider, SimpleStreamOptions};
 use crate::providers::anthropic::cost::calculate_cost;
 use crate::providers::anthropic::json_parse::parse_streaming_json;
 use crate::providers::anthropic::retry::retry_provider_request;
@@ -86,6 +86,49 @@ impl OpenAiResponsesProvider {
         }
     }
 }
+struct PreparedRequest {
+    headers: std::collections::BTreeMap<String, String>,
+    body: Value,
+    custom_tool_properties: HashMap<String, String>,
+}
+
+fn prepare_request<F>(
+    model: &Model,
+    ctx: &Context,
+    opts: &SimpleStreamOptions,
+    provider_key: &Option<String>,
+    allow_env_api_key: bool,
+    build_body: F,
+) -> Result<PreparedRequest, String>
+where
+    F: FnOnce(&Model, &Context, &SimpleStreamOptions) -> Value,
+{
+    let mut headers = std::collections::BTreeMap::new();
+    for extra in [model.headers.as_ref(), opts.headers.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        for (name, value) in extra {
+            crate::provider::set_http_header(&mut headers, name, Some(value));
+        }
+    }
+    let key = resolve_api_key(provider_key, opts, allow_env_api_key);
+    apply_api_key(&mut headers, key);
+    if !headers.keys().any(|name| {
+        name.eq_ignore_ascii_case("authorization") || name.eq_ignore_ascii_case("x-api-key")
+    }) {
+        return Err("No API key".to_string());
+    }
+
+    // Keep the original auth/header ordering: only after it succeeds do we
+    // convert history and retain the minimal tool metadata needed by SSE.
+    Ok(PreparedRequest {
+        headers,
+        body: build_body(model, ctx, opts),
+        custom_tool_properties: grammar_tool_properties(model, &ctx.tools),
+    })
+}
+
 #[async_trait]
 impl Provider for OpenAiResponsesProvider {
     fn id(&self) -> &str {
@@ -105,21 +148,15 @@ impl Provider for OpenAiResponsesProvider {
         let http = self.http.clone();
         let key = self.api_key.clone();
         let allow_env_api_key = self.allow_env_api_key;
+        // Prepare headers while the caller's Context is borrowed. The helper
+        // returns an error result for the producer task, so auth failure still
+        // follows the original terminal Error event path without a dummy body.
+        let preparation = prepare_request(model, ctx, opts, &key, allow_env_api_key, build_request);
         let model = model.clone();
-        let ctx = Arc::new(ctx.clone());
         let mut opts = opts.clone();
         opts.signal = producer.cancellation_token();
         tokio::spawn(async move {
-            run_stream(
-                &mut producer,
-                http,
-                key,
-                allow_env_api_key,
-                &model,
-                &ctx,
-                &opts,
-            )
-            .await;
+            run_stream(&mut producer, http, &model, preparation, &opts).await;
         });
         stream
     }
@@ -140,6 +177,8 @@ struct ResponseSlot {
     call_id: Option<String>,
     name: String,
     arguments: String,
+    /// Regular function deltas must include output_item.added's raw prefix once.
+    function_arguments_started: bool,
     /// Custom Responses tools stream a raw string in `input` rather than a
     /// JSON object in `arguments`. Keep that wire distinction while exposing
     /// the provider-neutral object shape to the rest of pi.
@@ -200,16 +239,7 @@ impl Default for ResponsesStreamState {
 }
 
 impl ResponsesStreamState {
-    fn with_tools(tools: &[Tool], supports_grammar_tools: bool) -> Self {
-        let custom_tool_properties = tools
-            .iter()
-            .filter_map(|tool| {
-                supports_grammar_tools
-                    .then(|| grammar_tool_input_property(tool))
-                    .flatten()
-                    .map(|property| (tool.name.clone(), property))
-            })
-            .collect();
+    fn with_tools(custom_tool_properties: HashMap<String, String>) -> Self {
         Self {
             custom_tool_properties,
             ..Self::default()
@@ -418,6 +448,8 @@ impl ResponsesStreamState {
     ) -> Option<usize> {
         let item_type = item.get("type").and_then(Value::as_str);
         let kind = response_slot_kind(item_type)?;
+        // A structural snapshot must never contain an un-emitted batch.
+        self.flush_pending(out, p).await;
         let custom = item_type == Some("custom_tool_call");
         apply_message_phase(out, item);
         let item_name = item
@@ -501,6 +533,7 @@ impl ResponsesStreamState {
                 call_id,
                 name,
                 arguments,
+                function_arguments_started: false,
                 custom,
                 custom_input_property,
                 custom_input_started: false,
@@ -613,18 +646,19 @@ impl ResponsesStreamState {
             return;
         }
         if thinking {
+            // Flush before modifying out: snapshots must not expose the next
+            // channel's content before its delta has been emitted.
+            self.flush_text(out, p).await;
             if let Some(Content::Thinking(block)) = out.content.get_mut(slot.content_index) {
                 block.thinking.push_str(delta);
             }
-            // Keep channel order strict: text already streamed must reach the
-            // consumer before the first thinking delta of a new block.
-            self.flush_text(out, p).await;
             self.pending_thinking_index = Some(slot.content_index);
             self.pending_thinking.push_str(delta);
             if self.should_flush(&self.pending_thinking) {
                 self.flush_thinking(out, p).await;
             }
         } else {
+            self.flush_thinking(out, p).await;
             if let Some(Content::Text(block)) = out.content.get_mut(slot.content_index) {
                 block.text.push_str(delta);
             }
@@ -644,6 +678,7 @@ impl ResponsesStreamState {
         out: &mut AssistantMessage,
         p: &mut AssistantMessageEventStreamProducer,
     ) {
+        self.flush_pending(out, p).await;
         let Some(slot) = self.slots.get_mut(&index) else {
             return;
         };
@@ -651,6 +686,15 @@ impl ResponsesStreamState {
             return;
         }
         slot.arguments.push_str(delta);
+        // The initial raw arguments from output_item.added have not been
+        // emitted as a delta yet. Preserve their exact bytes on the first
+        // fragment, then emit only suffixes (without changing snapshots).
+        let wire_delta = if slot.function_arguments_started {
+            delta.to_string()
+        } else {
+            slot.function_arguments_started = true;
+            slot.arguments.clone()
+        };
         if let Some(Content::ToolCall(call)) = out.content.get_mut(slot.content_index) {
             call.arguments = parse_streaming_json(Some(&slot.arguments));
             if !slot.name.is_empty() {
@@ -660,7 +704,7 @@ impl ResponsesStreamState {
         }
         p.push(AssistantMessageEvent::ToolCallDelta {
             content_index: slot.content_index,
-            delta: delta.to_string(),
+            delta: wire_delta,
             partial: Arc::new(out.clone()),
         })
         .await;
@@ -678,6 +722,7 @@ impl ResponsesStreamState {
         out: &mut AssistantMessage,
         p: &mut AssistantMessageEventStreamProducer,
     ) {
+        self.flush_pending(out, p).await;
         let Some(slot) = self.slots.get_mut(&index) else {
             return;
         };
@@ -1178,10 +1223,8 @@ fn apply_api_key(
 async fn run_stream(
     p: &mut AssistantMessageEventStreamProducer,
     http: reqwest::Client,
-    provider_key: Option<String>,
-    allow_env_api_key: bool,
     model: &Model,
-    ctx: &Context,
+    preparation: Result<PreparedRequest, String>,
     opts: &SimpleStreamOptions,
 ) {
     let mut out = AssistantMessage::empty(
@@ -1190,32 +1233,41 @@ async fn run_stream(
         model.id.clone(),
         now_ms(),
     );
-    let mut headers = std::collections::BTreeMap::new();
-    for extra in [model.headers.as_ref(), opts.headers.as_ref()]
-        .into_iter()
-        .flatten()
-    {
-        for (k, v) in extra {
-            crate::provider::set_http_header(&mut headers, k, Some(v));
+    let PreparedRequest {
+        headers,
+        body,
+        custom_tool_properties,
+    } = match preparation {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            emit_error(p, &mut out, error, false).await;
+            return;
         }
-    }
-    let key = resolve_api_key(&provider_key, opts, allow_env_api_key);
-    apply_api_key(&mut headers, key);
-    if !headers
-        .keys()
-        .any(|k| k.eq_ignore_ascii_case("authorization") || k.eq_ignore_ascii_case("x-api-key"))
-    {
-        emit_error(p, &mut out, "No API key", false).await;
-        return;
-    }
-    let body = build_request(model, ctx, opts);
+    };
     let url = responses_url(&model.base_url);
     let timeout = opts.request_timeout();
     let signal = opts.signal.clone();
     let response_observer = opts.response_observer.clone();
-    let response = retry_provider_request(move || { let http=http.clone(); let url=url.clone(); let body=body.clone(); let headers=headers.clone(); let signal=signal.clone(); let response_observer=response_observer.clone(); async move {
-        let mut req=http.post(&url).json(&body).timeout(timeout); for (k,v) in headers { req=req.header(k,v); }
-        let response = tokio::select! { r=req.send()=>r.map_err(|e| AiError::Http{status:None,message:e.to_string()})?, _=signal.cancelled()=>return Err(AiError::Abort{message:"Request aborted".into()})};
+    let mut builder = http.post(&url).timeout(timeout);
+    for (name, value) in headers {
+        builder = builder.header(name, value);
+    }
+    let request = match super::request::PreparedJsonRequest::new(builder, &body) {
+        Ok(request) => request,
+        Err(error) => {
+            emit_error(
+                p,
+                &mut out,
+                format!("failed to encode request: {error}"),
+                false,
+            )
+            .await;
+            return;
+        }
+    };
+    drop(body);
+    let response = retry_provider_request(move || { let request=request.clone(); let signal=signal.clone(); let response_observer=response_observer.clone(); async move {
+        let response = tokio::select! { r=request.send()=>r?, _=signal.cancelled()=>return Err(AiError::Abort{message:"Request aborted".into()})};
         crate::http::observe_response(&response_observer, &response, &signal).await;
         if response.status().is_success() { Ok(response) } else { let status=response.status().as_u16(); let msg=tokio::select! { biased; _=signal.cancelled()=>return Err(AiError::Abort{message:"Request aborted".into()}), message=response.text()=>message.unwrap_or_default() }; Err(AiError::Http{status:Some(status),message:msg}) }
     }}, opts.max_retries, opts.max_retry_delay, &opts.signal).await;
@@ -1228,8 +1280,7 @@ async fn run_stream(
     };
     let mut events = SseEventStream::new(response, opts.signal.clone())
         .with_idle_timeout(opts.stream_idle_timeout());
-    let mut state =
-        ResponsesStreamState::with_tools(&ctx.tools, supports_openai_grammar_tools(model));
+    let mut state = ResponsesStreamState::with_tools(custom_tool_properties);
     // The stream contract exposes a pending assistant message immediately after
     // the HTTP response is accepted, before the first output item arrives.
     p.push(AssistantMessageEvent::Start {
@@ -1809,6 +1860,13 @@ fn build_request(model: &Model, ctx: &Context, opts: &SimpleStreamOptions) -> Va
     let mut body = json!({"model":model.id,"input":input,"stream":true,"store":false});
     if let Some(s) = &ctx.system_prompt {
         body["instructions"] = Value::String(s.clone());
+    }
+    // OpenAI routes cached prefixes by this key; without it, consecutive turns
+    // of one session can land on hosts that never saw the prefix and miss.
+    if !matches!(opts.cache_retention, CacheRetention::None) {
+        if let Some(session_id) = &opts.session_id {
+            body["prompt_cache_key"] = Value::String(session_id.clone());
+        }
     }
     let max = opts.max_tokens.unwrap_or(model.max_tokens);
     if max > 0 {
@@ -2506,6 +2564,114 @@ mod tests {
         model
     }
 
+    #[tokio::test]
+    async fn prepared_auth_failure_skips_body_and_keeps_terminal_error() {
+        let model = model();
+        let opts = SimpleStreamOptions::default();
+        let prepared = prepare_request(
+            &model,
+            &Context::default(),
+            &opts,
+            &None,
+            false,
+            |_, _, _| panic!("missing credentials must not build the request"),
+        );
+        assert!(matches!(&prepared, Err(message) if message == "No API key"));
+        let (mut producer, stream) = create_assistant_message_event_stream();
+        run_stream(
+            &mut producer,
+            reqwest::Client::new(),
+            &model,
+            prepared,
+            &opts,
+        )
+        .await;
+        drop(producer);
+        let message = stream.result().await.unwrap();
+        assert_eq!(message.stop_reason, StopReason::Error);
+        assert_eq!(message.error_message.as_deref(), Some("No API key"));
+    }
+
+    #[test]
+    fn prepared_request_preserves_header_auth_and_overrides() {
+        let mut model = model();
+        model.headers = Some(BTreeMap::from([(
+            "Authorization".into(),
+            "Bearer model-key".into(),
+        )]));
+        let opts = SimpleStreamOptions {
+            headers: Some(BTreeMap::from([
+                ("authorization".into(), "Bearer caller-key".into()),
+                ("X-Api-Key".into(), "fixture-key".into()),
+            ])),
+            ..Default::default()
+        };
+        let prepared = prepare_request(
+            &model,
+            &Context::default(),
+            &opts,
+            &None,
+            false,
+            build_request,
+        )
+        .unwrap();
+        assert_eq!(
+            prepared.headers.get("authorization").map(String::as_str),
+            Some("Bearer caller-key")
+        );
+        assert_eq!(
+            prepared
+                .headers
+                .keys()
+                .filter(|name| name.eq_ignore_ascii_case("authorization"))
+                .count(),
+            1
+        );
+        assert_eq!(
+            prepared.headers.get("X-Api-Key").map(String::as_str),
+            Some("fixture-key")
+        );
+        assert_eq!(prepared.body["model"], "gpt-test");
+    }
+
+    #[test]
+    fn prepared_body_and_grammar_mapping_own_the_original_context_snapshot() {
+        for enabled in [false, true] {
+            let model = if enabled { grammar_model() } else { model() };
+            let opts = SimpleStreamOptions::default();
+            let mut context = Context::new(vec![Message::User(crate::types::UserMessage::new(
+                "original history ".repeat(4096),
+                0,
+            ))]);
+            context.tools.push(grammar_tool());
+            let expected = build_request(&model, &context, &opts);
+            let prepared = prepare_request(
+                &model,
+                &context,
+                &opts,
+                &Some("fixture-key".into()),
+                false,
+                build_request,
+            )
+            .unwrap();
+            context.messages.clear();
+            context.tools[0].name = "replacement".into();
+            context.tools[0].parameters = Schema::new(
+                json!({"type":"object","properties":{"other":{"type":"string"}},"required":["other"]}),
+            );
+            drop(context);
+            assert_eq!(prepared.body, expected);
+            if enabled {
+                assert_eq!(
+                    prepared.custom_tool_properties,
+                    HashMap::from([("run_grammar".into(), "payload".into())])
+                );
+            } else {
+                assert!(prepared.custom_tool_properties.is_empty());
+            }
+        }
+    }
+
     /// Regression: `strict: true` used to be advertised alongside the raw
     /// `schemars` schema, which has no `additionalProperties: false`. OpenAI
     /// rejected that with
@@ -2757,7 +2923,8 @@ mod tests {
     async fn custom_tool_stream_wraps_and_escapes_raw_input_once() {
         let tool = grammar_tool();
         let (mut producer, stream) = create_assistant_message_event_stream();
-        let mut state = ResponsesStreamState::with_tools(&[tool], true);
+        let mut state =
+            ResponsesStreamState::with_tools(grammar_tool_properties(&grammar_model(), &[tool]));
         let mut output = AssistantMessage::empty(Api::OpenaiResponses, "openai", "gpt-test", 1);
         state
             .add_item(
@@ -2950,6 +3117,25 @@ mod tests {
         assert_eq!(body["input"][0]["id"], "fc_456");
         assert_eq!(body["input"][1]["type"], "function_call_output");
         assert_eq!(body["input"][1]["call_id"], "call_123");
+    }
+
+    #[test]
+    fn session_id_becomes_the_prompt_cache_key_unless_caching_is_off() {
+        let context = Context {
+            system_prompt: Some("system".into()),
+            messages: Vec::new(),
+            tools: Vec::new(),
+        };
+        let key = |opts: &SimpleStreamOptions| {
+            let body = build_request(&model(), &context, opts);
+            body.get("prompt_cache_key").cloned()
+        };
+        let mut opts = SimpleStreamOptions::default();
+        assert_eq!(key(&opts), None);
+        opts.session_id = Some("sess-1".into());
+        assert_eq!(key(&opts), Some(json!("sess-1")));
+        opts.cache_retention = CacheRetention::None;
+        assert_eq!(key(&opts), None);
     }
 
     #[test]
@@ -3748,6 +3934,111 @@ mod tests {
             response_incomplete_reason(&top_level, &top_level),
             Some("content_filter")
         );
+    }
+
+    #[tokio::test]
+    async fn function_tool_initial_raw_prefix_is_emitted_once_through_real_sse_mapping() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Include a second call with no deltas: its final boundary remains
+        // authoritative, without introducing a synthetic delta event.
+        let frames = [
+            json!({"type":"response.output_item.added","output_index":0,"item":{
+                "type":"function_call","id":"fc_1","call_id":"call_1","name":"read",
+                "arguments":"{\"path\":\"pre"}}),
+            json!({"type":"response.function_call_arguments.delta","output_index":0,"delta":"fix"}),
+            json!({"type":"response.function_call_arguments.delta","output_index":0,"delta":"\"}"}),
+            json!({"type":"response.output_item.done","output_index":0,"item":{
+                "type":"function_call","id":"fc_1","call_id":"call_1","name":"read",
+                "arguments":"{\"path\":\"prefix\"}"}}),
+            json!({"type":"response.output_item.added","output_index":1,"item":{
+                "type":"function_call","id":"fc_2","call_id":"call_2","name":"read",
+                "arguments":"{\"path\":\"pre"}}),
+            json!({"type":"response.output_item.done","output_index":1,"item":{
+                "type":"function_call","id":"fc_2","call_id":"call_2","name":"read",
+                "arguments":"{\"path\":\"prefix\"}"}}),
+            json!({"type":"response.completed","response":{"status":"completed","output":[]}}),
+        ];
+        let body = frames
+            .iter()
+            .map(|frame| format!("data: {frame}\r\n\r\n"))
+            .collect::<String>();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 8192];
+            let _ = socket.read(&mut request).await.unwrap();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(), body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let mut test_model = model();
+        test_model.base_url = format!("http://{address}/v1");
+        let provider = OpenAiResponsesProvider::with_models(
+            "test",
+            Some("test-key".into()),
+            reqwest::Client::new(),
+            vec![test_model.clone()],
+        );
+        let mut stream = provider
+            .stream_simple(
+                &test_model,
+                &Context::new(Vec::new()),
+                &SimpleStreamOptions::default(),
+            )
+            .await;
+        let mut deltas = Vec::new();
+        let mut ends = Vec::new();
+        let mut final_message = None;
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while let Some(event) = stream.next().await {
+                match event {
+                    AssistantMessageEvent::ToolCallDelta {
+                        content_index,
+                        delta,
+                        partial,
+                    } => {
+                        assert_eq!(content_index, 0);
+                        let expected = if deltas.is_empty() {
+                            "{\"path\":\"prefix"
+                        } else {
+                            "{\"path\":\"prefix\"}"
+                        };
+                        assert!(matches!(&partial.content[0], Content::ToolCall(call)
+                            if call.arguments == parse_streaming_json(Some(expected))));
+                        deltas.push(delta);
+                    }
+                    AssistantMessageEvent::ToolCallEnd { tool_call, .. } => ends.push(tool_call),
+                    AssistantMessageEvent::Done { message, .. } => final_message = Some(message),
+                    AssistantMessageEvent::Error { error, .. } => {
+                        panic!("unexpected error: {error:?}")
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .unwrap();
+        assert_eq!(deltas, ["{\"path\":\"prefix", "\"}"]);
+        assert_eq!(
+            serde_json::from_str::<Value>(&deltas.concat()).unwrap(),
+            json!({"path":"prefix"})
+        );
+        assert_eq!(ends.len(), 2);
+        for call in ends {
+            assert_eq!(call.arguments, json!({"path":"prefix"}));
+        }
+        let final_message = final_message.expect("done");
+        assert_eq!(final_message.content.len(), 2);
+        for block in &final_message.content {
+            assert!(
+                matches!(block, Content::ToolCall(call) if call.arguments == json!({"path":"prefix"}))
+            );
+        }
+        server.await.unwrap();
     }
 
     #[tokio::test]

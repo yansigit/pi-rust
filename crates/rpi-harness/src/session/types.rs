@@ -1408,6 +1408,15 @@ pub trait SessionStorage: Send + Sync {
         self.metadata()
     }
 
+    /// Whether this storage never persists session data beyond the process.
+    /// Memory backends return `true`; durable backends (JSONL, SQLite) keep
+    /// the `false` default. Hosts consult this so an explicit no-persistence
+    /// choice survives session churn — e.g. a `/new` in ephemeral mode must
+    /// swap in another in-memory session, not silently write a file.
+    fn is_ephemeral(&self) -> bool {
+        false
+    }
+
     // Lanes
     async fn get_lanes(&self) -> SessionResult<Vec<LanePointer>>;
     async fn create_lane(&self, lane: &str, at: Option<&str>) -> SessionResult<()>;
@@ -1431,6 +1440,43 @@ pub trait SessionStorage: Send + Sync {
     }
     async fn append_record(&self, record: LaneRecord) -> SessionResult<LaneRecord>;
 
+    async fn append_record_and_entry(
+        &self,
+        record: LaneRecord,
+        entry: ProvisionedEntry,
+        lane: &str,
+    ) -> SessionResult<(LaneRecord, Entry)> {
+        let record = self.append_record(record).await?;
+        let entry = self.append_entry(entry, lane).await?;
+        Ok((record, entry))
+    }
+
+    /// Append a record, an entry, and a following record in that exact logical
+    /// order. Durable backends may encode all three mutations together.
+    async fn append_record_entry_and_record(
+        &self,
+        before: LaneRecord,
+        entry: ProvisionedEntry,
+        lane: &str,
+        after: LaneRecord,
+    ) -> SessionResult<(LaneRecord, Entry, LaneRecord)> {
+        let before = self.append_record(before).await?;
+        let entry = self.append_entry(entry, lane).await?;
+        let after = self.append_record(after).await?;
+        Ok((before, entry, after))
+    }
+
+    /// Append several records as one logical batch. Backends that do not have
+    /// a native batch writer retain the existing semantics by falling back to
+    /// ordered single-record appends.
+    async fn append_records(&self, records: Vec<LaneRecord>) -> SessionResult<Vec<LaneRecord>> {
+        let mut stamped = Vec::with_capacity(records.len());
+        for record in records {
+            stamped.push(self.append_record(record).await?);
+        }
+        Ok(stamped)
+    }
+
     // Reads
     async fn get_entry(&self, id: &str) -> SessionResult<Option<Entry>>;
     async fn find_entries(&self, query: &EntryQuery) -> SessionResult<Vec<Entry>>;
@@ -1440,6 +1486,30 @@ pub trait SessionStorage: Send + Sync {
         bounds: &BranchBounds,
         start: &str,
     ) -> SessionResult<Vec<Entry>>;
+
+    /// Default, hook-free context projection. Backends may override this to
+    /// walk their owned state while borrowing entries; the fallback preserves
+    /// custom-storage compatibility and defensive-copy semantics.
+    async fn context_on_branch(
+        &self,
+        bounds: &BranchBounds,
+        start: &str,
+    ) -> SessionResult<crate::session::context::SessionContext> {
+        let path = self
+            .find_entries_on_branch(
+                &EntryQuery {
+                    order: Some(EntryOrder::OldestFirst),
+                    ..Default::default()
+                },
+                bounds,
+                start,
+            )
+            .await?;
+        Ok(crate::session::context::build_session_context_owned(
+            path,
+            &Default::default(),
+        ))
+    }
     async fn find_records(&self, query: &RecordQuery) -> SessionResult<Vec<LaneRecord>>;
     /// Returns unfinished `operation_started` records, newest first. Recovery
     /// uses `limit: 2`: 0 = idle, 1 = suspended, 2 = corruption.
@@ -1456,6 +1526,13 @@ pub trait SessionStorage: Send + Sync {
     async fn get_label(&self, id: &str) -> SessionResult<Option<String>>;
     async fn set_label(&self, id: &str, label: Option<&str>) -> SessionResult<()>;
     async fn get_stats(&self) -> SessionResult<SessionStats>;
+
+    /// Wait for any in-flight durable write to settle.
+    ///
+    /// Only durable backends have anything to wait for. The in-memory backend is
+    /// consistent by construction and the SQLite backend commits each mutation
+    /// inside the call that returns it, so the default is a no-op.
+    async fn drain(&self) {}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

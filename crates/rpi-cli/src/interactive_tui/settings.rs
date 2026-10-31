@@ -159,6 +159,7 @@ pub(super) fn settings_menu_items(
     };
     let hide_thinking = state.hide_thinking();
     let show_images = state.show_images.lock().map(|guard| *guard).unwrap_or(true);
+    let images_supported = rpi_tui::get_capabilities().protocol != rpi_tui::ImageProtocol::None;
     let show_cache_miss = settings.show_cache_miss_notices.unwrap_or(false);
     let http_idle = settings
         .http_idle_timeout_ms()
@@ -196,7 +197,11 @@ pub(super) fn settings_menu_items(
             "Show images",
             bool_setting_value(show_images),
         )
-        .with_description("Render images inline in the terminal")
+        .with_description(if images_supported {
+            "Render images inline in the terminal"
+        } else {
+            "Terminal cannot display inline images; previews stay as placeholders"
+        })
         .with_values(&["true", "false"]),
         SettingItem::new(
             "cache-miss-notices",
@@ -277,6 +282,26 @@ pub(super) fn bool_setting_value(value: bool) -> &'static str {
     }
 }
 
+/// Note shown after the inline-image setting changes.
+///
+/// `protocol` is passed in rather than read from the terminal so the wording is
+/// testable off a real terminal. Enabling images on a terminal that speaks
+/// neither Kitty nor iTerm2 is a no-op the user cannot otherwise see: the image
+/// component falls back to its `[Attached image]` placeholder, so a plain
+/// "enabled" reads as a promise rpi does not keep.
+pub(super) fn images_setting_note(enabled: bool, protocol: rpi_tui::ImageProtocol) -> String {
+    match (enabled, protocol) {
+        (false, _) => "Inline images disabled.".to_string(),
+        (true, rpi_tui::ImageProtocol::None) => {
+            "Inline images enabled, but this terminal cannot display them: ".to_string()
+                + "images will stay as text placeholders. rpi renders inline images "
+                + "through the Kitty graphics protocol (kitty, Ghostty, WezTerm, Warp) "
+                + "or iTerm2 inline images."
+        }
+        (true, _) => "Inline images enabled.".to_string(),
+    }
+}
+
 /// Apply one `/settings` value change to the running TUI and to `settings`.
 ///
 /// Returns a note to show in the transcript when the change is user-visible;
@@ -302,9 +327,9 @@ pub(super) fn apply_setting_change(
         "show-images" => {
             state.set_show_images(as_bool());
             settings.show_images = Some(as_bool());
-            Some(format!(
-                "Inline images {}.",
-                if as_bool() { "enabled" } else { "disabled" }
+            Some(images_setting_note(
+                as_bool(),
+                rpi_tui::get_capabilities().protocol,
             ))
         }
         // Live: read from `state` once per cache-miss notice.
@@ -608,8 +633,7 @@ pub(super) fn provider_selector_items(
     let catalog = crate::provider::catalog_with_manifests(manifests).unwrap_or_default();
     let models_cfg = crate::config::load_models_config().unwrap_or_default();
     let auth = crate::config::read_auth().unwrap_or_default();
-    let execution_catalog =
-        crate::provider::execution_catalog_with_manifests(manifests).unwrap_or_default();
+    let auth_states = crate::credentials::statuses(&models_cfg, &auth, manifests);
 
     let mut providers: Vec<(String, usize)> = Vec::new();
     for model in &catalog {
@@ -631,20 +655,10 @@ pub(super) fn provider_selector_items(
             };
             let manifest = manifests.iter().find(|manifest| manifest.id == id);
             let (origin, protocol) = provider_origin_protocol(&id, &models_cfg, manifest);
-            let credential =
-                crate::credentials::resolve(&id, models_cfg.providers.get(&id), &auth, manifest);
-            let key_status = match credential.source {
-                crate::credentials::CredentialSource::Anonymous => "无需 key",
-                crate::credentials::CredentialSource::Missing => {
-                    if execution_catalog.iter().any(|model| {
-                        model.provider == id
-                            && crate::credentials::has_header_auth(model.headers.as_ref())
-                    }) {
-                        "已配置认证头"
-                    } else {
-                        "未配置 key"
-                    }
-                }
+            let key_status = match auth_states.get(&id).map(|state| &state.source) {
+                Some(crate::credentials::CredentialSource::Anonymous) => "无需 key",
+                Some(crate::credentials::CredentialSource::Headers) => "已配置认证头",
+                Some(crate::credentials::CredentialSource::Missing) | None => "未配置 key",
                 _ => "已配置 key",
             };
             let description =

@@ -311,6 +311,43 @@ const RECOVERY_TOOL_RESULT: &str = concat!(
 pub fn repair_orphaned_tool_calls(
     messages: Vec<AgentMessage>,
 ) -> (Vec<AgentMessage>, ToolCallRepairReport) {
+    if tool_batches_need_no_repair(&messages) {
+        return (messages, ToolCallRepairReport::default());
+    }
+    repair_orphaned_tool_calls_slow(messages)
+}
+
+fn tool_batches_need_no_repair(messages: &[AgentMessage]) -> bool {
+    // Keep borrowed IDs, including duplicate occurrences. The slow repair
+    // consumes one pending occurrence per result, rather than deduplicating IDs.
+    let mut pending = Vec::new();
+    for message in messages {
+        match message {
+            AgentMessage::Assistant(assistant) => {
+                if !pending.is_empty() {
+                    return false;
+                }
+                pending.extend(assistant.content.iter().filter_map(|block| match block {
+                    Content::ToolCall(call) => Some(call.id.as_str()),
+                    _ => None,
+                }));
+            }
+            AgentMessage::ToolResult(result) => {
+                let Some(index) = pending.iter().position(|id| *id == result.tool_call_id) else {
+                    return false;
+                };
+                pending.remove(index);
+            }
+            _ if !pending.is_empty() => return false,
+            _ => {}
+        }
+    }
+    pending.is_empty()
+}
+
+fn repair_orphaned_tool_calls_slow(
+    messages: Vec<AgentMessage>,
+) -> (Vec<AgentMessage>, ToolCallRepairReport) {
     let mut input = messages.into_iter().peekable();
     let mut repaired = Vec::new();
     let mut report = ToolCallRepairReport::default();
@@ -399,6 +436,20 @@ pub fn convert_to_llm(messages: Vec<AgentMessage>) -> Vec<Message> {
         .collect()
 }
 
+/// Convert a suffix after the initial history has already gone through repair.
+/// New loop-produced messages are appended in valid provider order, so no
+/// cross-boundary orphan repair is needed here.
+pub fn convert_to_llm_incremental(messages: &[AgentMessage]) -> Vec<Message> {
+    messages
+        .iter()
+        .filter_map(|message| match message {
+            AgentMessage::User(user) => Some(Message::User(user.clone())),
+            AgentMessage::Assistant(assistant) => Some(Message::Assistant(assistant.clone())),
+            AgentMessage::ToolResult(tool_result) => Some(Message::ToolResult(tool_result.clone())),
+            AgentMessage::Custom(custom) => convert_custom_to_llm(custom.clone()),
+        })
+        .collect()
+}
 fn convert_custom_to_llm(c: CustomMessage) -> Option<Message> {
     let timestamp = c.timestamp;
     match c.role.as_str() {
@@ -475,6 +526,50 @@ mod tests {
             is_error: false,
             timestamp: 43,
         }))
+    }
+
+    #[test]
+    fn settled_tool_batches_reuse_the_owned_history_list() {
+        let messages = vec![
+            AgentMessage::User(UserMessage::new("prompt", 0)),
+            assistant_with_calls(&[("a", "read"), ("b", "write")]),
+            tool_result("b", "write"),
+            tool_result("a", "read"),
+            AgentMessage::User(UserMessage::new("next", 0)),
+        ];
+        let allocation = messages.as_ptr();
+        let (repaired, report) = repair_orphaned_tool_calls(messages);
+        assert!(report.is_empty());
+        assert_eq!(
+            repaired.as_ptr(),
+            allocation,
+            "a complete ordered batch needs no rebuilding"
+        );
+    }
+
+    #[test]
+    fn repair_fast_path_matches_original_for_all_small_batch_combinations() {
+        let catalog = [
+            AgentMessage::User(UserMessage::new("prompt", 0)),
+            create_custom_message("note", UserContent::Text("note".into()), true, None, 0),
+            assistant_with_calls(&[]),
+            assistant_with_calls(&[("a", "read")]),
+            assistant_with_calls(&[("a", "read"), ("b", "write")]),
+            assistant_with_calls(&[("a", "read"), ("a", "write")]),
+            tool_result("a", "read"),
+            tool_result("b", "write"),
+        ];
+        for length in 0..=4 {
+            for mut code in 0..catalog.len().pow(length) {
+                let mut messages = Vec::new();
+                for _ in 0..length {
+                    messages.push(catalog[code % catalog.len()].clone());
+                    code /= catalog.len();
+                }
+                let original = repair_orphaned_tool_calls_slow(messages.clone());
+                assert_eq!(repair_orphaned_tool_calls(messages), original);
+            }
+        }
     }
 
     #[test]
@@ -677,6 +772,19 @@ mod tests {
         assert!(matches!(out[0], Message::User(_)));
     }
 
+    #[test]
+    fn incremental_conversion_matches_full_conversion_for_valid_suffixes() {
+        let messages = vec![
+            AgentMessage::User(UserMessage::new("hi", 1)),
+            create_compaction_summary_message("summary", 2, 3),
+            assistant_with_calls(&[("call_a", "goal")]),
+            tool_result("call_a", "goal"),
+        ];
+        assert_eq!(
+            convert_to_llm(messages.clone()),
+            convert_to_llm_incremental(&messages)
+        );
+    }
     #[test]
     fn convert_to_llm_drops_unregistered_custom_role() {
         let c = CustomMessage::new("weird".to_string(), Vec::new(), serde_json::Value::Null, 1);

@@ -243,7 +243,7 @@ impl ProviderRuntime {
         }) {
             return Err("resolved authentication belongs to another session or plugin".into());
         }
-        if args.as_object().map_or(true, |fields| {
+        if args.as_object().is_none_or(|fields| {
             fields.keys().any(|key| {
                 !["version", "port", "action", "providerId", "env"].contains(&key.as_str())
             })

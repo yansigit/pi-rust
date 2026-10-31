@@ -29,11 +29,14 @@ use crate::model::{Model, StreamingProtocolCompat};
 use crate::provider::{CacheRetention, Provider, SimpleStreamOptions};
 use crate::types::{AssistantMessageEvent, Content, Context, DoneReason, StopReason, Usage};
 use async_trait::async_trait;
-use std::sync::Arc;
+use std::sync::OnceLock;
+use std::time::Instant;
 
-use crate::providers::anthropic::build_params::build_params;
+use crate::providers::anthropic::build_params::{build_params_prepared, BuiltParams};
 use crate::providers::anthropic::cost::calculate_cost;
-use crate::providers::anthropic::mapper::{emit_terminal_error, run_mapper, MapperState};
+use crate::providers::anthropic::mapper::{
+    emit_terminal_error, run_mapper, run_mapper_with_diagnostics, MapperDiagnostics, MapperState,
+};
 use crate::providers::anthropic::models::anthropic_models;
 use crate::providers::anthropic::retry::retry_provider_request;
 use crate::providers::anthropic::sse::SseEventStream;
@@ -42,6 +45,129 @@ use crate::providers::anthropic::sse::SseEventStream;
 /// (`2023-06-01`); the TS SDK attaches this implicitly, the Rust port sets it
 /// explicitly since it speaks raw `reqwest`.
 const ANTHROPIC_VERSION: &str = "2023-06-01";
+
+static PROVIDER_DIAGNOSTICS: OnceLock<bool> = OnceLock::new();
+static PROVIDER_DIAGNOSTICS_DETAIL: OnceLock<bool> = OnceLock::new();
+
+fn provider_diagnostics_enabled() -> bool {
+    *PROVIDER_DIAGNOSTICS.get_or_init(|| {
+        std::env::var_os("RPI_PROVIDER_DIAGNOSTICS")
+            .or_else(|| std::env::var_os("RPI_AGENT_DIAGNOSTICS"))
+            .is_some_and(|value| value != "0")
+    })
+}
+
+fn provider_diagnostics_detail_enabled() -> bool {
+    *PROVIDER_DIAGNOSTICS_DETAIL.get_or_init(|| {
+        provider_diagnostics_enabled()
+            && std::env::var_os("RPI_PROVIDER_DIAGNOSTICS_DETAIL").is_some_and(|value| value != "0")
+    })
+}
+
+struct ProviderRequestDiagnostics {
+    enabled: bool,
+    detail: bool,
+    started: Option<Instant>,
+    params_build_ns: u64,
+    normalize_ns: u64,
+    deferred_tools_ns: u64,
+    convert_messages_ns: u64,
+    convert_tools_ns: u64,
+    context_tokens_ns: u64,
+    preencoded_json_ns: u64,
+    build_total_ns: u64,
+    request_encode_ns: u64,
+    request_json_ns: u64,
+    request_build_ns: u64,
+    request_body_bytes: usize,
+    messages_bytes: usize,
+    tools_bytes: usize,
+    system_bytes: usize,
+    message_count: usize,
+    http_wait_ns: u64,
+    sse_events: u64,
+    mapper_ns: u64,
+    mapper_pull_ns: u64,
+    mapper_parse_ns: u64,
+    mapper_apply_ns: u64,
+    sse_first_event_ns: u64,
+}
+
+impl ProviderRequestDiagnostics {
+    fn new() -> Self {
+        let enabled = provider_diagnostics_enabled();
+        Self {
+            enabled,
+            detail: provider_diagnostics_detail_enabled(),
+            started: enabled.then(Instant::now),
+            params_build_ns: 0,
+            normalize_ns: 0,
+            deferred_tools_ns: 0,
+            convert_messages_ns: 0,
+            convert_tools_ns: 0,
+            context_tokens_ns: 0,
+            preencoded_json_ns: 0,
+            build_total_ns: 0,
+            request_encode_ns: 0,
+            request_json_ns: 0,
+            request_build_ns: 0,
+            request_body_bytes: 0,
+            messages_bytes: 0,
+            tools_bytes: 0,
+            system_bytes: 0,
+            message_count: 0,
+            http_wait_ns: 0,
+            sse_events: 0,
+            mapper_ns: 0,
+            mapper_pull_ns: 0,
+            mapper_parse_ns: 0,
+            mapper_apply_ns: 0,
+            sse_first_event_ns: 0,
+        }
+    }
+
+    fn elapsed(started: Option<Instant>) -> u64 {
+        started
+            .map(|started| started.elapsed().as_nanos().min(u64::MAX as u128) as u64)
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for ProviderRequestDiagnostics {
+    fn drop(&mut self) {
+        if !self.enabled {
+            return;
+        }
+        eprintln!(
+            "RPI_PROVIDER_DIAGNOSTICS provider=anthropic detail={} params_build_ns={} normalize_ns={} deferred_tools_ns={} convert_messages_ns={} convert_tools_ns={} context_tokens_ns={} preencoded_json_ns={} build_total_ns={} request_encode_ns={} request_json_ns={} request_build_ns={} request_body_bytes={} messages_bytes={} tools_bytes={} system_bytes={} message_count={} http_wait_ns={} sse_events={} mapper_ns={} mapper_pull_ns={} mapper_parse_ns={} mapper_apply_ns={} sse_first_event_ns={} total_ns={}",
+            self.detail,
+            self.params_build_ns,
+            self.normalize_ns,
+            self.deferred_tools_ns,
+            self.convert_messages_ns,
+            self.convert_tools_ns,
+            self.context_tokens_ns,
+            self.preencoded_json_ns,
+            self.build_total_ns,
+            self.request_encode_ns,
+            self.request_json_ns,
+            self.request_build_ns,
+            self.request_body_bytes,
+            self.messages_bytes,
+            self.tools_bytes,
+            self.system_bytes,
+            self.message_count,
+            self.http_wait_ns,
+            self.sse_events,
+            self.mapper_ns,
+            self.mapper_pull_ns,
+            self.mapper_parse_ns,
+            self.mapper_apply_ns,
+            self.sse_first_event_ns,
+            Self::elapsed(self.started),
+        );
+    }
+}
 
 /// The Anthropic Messages-API provider. Mirrors the `Anthropic`-SDK-backed
 /// surface in `api/anthropic-messages.ts` (`stream` + `streamSimple`) +
@@ -138,32 +264,24 @@ impl Provider for AnthropicProvider {
         ctx: &Context,
         opts: &SimpleStreamOptions,
     ) -> AssistantMessageEventStream {
-        // `stream_simple` returns synchronously: create the stream, spawn the
-        // producer task, hand back the consumer. Failures surface as `Error`
-        // events on the stream, never as panics (plan §5.11). Mirrors the TS
-        // `stream` IIFE pattern.
+        // Prepare owned wire parameters from the borrowed context before the
+        // background task starts. It needs the request, not a second deep copy
+        // of the entire history. Failures still surface as stream Error events.
         let (mut prod, stream) =
             create_assistant_message_event_stream_with_cancellation(&opts.signal);
 
         let http = self.http.clone();
-        let provider_key = self.api_key.clone();
-        let allow_env_api_key = self.allow_env_api_key;
+        let params_started = provider_diagnostics_enabled().then(Instant::now);
+        let params = prepare_params(model, ctx, opts, &self.api_key, self.allow_env_api_key);
+        let params_build_ns = params_started
+            .map(|started| started.elapsed().as_nanos().min(u64::MAX as u128) as u64)
+            .unwrap_or_default();
         let model = model.clone();
-        let ctx = Arc::new(ctx.clone());
         let mut opts = opts.clone();
         opts.signal = prod.cancellation_token();
 
         tokio::spawn(async move {
-            run_anthropic_stream(
-                &mut prod,
-                http,
-                provider_key,
-                allow_env_api_key,
-                &model,
-                &ctx,
-                &opts,
-            )
-            .await;
+            run_anthropic_stream(&mut prod, http, &model, params, &opts, params_build_ns).await;
             // `prod` drops here, closing the mpsc sender so the consumer's
             // `next()` returns `None` after the terminal event.
         });
@@ -188,24 +306,20 @@ impl Provider for AnthropicProvider {
 /// this function and lets `build_params` read `SimpleStreamOptions` directly
 /// (the adaptive-vs-budget thinking decision lives there), so there is no
 /// intermediate options shape.
-async fn run_anthropic_stream(
-    prod: &mut AssistantMessageEventStreamProducer,
-    http: reqwest::Client,
-    provider_key: Option<String>,
-    allow_env_api_key: bool,
+struct PreparedParams {
+    built: BuiltParams,
+    api_key_for_header: Option<String>,
+}
+
+fn prepare_params(
     model: &Model,
     ctx: &Context,
     opts: &SimpleStreamOptions,
-) {
-    let mut state = MapperState::new(
-        model.api.clone(),
-        model.provider.clone(),
-        model.id.clone(),
-        now_ms(),
-    );
-
+    provider_key: &Option<String>,
+    allow_env_api_key: bool,
+) -> Result<PreparedParams, String> {
     // ---- resolve auth (assertRequestAuth) ----
-    let resolved_key = resolve_api_key(&provider_key, opts, allow_env_api_key);
+    let resolved_key = resolve_api_key(provider_key, opts, allow_env_api_key);
     // TS `assertRequestAuth(model.provider, options?.apiKey, options?.headers)`
     // checks `options.headers` alone — but upstream the model-resolution layer
     // has *already merged* `model.headers` into `options.headers` (models.ts
@@ -221,33 +335,82 @@ async fn run_anthropic_stream(
         (None, true) => None, // headers carry auth; do not send x-api-key.
         (None, false) => {
             // Mirrors `assertRequestAuth`'s `throw new Error("No API key for…")`.
-            let msg = format!("No API key for provider: {}", model.provider);
-            emit_terminal_error(prod, &mut state, msg, false).await;
-            return;
+            return Err(format!("No API key for provider: {}", model.provider));
         }
     };
 
     // ---- build params (is_oauth = false in v1) ----
-    let built = build_params(model, ctx, false, opts);
-    let mut body = match serde_json::to_value(&built.request) {
-        Ok(v) => v,
-        Err(e) => {
-            emit_terminal_error(
-                prod,
-                &mut state,
-                format!("failed to serialize request body: {e}"),
-                false,
-            )
-            .await;
+    Ok(PreparedParams {
+        built: build_params_prepared(
+            model,
+            ctx,
+            false,
+            opts,
+            std::env::var("RPI_ANTHROPIC_NON_STREAM").ok().as_deref() != Some("1"),
+        ),
+        api_key_for_header,
+    })
+}
+
+async fn run_anthropic_stream(
+    prod: &mut AssistantMessageEventStreamProducer,
+    http: reqwest::Client,
+    model: &Model,
+    params: Result<PreparedParams, String>,
+    opts: &SimpleStreamOptions,
+    params_build_ns: u64,
+) {
+    let mut diagnostics = ProviderRequestDiagnostics::new();
+    diagnostics.params_build_ns = params_build_ns;
+    let mut state = MapperState::new(
+        model.api.clone(),
+        model.provider.clone(),
+        model.id.clone(),
+        now_ms(),
+    );
+    let PreparedParams {
+        mut built,
+        api_key_for_header,
+    } = match params {
+        Ok(params) => params,
+        Err(error) => {
+            emit_terminal_error(prod, &mut state, error, false).await;
             return;
         }
     };
-    let non_stream = std::env::var("RPI_ANTHROPIC_NON_STREAM").ok().as_deref() == Some("1");
-    if non_stream {
-        body["stream"] = serde_json::Value::Bool(false);
-        strip_cache_control(&mut body);
-        simplify_non_stream_request(&mut body);
+    if diagnostics.enabled {
+        diagnostics.normalize_ns = built.diagnostics.normalize_ns;
+        diagnostics.deferred_tools_ns = built.diagnostics.deferred_tools_ns;
+        diagnostics.convert_messages_ns = built.diagnostics.convert_messages_ns;
+        diagnostics.convert_tools_ns = built.diagnostics.convert_tools_ns;
+        diagnostics.context_tokens_ns = built.diagnostics.context_tokens_ns;
+        diagnostics.preencoded_json_ns = built.diagnostics.preencoded_json_ns;
+        diagnostics.build_total_ns = built.diagnostics.total_ns;
     }
+    let non_stream = std::env::var("RPI_ANTHROPIC_NON_STREAM").ok().as_deref() == Some("1");
+    if diagnostics.detail {
+        diagnostics.messages_bytes = serde_json::to_vec(&built.request.messages)
+            .map(|value| value.len())
+            .unwrap_or_default();
+        diagnostics.tools_bytes = serde_json::to_vec(&built.request.tools)
+            .map(|value| value.len())
+            .unwrap_or_default();
+        diagnostics.system_bytes = serde_json::to_vec(&built.request.system)
+            .map(|value| value.len())
+            .unwrap_or_default();
+        diagnostics.message_count = built.request.messages.len();
+    } else if diagnostics.enabled {
+        diagnostics.message_count = if built.preencoded_body.is_some() {
+            built.preencoded_message_count
+        } else {
+            built.request.messages.len()
+        };
+    }
+    let preencoded_body = if non_stream {
+        None
+    } else {
+        built.preencoded_body.take()
+    };
 
     // ---- assemble headers (createClient, API-key arm) ----
     let headers = assemble_headers(
@@ -261,6 +424,67 @@ async fn run_anthropic_stream(
     let timeout = opts.request_timeout();
     let signal = opts.signal.clone();
     let response_observer = opts.response_observer.clone();
+    let has_content_type = headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("content-type"));
+    let mut builder = http.post(&url).timeout(timeout);
+    for (name, value) in headers {
+        builder = builder.header(name, value);
+    }
+    // Normal streaming requests use the pre-encoded borrowed body when the
+    // canonical text fast path produced one. Only the compatibility mode needs
+    // a mutable JSON tree before the single encoding.
+    let encode_started = diagnostics.enabled.then(Instant::now);
+    let mut request_parts = super::request::PreparedJsonRequestDiagnostics::default();
+    let prepared = if let Some(body) = preencoded_body {
+        super::request::PreparedJsonRequest::new_body(builder, body, !has_content_type)
+            .map_err(|error| error.to_string())
+    } else if non_stream {
+        serde_json::to_value(&built.request)
+            .map_err(|error| error.to_string())
+            .and_then(|mut body| {
+                body["stream"] = serde_json::Value::Bool(false);
+                strip_cache_control(&mut body);
+                simplify_non_stream_request(&mut body);
+                super::request::PreparedJsonRequest::new_with_diagnostics(
+                    builder,
+                    &body,
+                    diagnostics.enabled.then_some(&mut request_parts),
+                )
+                .map_err(|error| error.to_string())
+            })
+    } else {
+        super::request::PreparedJsonRequest::new_with_diagnostics(
+            builder,
+            &built.request,
+            diagnostics.enabled.then_some(&mut request_parts),
+        )
+        .map_err(|error| error.to_string())
+    };
+    if diagnostics.enabled {
+        diagnostics.request_encode_ns = ProviderRequestDiagnostics::elapsed(encode_started);
+        diagnostics.request_json_ns = request_parts.json_serialize_ns;
+        diagnostics.request_build_ns = request_parts.request_build_ns;
+    }
+    drop(built);
+    let request = match prepared {
+        Ok(request) => {
+            if diagnostics.enabled {
+                diagnostics.request_body_bytes = request.body_len().unwrap_or_default();
+            }
+            request
+        }
+        Err(error) => {
+            emit_terminal_error(
+                prod,
+                &mut state,
+                format!("failed to serialize request body: {error}"),
+                false,
+            )
+            .await;
+            return;
+        }
+    };
 
     // ---- POST with retry (retryProviderRequest) ----
     // The TS hands the SDK `.create({...params, stream:true}, {signal, timeout,
@@ -269,25 +493,15 @@ async fn run_anthropic_stream(
     // 2xx and an `AiError::Http { status }` on non-2xx (so the retry predicate
     // can classify 408/409/429/>=500). Cancellation is honored via a `select!`
     // around the send — the in-flight reqwest future is dropped on abort.
+    let http_started = diagnostics.enabled.then(Instant::now);
     let response_result = retry_provider_request(
         move || {
-            let http = http.clone();
-            let body = body.clone();
-            let url = url.clone();
-            let headers = headers.clone();
+            let request = request.clone();
             let signal = signal.clone();
             let response_observer = response_observer.clone();
             async move {
-                let mut req = http.post(&url).timeout(timeout);
-                for (k, v) in &headers {
-                    req = req.header(k.as_str(), v.as_str());
-                }
-                let send_fut = req.json(&body).send();
                 let resp = tokio::select! {
-                    r = send_fut => r.map_err(|e| AiError::Http {
-                        status: None,
-                        message: format!("http transport error: {e}"),
-                    })?,
+                    r = request.send() => r?,
                     _ = signal.cancelled() => return Err(AiError::Abort {
                         message: "Request aborted".to_string(),
                     }),
@@ -321,6 +535,9 @@ async fn run_anthropic_stream(
         &opts.signal,
     )
     .await;
+    if diagnostics.enabled {
+        diagnostics.http_wait_ns = ProviderRequestDiagnostics::elapsed(http_started);
+    }
 
     let response = match response_result {
         Ok(r) => r,
@@ -448,10 +665,24 @@ async fn run_anthropic_stream(
     // applies the model-aware `cost_fn` on the final usage before the terminal
     // event (mirrors the inline `calculateCost(model, output.usage)` calls).
     let mut sse = SseEventStream::new(response, opts.signal.clone())
-        .with_idle_timeout(opts.stream_idle_timeout());
+        .with_idle_timeout(opts.stream_idle_timeout())
+        .with_diagnostics(diagnostics.enabled);
     let cost_model = model.cost.clone();
     let cost_fn = move |usage: &Usage| calculate_cost(&cost_model, usage);
-    run_mapper(&mut sse, prod, &mut state, cost_fn).await;
+    let mapper_started = diagnostics.enabled.then(Instant::now);
+    if diagnostics.enabled {
+        let mut mapper_diagnostics = MapperDiagnostics::default();
+        run_mapper_with_diagnostics(&mut sse, prod, &mut state, cost_fn, &mut mapper_diagnostics)
+            .await;
+        diagnostics.mapper_ns = ProviderRequestDiagnostics::elapsed(mapper_started);
+        diagnostics.sse_events = mapper_diagnostics.sse_events;
+        diagnostics.mapper_pull_ns = mapper_diagnostics.pull_ns;
+        diagnostics.mapper_parse_ns = mapper_diagnostics.parse_ns;
+        diagnostics.mapper_apply_ns = mapper_diagnostics.apply_ns;
+    } else {
+        run_mapper(&mut sse, prod, &mut state, cost_fn).await;
+    }
+    diagnostics.sse_first_event_ns = sse.diagnostics_first_event_ns().unwrap_or_default();
 }
 
 fn strip_cache_control(value: &mut serde_json::Value) {

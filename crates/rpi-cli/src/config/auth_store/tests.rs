@@ -134,6 +134,41 @@ fn malformed_store_is_never_overwritten() {
     assert_eq!(std::fs::read(&path).unwrap(), b"{truncated");
 }
 
+#[test]
+fn compare_and_replace_reads_the_store_only_after_taking_the_file_lock() {
+    use super::super::Credential as Stored;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("auth.json");
+    let old = Stored::Oauth {
+        access: "old".into(),
+        refresh: "r".into(),
+        expires: 1,
+    };
+    upsert(path.clone(), "test", &old).unwrap();
+    // Stands in for another process holding the lock while it logs out.
+    let other = LockedStore::acquire_file(path.clone(), &CancellationToken::new(), None).unwrap();
+    let refresh = std::thread::spawn({
+        let path = path.clone();
+        move || {
+            let fresh = Stored::Oauth {
+                access: "fresh".into(),
+                refresh: "r2".into(),
+                expires: 2,
+            };
+            let unchanged = |stored: Option<&Stored>| matches!(stored, Some(Stored::Oauth { access, .. }) if access == "old");
+            replace_if(path, "test", unchanged, &fresh).unwrap()
+        }
+    });
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    std::fs::write(&path, b"{}").unwrap();
+    drop(other);
+    assert!(
+        !refresh.join().unwrap(),
+        "a stale compare restored a logged-out credential"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), b"{}");
+}
+
 #[tokio::test]
 async fn failed_publication_is_not_acknowledged_as_a_committed_credential() {
     let root = tempfile::tempdir().unwrap();

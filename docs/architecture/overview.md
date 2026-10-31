@@ -1,6 +1,6 @@
 # 架构概览
 
-rpi 是 Rust 原生 Agent SDK 与终端应用。当前 workspace 包含九个产品 crate；CLI 组合底层能力，嵌入式应用可按需使用 SDK。
+rpi 是 Rust 原生 Agent SDK 与终端应用。当前 workspace 包含十个产品 crate；CLI 组合底层能力，嵌入式应用可按需使用 SDK。
 
 ## 功能分层
 
@@ -8,6 +8,7 @@ rpi 是 Rust 原生 Agent SDK 与终端应用。当前 workspace 包含九个产
 | --- | --- |
 | `rpi-telemetry` | 遥测接口与 span/event 合约 |
 | `rpi-ai` | 模型与消息类型、Provider、流式响应、协议适配及 faux Provider |
+| `rpi-runtime` | 可嵌入的模型目录、配置与凭据解析、认证状态、模型/thinking 选择和私有执行绑定 |
 | `rpi-agent` | Agent Loop、工具调用、事件、队列、取消与轮次回调 |
 | `rpi-tools` | 内置工具与 ExecutionEnv 执行环境抽象 |
 | `rpi-harness` | 会话树、JSONL 持久化、上下文压缩、恢复、skills 与模板 |
@@ -49,13 +50,14 @@ Provider 是 LLM 协议边界。上层处理统一消息和事件，具体 HTTP/
 
 ## 会话与长任务
 
-会话是带 branch 和 lane 的 entry 树，JSONL 后端记录消息、操作及步骤。Harness 根据 branch 构造模型上下文，并管理提交、取消与崩溃恢复。压缩新增摘要 entry，保留原始历史；当前既支持 run 前检查，也支持工具结果后的运行中检查。
+会话是带 branch 和 lane 的 entry 树，JSONL 后端记录消息、操作及步骤。Harness 根据 branch 构造模型上下文，并管理提交、取消与崩溃恢复。流式 assistant frame 作为不进入上下文的进度 record 写入持久化 session；durable writer 会将 frame 按最多 32 条或约 50 ms 聚合，并在绑定 assistant entry、清理 stream/run 前强制 flush。这样保留崩溃恢复的已提交前缀，同时减少每帧一次文件追加的调度开销。压缩新增摘要 entry，保留原始历史；当前既支持 run 前检查，也支持工具结果后的运行中检查。需要定位请求、上下文或 frame writer 耗时时，可使用 `RPI_AGENT_DIAGNOSTICS=1` 和 `RPI_FRAME_DIAGNOSTICS=1`，详见 [Rust 调试指南](../debugging/rust-debugging.md)。
 
 恢复和重放行为受记录状态与工具 replay 策略约束，不能将所有工具视为可安全重复执行。详细排查证据见 [恢复与重复思考复盘](../debugging/llm-repetition-forensics.md)。
 
 ## 按功能继续阅读
 
 - [Agent 项目结构](../agent/project-structure.md)
+- [可嵌入运行时与选择器拆分](reusable-runtime.md)
 - [Agent Loop 与流式消息链路](../agent/loop-walkthrough.md)
 - [上下文压缩](../agent/context-compaction.md)
 - [扩展开发与 ABI 生命周期](../extensions/authoring.md)

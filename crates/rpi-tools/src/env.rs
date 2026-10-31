@@ -139,11 +139,16 @@ impl<'a> ShellExecOptions<'a> {
     }
 }
 
+/// An optional, single-owner append capability for a journal.
+#[async_trait]
+pub trait AppendFile: Send + Sync {
+    /// Append and finish the write before acknowledging it. This is the same
+    /// visibility boundary as `FileSystem::append_file`, not a power-loss fsync.
+    async fn append(&mut self, bytes: &[u8]) -> Result<(), FileError>;
+}
+
 /// Mirrors TS `FileSystem`. All methods async, never panic.
-///
-/// `cancel: Option<&CancellationToken>` is the Rust analogue of the optional
-/// `abortSignal`; backends SHOULD check it at entry (returning
-/// `FileError::aborted()`) and honor cooperative cancel during long ops.
+/// Backends should check cancellation at entry and during long operations.
 #[async_trait]
 pub trait FileSystem: Send + Sync {
     /// Synchronize an existing file and the directory entries needed to reach it.
@@ -210,6 +215,32 @@ pub trait FileSystem: Send + Sync {
         content: FileContent,
         cancel: Option<&CancellationToken>,
     ) -> Result<(), FileError>;
+
+    /// Optional reusable append handle for a single-owner journal. Backends
+    /// without this capability keep the existing per-call append path.
+    async fn open_append_file(
+        &self,
+        _path: &str,
+    ) -> Result<Option<Box<dyn AppendFile>>, FileError> {
+        Ok(None)
+    }
+
+    /// Cut the file at `path` back to `len` bytes, discarding a tail that a
+    /// failed append left behind. It never grows a file. Backends without it
+    /// fail, so a caller cannot take a tail for clean when it was not cut.
+    async fn truncate_file(
+        &self,
+        path: &str,
+        len: u64,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<(), FileError> {
+        let _ = (len, cancel);
+        Err(FileError::new(
+            FileErrorCode::NotSupported,
+            "file truncation is unavailable",
+        )
+        .with_path(path))
+    }
 
     async fn rename_file(
         &self,

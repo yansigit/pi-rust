@@ -68,6 +68,7 @@ impl AgentHarness {
             &recovery_tools,
             &signal,
             true,
+            Some(&self.write_failures),
         )
         .await?;
         let storage = self.session.storage();

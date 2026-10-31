@@ -23,7 +23,7 @@ use rpi_harness::session::memory::{CounterIdGenerator, FakeClock};
 use rpi_harness::session::types::SessionStorage;
 use rpi_harness::session::types::{
     AssistantFrameOp, AssistantFrameRecord, EntryOrder, EntryQuery, LaneRecord, OperationIntent,
-    OperationStartedRecord, RecordBase, RecordQuery,
+    OperationStartedRecord, ProvisionedEntry, ProvisionedKind, RecordBase, RecordQuery,
 };
 use rpi_harness::session::Session;
 use rpi_tools::FileSystem;
@@ -389,4 +389,81 @@ async fn committed_entry_without_a_clear_marker_is_not_replayed_after_disk_reloa
         .await
         .unwrap()
         .is_empty());
+}
+
+#[tokio::test]
+async fn extension_custom_entries_survive_frame_interleaving() {
+    let fs: Arc<dyn FileSystem> = Arc::new(rpi_tools::InMemoryExecutionEnv::with_cwd("/".into()));
+    let path = "/extension-interleave.jsonl";
+    let storage = JsonlSessionStorage::create(fs.clone(), path, header(), clock(), ids())
+        .await
+        .unwrap();
+
+    storage
+        .append_entry(
+            ProvisionedEntry {
+                id: "extension-before".into(),
+                kind: ProvisionedKind::Custom {
+                    custom_type: "extension.note".into(),
+                    data: Some(serde_json::json!({"source":"before-frame"})),
+                },
+            },
+            LANE,
+        )
+        .await
+        .unwrap();
+    storage
+        .append_record(LaneRecord::AssistantFrame(AssistantFrameRecord {
+            base: record_base("extension-frame"),
+            run_id: RUN_ID.into(),
+            stream_index: 0,
+            op: AssistantFrameOp::Append,
+            frame: Some(serde_json::json!({"text":"frame"})),
+        }))
+        .await
+        .unwrap();
+    storage
+        .append_entry(
+            ProvisionedEntry {
+                id: "extension-after".into(),
+                kind: ProvisionedKind::Custom {
+                    custom_type: "extension.note".into(),
+                    data: Some(serde_json::json!({"source":"after-frame"})),
+                },
+            },
+            LANE,
+        )
+        .await
+        .unwrap();
+
+    let reloaded = JsonlSessionStorage::load(fs, path, clock(), ids())
+        .await
+        .unwrap();
+    let session = Session::new(Arc::new(reloaded), None);
+    let entries = session
+        .find_entries(&EntryQuery {
+            order: Some(EntryOrder::OldestFirst),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let custom_ids: Vec<_> = entries
+        .iter()
+        .filter_map(|entry| match entry {
+            rpi_harness::session::types::Entry::Custom(custom) => Some(custom.base.id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(custom_ids, vec!["extension-before", "extension-after"]);
+
+    let records = session
+        .find_records(&RecordQuery {
+            record_type: Some(ASSISTANT_FRAME_RECORD_TYPE),
+            order: Some(EntryOrder::OldestFirst),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(records.len(), 1);
+    assert!(matches!(records[0], LaneRecord::AssistantFrame(_)));
 }

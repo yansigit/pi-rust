@@ -355,7 +355,7 @@ impl ProviderRuntime {
         if self.scope.as_ref().is_some_and(|scope| {
             scope
                 .upgrade()
-                .map_or(true, |scope| scope.runtime_closing().is_cancelled())
+                .is_none_or(|scope| scope.runtime_closing().is_cancelled())
         }) {
             return Err("child session provider runtime is closing".into());
         }
@@ -923,7 +923,7 @@ impl DelegationResolver for ProviderRuntime {
             || self.scope.as_ref().is_some_and(|scope| {
                 scope
                     .upgrade()
-                    .map_or(true, |scope| scope.runtime_closing().is_cancelled())
+                    .is_none_or(|scope| scope.runtime_closing().is_cancelled())
             })
             || !self
                 .session

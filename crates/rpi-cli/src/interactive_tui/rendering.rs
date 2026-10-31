@@ -6,9 +6,62 @@ use super::*;
 // Transcript message helpers
 // ===========================================================================
 
-/// Add the welcome header to the chat container.
+/// Add a welcome header with no capability snapshot.
+///
+/// Kept for tests and for callers that genuinely have nothing to advertise;
+/// production paths that rebuild the transcript must use
+/// [`add_welcome_message_with_capabilities`] with [`current_capabilities`]
+/// instead, otherwise the banner renders `Tools (0) none` / `Skills (0) none`
+/// for a session that has both.
+#[cfg(test)]
 pub(super) fn add_welcome_message(container: &Arc<Container>) {
     add_welcome_message_with_capabilities(container, &[], &[], &[]);
+}
+
+/// Snapshot the capabilities the welcome header advertises: active tool names,
+/// discovered skills, and loaded context files.
+///
+/// Every path that rebuilds the transcript for a different session (`/new`,
+/// `/session`, `/import`, `/fork`, tree navigation) must use this rather than
+/// [`add_welcome_message`], which passes empty slices and therefore rendered
+/// `Tools (0) none` / `Skills (0) none` even though the session had both.
+pub(super) async fn current_capabilities(
+    harness: &AgentHarness,
+    lane: &Arc<dyn AgentLane>,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let resources = harness.get_resources().await.unwrap_or_default();
+    capabilities_from_resources(harness, lane, &resources).await
+}
+
+/// [`current_capabilities`] against an already-fetched resource snapshot, so a
+/// caller that needs the same snapshot for another purpose (the startup
+/// prompt-template registry) does not trigger a second resource scan.
+pub(super) async fn capabilities_from_resources(
+    harness: &AgentHarness,
+    lane: &Arc<dyn AgentLane>,
+    resources: &rpi_harness::types::AgentHarnessResources,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut active_tools = lane.get_active_tools().await.unwrap_or_default();
+    // AgentHarness uses an empty active-name list as the default "all tools"
+    // state. Do not expose that implementation sentinel as `Tools (0) none`
+    // in the welcome banner.
+    if active_tools.is_empty() {
+        active_tools = harness
+            .get_tools()
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|tool| tool.tool.schema().name.clone())
+            .collect();
+    }
+    let skills: Vec<String> = resources
+        .skills
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|skill| skill.name.clone())
+        .collect();
+    (active_tools, skills, resources.context_files.clone())
 }
 
 /// Add the startup welcome header and a compact snapshot of active tools and
@@ -205,6 +258,10 @@ pub(super) fn add_help_message(container: &Arc<Container>) {
         ("/compact", "Compact the conversation"),
         ("/copy", "Copy last reply to clipboard"),
         ("/hotkeys", "Show keyboard shortcuts"),
+        (
+            "/skills",
+            "List skills or invoke one: /skills <name> [instructions]",
+        ),
     ];
     let cmd_w = cmds.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
     for (cmd, desc) in cmds {
@@ -333,7 +390,10 @@ pub(super) fn add_hotkeys_message(container: &Arc<Container>) {
         ("Ctrl+Y / Alt+Y", "Yank / yank-pop"),
         ("Alt+Backspace", "Kill previous word"),
         ("Ctrl+C", "Clear the editor (press twice quickly to exit)"),
-        ("Ctrl+X", "Copy the editor selection or the last reply"),
+        (
+            "Ctrl+X",
+            "Copy the mouse/editor selection or the last reply",
+        ),
         ("Esc", "Abort a running prompt"),
         ("Ctrl+L", "Open model selector"),
         ("Ctrl+P", "Cycle to the next model (live)"),
@@ -481,6 +541,50 @@ pub(super) fn add_note_message(container: &Arc<Container>, text: &str) {
         0,
     )));
     container.add_child(Arc::new(Spacer::new(1)));
+}
+
+/// Add an explicit skill activation notice to the transcript.
+pub(super) fn add_skill_activation_message(container: &Arc<Container>, name: &str) {
+    let c = current_theme().colors;
+    container.add_child(Arc::new(Text::new(
+        format!(
+            "  {} {}",
+            c.accent.fg("[skill]"),
+            c.text.fg(&format!("Activating {name}")),
+        ),
+        1,
+        0,
+    )));
+    container.add_child(Arc::new(Spacer::new(1)));
+}
+
+/// List the skills currently available to this session.
+pub(super) fn show_skills_panel(
+    chat: &Arc<Container>,
+    resources: &rpi_harness::types::AgentHarnessResources,
+) {
+    let skills = resources.skills.as_deref().unwrap_or(&[]);
+    let mut lines = Vec::new();
+    lines.push("🧩 Skills available in this session:".to_string());
+    if skills.is_empty() {
+        lines.push("  (none discovered — create .rpi/skills/ or ~/.rpi/agent/skills/)".into());
+    } else {
+        for skill in skills {
+            let hidden = if skill.disable_model_invocation == Some(true) {
+                " [hidden]"
+            } else {
+                ""
+            };
+            lines.push(format!(
+                "  • {}{} — {}",
+                skill.name,
+                hidden,
+                skill.description.chars().take(72).collect::<String>()
+            ));
+        }
+        lines.push("  Invoke with: /skills <name> [instructions]".into());
+    }
+    container_note_block(chat, &lines.join("\n"));
 }
 
 /// Render the `/context` panel: a transcript message listing the discovered

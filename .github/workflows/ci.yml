@@ -2,34 +2,68 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, preview]
   pull_request:
-    branches: [main]
+    branches: [main, preview]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
+    inputs:
+      prepare_release:
+        description: 'Prepare or update the stable Release PR after CI passes'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
+  # Only upstream Release PR drafts defer validation until docs are synchronized.
+  # Drafts cannot merge; ready_for_review reruns every check on the final head.
   msrv:
-    name: Supported Rust 1.78
-    runs-on: ubuntu-latest
+    name: Rust 1.88 (${{ matrix.os }})
+    if: >-
+      ${{ !(github.event_name == 'pull_request' &&
+      github.repository == 'bigfish1913/pi-rust' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release-plz-') &&
+      github.event.pull_request.draft == true) }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     env:
       RUSTFLAGS: "-D warnings"
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - name: Install minimum supported Rust
+        uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: '1.78.0'
+          toolchain: "1.88.0"
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --workspace --all-targets --locked
-      - run: cargo check -p rpi-plugin-sdk --no-default-features --locked
-      - run: cargo check -p rpi-plugin-sdk --features provider --locked
-      - run: cargo check -p rpi-ai --no-default-features --locked
+      - name: Check workspace targets on MSRV
+        run: cargo check --workspace --all-targets --locked
+      - name: Check all extension features on MSRV
+        run: cargo check -p rpi-extensions --all-features --tests --locked
+      - name: Check standalone ABI core on MSRV
+        run: cargo check -p rpi-plugin-sdk --no-default-features --locked
+      - name: Check provider SDK bridge on MSRV
+        run: cargo check -p rpi-plugin-sdk --features provider --locked
+      - name: Check AI core without default features on MSRV
+        run: cargo check -p rpi-ai --no-default-features --locked
 
   windows-installer:
     name: Windows installer (${{ matrix.shell }})
+    if: >-
+      ${{ !(github.event_name == 'pull_request' &&
+      github.repository == 'bigfish1913/pi-rust' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release-plz-') &&
+      github.event.pull_request.draft == true) }}
     runs-on: windows-latest
     timeout-minutes: 5
     strategy:
@@ -51,7 +85,21 @@ jobs:
         run: ./scripts/tests/install.Tests.ps1
 
   check:
-    name: Cargo check (${{ matrix.os }})
+    # Skipped draft runs must not satisfy the normal required check contexts.
+    name: >-
+      Cargo check (${{ matrix.os }})${{ github.event_name == 'pull_request' &&
+      github.repository == 'bigfish1913/pi-rust' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release-plz-') &&
+      github.event.pull_request.draft == true && ' (preparing release)' || '' }}
+    if: >-
+      ${{ !(github.event_name == 'pull_request' &&
+      github.repository == 'bigfish1913/pi-rust' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release-plz-') &&
+      github.event.pull_request.draft == true) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
@@ -77,7 +125,20 @@ jobs:
         run: cargo check -p rpi-extensions --all-features --tests --locked
 
   test:
-    name: Cargo test
+    name: >-
+      Cargo test${{ github.event_name == 'pull_request' &&
+      github.repository == 'bigfish1913/pi-rust' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release-plz-') &&
+      github.event.pull_request.draft == true && ' (preparing release)' || '' }}
+    if: >-
+      ${{ !(github.event_name == 'pull_request' &&
+      github.repository == 'bigfish1913/pi-rust' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release-plz-') &&
+      github.event.pull_request.draft == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -116,6 +177,7 @@ jobs:
         run: |
           cargo build -p plugin-stub --locked
           cargo test -p rpi-extensions --features provider-performance --test plugin_stub_smoke --locked
+          cargo test -p rpi-cli --test tool_prompt_metadata --locked
 
       - name: Check the standalone ABI core
         run: cargo check -p rpi-plugin-sdk --no-default-features --locked
@@ -129,10 +191,18 @@ jobs:
       - name: Test release automation
         run: |
           python3 scripts/test_release_automation.py
+          python3 scripts/test_release_pr_readiness.py
           python3 scripts/test_release_channels.py
 
   windows-plugin-lifecycle:
     name: Windows plugin ABI and DLL lifecycle
+    if: >-
+      ${{ !(github.event_name == 'pull_request' &&
+      github.repository == 'bigfish1913/pi-rust' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release-plz-') &&
+      github.event.pull_request.draft == true) }}
     runs-on: windows-latest
     timeout-minutes: 20
     env:
@@ -149,9 +219,73 @@ jobs:
   release:
     name: Release automation
     if: github.repository == 'bigfish1913/pi-rust' && github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    needs: [check, test, windows-installer]
+    needs: [msrv, check, test, windows-installer]
     permissions:
       contents: write
       pull-requests: read
     uses: ./.github/workflows/release.yml
+    with:
+      prepare: ${{ github.event_name == 'workflow_dispatch' && inputs.prepare_release == true }}
+    secrets: inherit
+
+  preview-version:
+    name: Prepare preview release
+    if: github.repository == 'bigfish1913/pi-rust' && github.ref == 'refs/heads/preview' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [msrv, check, test, windows-installer]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Check out preview commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve preview version and tag
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base="$(python3 - <<'PY'
+          import tomllib
+          with open("Cargo.toml", "rb") as file:
+              print(tomllib.load(file)["workspace"]["package"]["version"])
+          PY
+          )"
+          IFS=. read -r major minor patch <<EOF
+          ${base}
+          EOF
+          version="${major}.${minor}.$((patch + 1))-preview.${GITHUB_RUN_NUMBER}"
+          tag="v${version}"
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" >/dev/null 2>&1; then
+            existing="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha')"
+            test "${existing}" = "${GITHUB_SHA}" || {
+              echo "preview tag ${tag} already points to ${existing}, not ${GITHUB_SHA}" >&2
+              exit 1
+            }
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f "ref=refs/tags/${tag}" -f "sha=${GITHUB_SHA}"
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+  preview-binaries:
+    name: Build preview binaries
+    needs: preview-version
+    uses: ./.github/workflows/release-binaries.yml
+    permissions:
+      contents: write
+    with:
+      tag: ${{ needs.preview-version.outputs.tag }}
+      version: ${{ needs.preview-version.outputs.version }}
+      preview: true
+      checkout_ref: ${{ github.sha }}
     secrets: inherit

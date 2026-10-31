@@ -74,7 +74,7 @@ impl AuthBinding {
             if result.is_null() {
                 None
             } else if let Some(policy) = result.get("resolve") {
-                if result.as_object().map_or(true, |value| value.len() != 1) {
+                if result.as_object().is_none_or(|value| value.len() != 1) {
                     return Err(AuthError::Resolve);
                 }
                 let policy: super::auth_policy::Policy =

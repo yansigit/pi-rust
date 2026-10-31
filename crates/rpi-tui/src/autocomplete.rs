@@ -185,7 +185,15 @@ impl FilePathAutocompleteProvider {
         let mut items = Vec::new();
 
         // Determine the directory to search
-        let (dir, partial) = if prefix.contains('/') || prefix.contains('\\') {
+        let (dir, partial) = if prefix.ends_with(['/', '\\']) {
+            // A prefix that ENDS at a separator (`…/nested/`) asks for the
+            // contents of that directory. `Path::parent`/`file_name` ignore a
+            // trailing separator, so splitting there would search the parent
+            // for an entry named after the directory itself: the text
+            // `…/nested/` would be offered `nested/` again, and inserting it
+            // manufactures `…/nested/nested/`, a path that does not exist.
+            (PathBuf::from(prefix), String::new())
+        } else if prefix.contains('/') || prefix.contains('\\') {
             let path = Path::new(prefix);
             let parent = path.parent().unwrap_or(Path::new("."));
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -443,6 +451,31 @@ impl Default for AutocompleteManager {
 mod tests {
     use super::*;
 
+    /// Unique scratch directory for a filesystem probe; removed on drop.
+    /// The provider tests live in this crate, which has no `tempfile`
+    /// dev-dependency — a per-test unique name under the OS temp dir is
+    /// enough and keeps `Cargo.lock` untouched.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_nanos())
+                .unwrap_or(0);
+            let path =
+                std::env::temp_dir().join(format!("rpi-tui-{tag}-{}-{nanos}", std::process::id()));
+            std::fs::create_dir_all(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn snap_cursor_keeps_boundaries_including_end() {
         // Regression: the caret at the END of the input (what Tab-accept sees)
@@ -478,5 +511,59 @@ mod tests {
 
         assert_eq!(item.text, "test.txt");
         assert!(item.is_directory);
+    }
+
+    /// A prefix that ends at a separator asks for the directory's CONTENTS.
+    /// `Path::parent`/`file_name` ignore the trailing separator, so splitting
+    /// there used to search the parent for an entry named after the directory
+    /// itself and offer `nested/` for the text `…/nested/` — inserting it
+    /// again produced `…/nested/nested/`, a path that does not exist.
+    #[test]
+    fn file_path_provider_browses_into_a_trailing_separator() {
+        let scratch = Scratch::new("trailing-separator");
+        let nested = scratch.0.join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(nested.join("report.txt"), "fixture").unwrap();
+        assert!(!nested.join("nested").exists());
+        let provider = FilePathAutocompleteProvider::with_root(scratch.0.clone());
+        let prefix = format!("@{}{}", nested.display(), std::path::MAIN_SEPARATOR);
+        let suggestions = provider
+            .get_suggestions(&prefix, prefix.len())
+            .expect("the directory's contents are a completion");
+        let texts: Vec<&str> = suggestions
+            .items
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect();
+        assert_eq!(
+            texts,
+            vec!["report.txt"],
+            "a trailing separator must list the directory, not offer its own name"
+        );
+        assert_eq!(suggestions.start, 1, "the @ stays outside the span");
+        assert_eq!(suggestions.end, prefix.len());
+    }
+
+    /// The partial-name path is unchanged: `…/nes` still completes the entry
+    /// `nested/` inside its parent.
+    #[test]
+    fn file_path_provider_still_completes_a_partial_name() {
+        let scratch = Scratch::new("partial-name");
+        let nested = scratch.0.join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        std::fs::write(nested.join("report.txt"), "fixture").unwrap();
+        let provider = FilePathAutocompleteProvider::with_root(scratch.0.clone());
+        let prefix = format!("@{}{}nes", scratch.0.display(), std::path::MAIN_SEPARATOR);
+        let suggestions = provider
+            .get_suggestions(&prefix, prefix.len())
+            .expect("a partial directory name");
+        let texts: Vec<&str> = suggestions
+            .items
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect();
+        assert_eq!(texts, vec!["nested/"]);
+        assert_eq!(suggestions.start, 1);
+        assert_eq!(suggestions.end, prefix.len());
     }
 }

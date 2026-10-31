@@ -20,6 +20,45 @@ use common::{
 use rpi_agent::{AgentContext, AgentEvent};
 use rpi_ai::types::StopReason;
 
+#[tokio::test]
+async fn loop_keeps_the_owned_history_payload_instead_of_copying_it() {
+    let (echo, _) = EchoTool::new();
+    let mut context = context_with_tools(vec![Arc::new(echo)]);
+    let history = "owned history".repeat(4096);
+    let original = history.as_ptr() as usize;
+    context.messages.push(user_message(history));
+    let mut config = base_config();
+    config.should_stop_after_turn = Some(Arc::new(move |turn| {
+        let rpi_agent::AgentMessage::User(user) = &turn.context.messages[0] else {
+            panic!("history must remain first");
+        };
+        let rpi_ai::UserContent::Text(text) = &user.content else {
+            panic!("expected text history");
+        };
+        assert_eq!(
+            text.as_ptr() as usize,
+            original,
+            "an owned history needs no defensive copy"
+        );
+        Box::pin(async { true })
+    }));
+    let (_, messages) = run_and_collect(
+        vec![user_message("echo something")],
+        context,
+        config,
+        mock_stream_fn(vec![assistant_tool_calls(
+            vec![("tool-1", "echo", serde_json::json!({"value":"hello"}))],
+            StopReason::ToolUse,
+        )]),
+    )
+    .await;
+    assert_eq!(
+        messages.len(),
+        3,
+        "returned messages contain only this run's additions"
+    );
+}
+
 /// A scripted echo tool — mirrors the TS `echo` tool used across
 /// `agent-loop.test.ts`. Records every `value` it executed so tests can assert
 /// ordering + that (un)expected calls did/didn't run.

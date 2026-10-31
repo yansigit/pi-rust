@@ -278,7 +278,7 @@ impl NativeDialogView {
                     KeyCode::Char(' ')
                         if search
                             .as_ref()
-                            .map_or(true, |input| input.get_value().is_empty()) =>
+                            .is_none_or(|input| input.get_value().is_empty()) =>
                     {
                         list.handle_key(key)
                     }

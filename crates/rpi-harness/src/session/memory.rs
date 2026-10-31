@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
 use crate::error::{SessionError, SessionResult};
-use crate::session::state::SessionState;
+use crate::session::state::{ApplyOutcome, SessionState};
 use crate::session::types::{
     provisioned_into_entry, BranchBounds, Entry, EntryQuery, ForkOptions, IdGenerator, LanePointer,
     LaneRecord, LogItem, LogOptions, OperationStartedRecord, ProvisionedEntry, RecordQuery,
@@ -254,6 +254,10 @@ impl SessionStorage for InMemorySessionStorage {
         self.metadata.clone()
     }
 
+    fn is_ephemeral(&self) -> bool {
+        true
+    }
+
     async fn get_lanes(&self) -> SessionResult<Vec<LanePointer>> {
         Ok(self.inner.read_state(|state| state.get_lanes()))
     }
@@ -313,15 +317,14 @@ impl SessionStorage for InMemorySessionStorage {
             let seq = state.next_sequence();
             let timestamp = self.inner.clock.now_ms();
             let full = provisioned_into_entry(entry, seq, parent_id.clone(), timestamp);
-            state.apply_mutation(SessionMutation::Entry {
+            match state.apply_mutation(SessionMutation::Entry {
                 seq,
                 timestamp,
                 lane: Some(lane.to_string()),
-                entry: full.clone(),
-            })?;
-            match state.get_entry(full.id()) {
-                Some(stamped) => Ok(stamped.clone()),
-                None => Err(SessionError::storage("append_entry did not persist")),
+                entry: full,
+            })? {
+                ApplyOutcome::Entry(stamped) => Ok(stamped),
+                _ => Err(SessionError::storage("append_entry did not persist")),
             }
         })
     }
@@ -347,10 +350,10 @@ impl SessionStorage for InMemorySessionStorage {
             let seq = state.next_sequence();
             let timestamp = self.inner.clock.now_ms();
             let stamped = stamp_record(record, seq, lane.clone(), timestamp);
-            state.apply_mutation(SessionMutation::Record {
-                record: stamped.clone(),
-            })?;
-            Ok(stamped)
+            match state.apply_mutation(SessionMutation::Record { record: stamped })? {
+                ApplyOutcome::Record(stamped) => Ok(stamped),
+                _ => Err(SessionError::storage("append_record did not persist")),
+            }
         })
     }
 
@@ -370,6 +373,15 @@ impl SessionStorage for InMemorySessionStorage {
     ) -> SessionResult<Vec<Entry>> {
         self.inner
             .read_state(|state| state.find_entries_on_branch(query, bounds, start))
+    }
+
+    async fn context_on_branch(
+        &self,
+        bounds: &BranchBounds,
+        start: &str,
+    ) -> SessionResult<crate::session::context::SessionContext> {
+        self.inner
+            .read_state(|state| state.context_on_branch(bounds, start))
     }
 
     async fn find_records(&self, query: &RecordQuery) -> SessionResult<Vec<LaneRecord>> {
@@ -594,7 +606,7 @@ impl SessionRepo for InMemorySessionRepo {
 mod tests {
     use super::*;
     use crate::session::types::{
-        OperationIntent, OperationStartedRecord, ProvisionedKind, RecordBase,
+        EntryOrder, OperationIntent, OperationStartedRecord, ProvisionedKind, RecordBase,
     };
 
     fn counter_ids() -> Arc<dyn IdGenerator> {
@@ -624,6 +636,56 @@ mod tests {
 
     fn user_msg(text: &str) -> rpi_agent::message::AgentMessage {
         rpi_agent::message::AgentMessage::User(rpi_ai::types::UserMessage::new(text, 1))
+    }
+
+    #[tokio::test]
+    async fn in_memory_context_projection_matches_branch_builder_and_is_independent() {
+        let storage = fresh_storage();
+        for (id, message) in [("e1", "old"), ("e2", "visible"), ("e3", "latest")] {
+            storage
+                .append_entry(
+                    ProvisionedEntry {
+                        id: id.into(),
+                        kind: ProvisionedKind::Message {
+                            message: user_msg(message),
+                            terminate: None,
+                        },
+                    },
+                    "main",
+                )
+                .await
+                .unwrap();
+        }
+        let bounds = BranchBounds {
+            stop_at_id: Some("e2".into()),
+            ..Default::default()
+        };
+        let projected = storage.context_on_branch(&bounds, "e3").await.unwrap();
+        let path = storage
+            .find_entries_on_branch(
+                &EntryQuery {
+                    order: Some(EntryOrder::OldestFirst),
+                    ..Default::default()
+                },
+                &bounds,
+                "e3",
+            )
+            .await
+            .unwrap();
+        let expected = crate::session::context::build_session_context(&path, &Default::default());
+        assert_eq!(projected.messages, expected.messages);
+        assert_eq!(projected.thinking_level, expected.thinking_level);
+        let mut modified = projected;
+        modified.messages.clear();
+        assert_eq!(
+            storage
+                .context_on_branch(&bounds, "e3")
+                .await
+                .unwrap()
+                .messages
+                .len(),
+            expected.messages.len()
+        );
     }
 
     #[tokio::test]

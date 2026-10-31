@@ -16,6 +16,7 @@ use crate::error::AiError;
 use crate::providers::anthropic::json_parse::parse_json_with_repair;
 use bytes::Bytes;
 use futures::StreamExt;
+use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 /// The `ANTHROPIC_MESSAGE_EVENTS` set — event types the mapper consumes. Any
@@ -200,6 +201,9 @@ pub struct SseEventStream {
     idle_timeout: Option<std::time::Duration>,
     last_bytes_at: tokio::time::Instant,
     done: bool,
+    diagnostics_started: Option<Instant>,
+    diagnostics_first_event_ns: Option<u64>,
+    diagnostics_event_count: u64,
 }
 
 impl SseEventStream {
@@ -214,6 +218,9 @@ impl SseEventStream {
             idle_timeout: Some(crate::provider::DEFAULT_STREAM_IDLE_TIMEOUT),
             last_bytes_at: tokio::time::Instant::now(),
             done: false,
+            diagnostics_started: None,
+            diagnostics_first_event_ns: None,
+            diagnostics_event_count: 0,
         }
     }
 
@@ -222,6 +229,48 @@ impl SseEventStream {
     pub fn with_idle_timeout(mut self, timeout: Option<std::time::Duration>) -> Self {
         self.idle_timeout = timeout.filter(|value| !value.is_zero());
         self
+    }
+
+    /// Enable optional timing of the first decoded SSE event. Disabled by
+    /// default so the normal provider path does not add timing work.
+    pub fn with_diagnostics(mut self, enabled: bool) -> Self {
+        if enabled {
+            self.diagnostics_started = Some(Instant::now());
+        }
+        self
+    }
+
+    /// Return the elapsed time until the first decoded SSE event.
+    pub fn diagnostics_first_event_ns(&self) -> Option<u64> {
+        self.diagnostics_first_event_ns
+    }
+
+    /// Return the number of decoded SSE frames handed to the mapper while
+    /// diagnostics were enabled. This counts protocol frames, not mapped
+    /// `AssistantMessageEvent`s; one Anthropic frame may update state without
+    /// emitting an agent event.
+    pub fn diagnostics_event_count(&self) -> u64 {
+        self.diagnostics_event_count
+    }
+
+    fn record_diagnostic_event(&mut self, event: ServerSentEvent) -> ServerSentEvent {
+        if self.diagnostics_started.is_some() || self.diagnostics_first_event_ns.is_some() {
+            self.diagnostics_event_count += 1;
+        }
+        if self.diagnostics_first_event_ns.is_none() {
+            if let Some(started) = self.diagnostics_started.take() {
+                self.diagnostics_first_event_ns =
+                    Some(started.elapsed().as_nanos().min(u64::MAX as u128) as u64);
+            }
+        }
+        event
+    }
+
+    fn record_diagnostic_option(
+        &mut self,
+        event: Option<ServerSentEvent>,
+    ) -> Option<ServerSentEvent> {
+        event.map(|event| self.record_diagnostic_event(event))
     }
 
     /// Pull the next SSE event, or `Ok(None)` when the body is exhausted (after
@@ -239,28 +288,31 @@ impl SseEventStream {
             // Take ownership of the buffer so we can mutate `self` while
             // dispatching on the borrowed slice (mirrors the TS string cursor).
             let buffer = std::mem::take(&mut self.buffer);
-            let mut leftover = buffer;
+            let mut cursor = 0;
             let mut produced = None;
-            while !leftover.is_empty() {
+            while cursor < buffer.len() {
                 // A CR already terminated the previous line, even when it was
                 // the last byte received. Swallow only its optional LF partner.
-                if std::mem::take(&mut self.skip_lf) && leftover.starts_with('\n') {
-                    leftover.remove(0);
+                if std::mem::take(&mut self.skip_lf) {
+                    if buffer[cursor..].starts_with('\n') {
+                        cursor += 1;
+                    }
                 }
-                let Some((line, rest)) = consume_line(&leftover) else {
+                let slice = &buffer[cursor..];
+                let Some((line, rest)) = consume_line(slice) else {
                     break;
                 };
-                self.skip_lf = rest.is_empty() && leftover.ends_with('\r');
-                let line_owned = line.to_string();
-                leftover = rest.to_string();
-                if let Some(event) = self.state.decode_line(&line_owned) {
+                let consumed = slice.len() - rest.len();
+                self.skip_lf = rest.is_empty() && slice.ends_with('\r');
+                cursor += consumed;
+                if let Some(event) = self.state.decode_line(line) {
                     produced = Some(event);
                     break;
                 }
             }
-            self.buffer = leftover;
+            self.buffer = buffer[cursor..].to_string();
             if let Some(event) = produced {
-                return Ok(Some(event));
+                return Ok(Some(self.record_diagnostic_event(event)));
             }
 
             if self.done {
@@ -276,11 +328,12 @@ impl SseEventStream {
                     let pending = std::mem::take(&mut buffer);
                     if let Some(event) = self.state.decode_line(&pending) {
                         self.buffer = buffer;
-                        return Ok(Some(event));
+                        return Ok(Some(self.record_diagnostic_event(event)));
                     }
                     self.buffer = buffer;
                 }
-                return Ok(self.state.flush());
+                let flushed = self.state.flush();
+                return Ok(self.record_diagnostic_option(flushed));
             }
 
             // Cancellation must race the body read itself. Checking the token
@@ -495,10 +548,36 @@ mod tests {
             idle_timeout: Some(std::time::Duration::from_secs(5)),
             last_bytes_at: tokio::time::Instant::now(),
             done: false,
+            diagnostics_started: None,
+            diagnostics_first_event_ns: None,
+            diagnostics_event_count: 0,
         };
         (sender, stream)
     }
 
+    #[tokio::test]
+    async fn diagnostics_count_each_decoded_frame_once() {
+        let (sender, stream) = idle_test_stream();
+        let mut stream = stream.with_diagnostics(true);
+        sender
+            .send(Bytes::from_static(
+                b"event: first\ndata: 1\n\nevent: second\ndata: 2\n\n",
+            ))
+            .await
+            .unwrap();
+        drop(sender);
+
+        assert_eq!(
+            stream.next_event().await.unwrap().unwrap().event.as_deref(),
+            Some("first")
+        );
+        assert_eq!(
+            stream.next_event().await.unwrap().unwrap().event.as_deref(),
+            Some("second")
+        );
+        assert!(stream.next_event().await.unwrap().is_none());
+        assert_eq!(stream.diagnostics_event_count(), 2);
+    }
     #[tokio::test(start_paused = true)]
     async fn leading_bom_does_not_drop_the_first_event_when_split_across_chunks() {
         for split in 0..=3 {

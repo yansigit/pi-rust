@@ -213,6 +213,11 @@ pub(super) async fn cycle_model(
 }
 
 /// Commit UI/default changes only after the live lane accepts the model.
+///
+/// `save_default` is the *only* way this function touches `settings.json`:
+/// session-scoped switches (`/model`, the Ctrl+P cycle) pass `false` and stay
+/// in memory, so they can never silently overwrite the persisted default.
+/// Callers that mean to persist (`/settings` → Default model) pass `true`.
 pub(super) async fn apply_model_selection(
     lane: &Arc<dyn AgentLane>,
     state: &Arc<TuiState>,
@@ -220,7 +225,6 @@ pub(super) async fn apply_model_selection(
     save_default: bool,
     source: ModelSelectionSource,
 ) -> Result<String, String> {
-    let current = lane.get_model().await.map_err(|error| error.to_string())?;
     lane.set_model_with_source(model.clone(), source)
         .await
         .map_err(|error| format!("Could not switch model: {error}"))?;
@@ -229,11 +233,15 @@ pub(super) async fn apply_model_selection(
         "Model set to {}/{} — applies to the next message.",
         model.provider, model.id
     );
-    if save_default || current.provider != model.provider {
+    if save_default {
         match set_default_model(&model.provider, &model.id) {
             Ok(_) => note.push_str(" Default saved."),
             Err(error) => note.push_str(&format!(" Could not save the default: {error}")),
         }
+    } else {
+        // Session-scoped switch: point at the explicit way to make it stick
+        // instead of writing the default behind the user's back.
+        note.push_str(" Not saved as the default — use /settings to change it.");
     }
     Ok(note)
 }
@@ -1084,8 +1092,13 @@ pub(super) fn open_images_selector(
     chat: &Arc<Container>,
 ) {
     let current = *state.show_images.lock().unwrap();
+    // Say up front that this terminal cannot paint the images, instead of
+    // letting "Inline images enabled" imply they will appear.
+    let can_display = rpi_tui::get_capabilities().protocol != rpi_tui::ImageProtocol::None;
     let items = vec![
-        SelectItem::new("yes", "Yes").with_description(if current {
+        SelectItem::new("yes", "Yes").with_description(if !can_display {
+            "Inline images (this terminal shows placeholders)"
+        } else if current {
             "Inline images (current)"
         } else {
             "Inline images"
@@ -1108,7 +1121,7 @@ pub(super) fn open_images_selector(
         state_sel.set_show_images(on);
         add_note_message(
             &chat_sel,
-            &format!("Inline images {}.", if on { "enabled" } else { "disabled" }),
+            &images_setting_note(on, rpi_tui::get_capabilities().protocol),
         );
         close_selector(&state_sel, &ec_sel, &editor_sel, &tui_sel);
     }));

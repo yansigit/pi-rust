@@ -61,7 +61,7 @@ impl NativeCommand {
         let owner = bridge.native_owner().ok_or("native command has no owner")?;
         if session
             .action_bridge()
-            .map_or(true, |b| b.generation() != owner.generation)
+            .is_none_or(|b| b.generation() != owner.generation)
         {
             return Err("native command belongs to another session".into());
         }

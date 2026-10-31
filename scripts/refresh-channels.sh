@@ -105,7 +105,7 @@ perl -pi -e "s/PackageVersion: $OLD/PackageVersion: $VERSION/" \
   packaging/winget/bigfish1913.rpi.yaml
 
 # --------------------------------------------------------------------------
-# Site data: both current-release cards and the nine core crate snapshots.
+# Site data: both current-release cards and the core crate snapshots.
 # These may lag behind the manifests by more than one release.
 # --------------------------------------------------------------------------
 note "website/data/{packages,site,locales}.json"
@@ -120,7 +120,7 @@ root = Path('website/data')
 paths = [root / f'{name}.json' for name in ('packages', 'site', 'locales')]
 packages, site, locales = [json.loads(path.read_text(encoding='utf-8')) for path in paths]
 core = {'rpi-cli', 'rpi-tui', 'rpi-harness', 'rpi-tools', 'rpi-extensions',
-        'rpi-plugin-sdk', 'rpi-agent', 'rpi-ai', 'rpi-telemetry'}
+        'rpi-plugin-sdk', 'rpi-agent', 'rpi-ai', 'rpi-runtime', 'rpi-telemetry'}
 age = max(0, (datetime.datetime.now(datetime.timezone.utc).date()
               - datetime.date.fromisoformat(published)).days)
 for package in packages:

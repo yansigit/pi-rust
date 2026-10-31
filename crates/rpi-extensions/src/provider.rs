@@ -15,11 +15,12 @@
 //! ## Request/response envelope
 //!
 //! - **Request** (borrowed `StbStringRef` handed to `request_fn`): JSON
-//!   `{ model, context, options }`, where `model`/`context` are the serde
-//!   serializations of [`Model`](rpi_ai::Model)/[`Context`](rpi_ai::Context)
-//!   and `options` is a hand-built JSON of the [`SimpleStreamOptions`] fields
+//!   `{ model, context, options, capabilities }`, where `model`/`context` are
+//!   the serde serializations of [`Model`](rpi_ai::Model)/[`Context`](rpi_ai::Context),
+//!   `options` is a hand-built JSON of the [`SimpleStreamOptions`] fields
 //!   (that type is not `Serialize`; we mirror the field set
-//!   [`ExtensionProviderHooks`](crate::ExtensionProviderHooks) dispatches).
+//!   [`ExtensionProviderHooks`](crate::ExtensionProviderHooks) dispatches),
+//!   and `capabilities` is `{ "recordedToolCalls": 1 }`.
 //! - **Response** (the plugin-owned `out` `StbString`): an
 //!   [`AssistantMessage`] JSON. The host reclaims `out` via the plugin's
 //!   `plugin_free_string` (traveled with the registration), parses the JSON, and
@@ -64,6 +65,8 @@ mod lifetime_tests;
 #[cfg(all(test, feature = "provider-performance"))]
 mod performance;
 mod queue;
+#[cfg(test)]
+mod review183;
 #[cfg(test)]
 mod stream_tests;
 pub mod wrappers;
@@ -358,15 +361,7 @@ async fn drive_plugin_provider(
         );
     }
 
-    // Build the request envelope JSON. `Model`/`Context` are Serialize;
-    // `SimpleStreamOptions` is not, so the `options` object is hand-built
-    // (mirrors `ExtensionProviderHooks::before_request`).
-    let request = serde_json::json!({
-        "model": serde_json::to_value(model).unwrap_or(serde_json::Value::Null),
-        "context": serde_json::to_value(ctx).unwrap_or(serde_json::Value::Null),
-        "options": options_json(opts),
-    });
-    let request_json = request.to_string();
+    let request_json = request_envelope_json(model, ctx, opts);
 
     // The fn pointers + user_data are `Copy`-able (fn ptrs) or plain raw (ud);
     // clone what spawn_blocking needs. `record` is `Clone` (owned strings).
@@ -478,7 +473,7 @@ fn run_provider_request_inner(
     }
 
     // Read the plugin-owned JSON (borrow `out` for the parse) then reclaim it.
-    let response_text = out.to_string_lossy();
+    let response_text = out.as_str_lossy();
 
     // Parse the response as an AssistantMessage. A plugin that returns a partial
     // or malformed message surfaces a parse error (not a crash) — the host
@@ -555,8 +550,9 @@ async fn push_terminal(prod: &mut AssistantMessageEventStreamProducer, message: 
 // ---------------------------------------------------------------------------
 
 /// Run a plugin's [`ProviderStreamRequestFn`](rpi_plugin_sdk::ProviderStreamRequestFn)
-/// on `spawn_blocking` while forwarding every emitted chunk to `prod` **as it
-/// arrives**, then return the plugin's terminal message.
+/// on `spawn_blocking` while forwarding available deltas to `prod` without a
+/// batch-fill delay, then return the plugin's terminal message. Adjacent pure
+/// text/thinking deltas already in the queue may be combined before mapping.
 ///
 /// The forwarding is the whole point: the request fn is synchronous, so the
 /// callback is the only moment the host learns about a delta. It runs on the
@@ -669,12 +665,15 @@ async fn drive_streaming_plugin_provider(
     });
 
     // One async task maps and forwards chunks; pressure propagates to emit.
+    // The queue combines already-buffered pure text/thinking deltas before the
+    // mapper creates a full immutable snapshot. It never waits to fill a batch.
     let mut mapper = StreamMapper::new(
         model.api.clone(),
         record.provider_id.clone(),
         model.id.clone(),
     );
 
+    let mut recorded_calls = RecordedCalls::default();
     let mut cancelled_mid_stream = false;
     // Forward every chunk, in arrival order, until the channel closes (the
     // blocking task dropping its sender). A chunk the mapper parks behind the
@@ -720,6 +719,7 @@ async fn drive_streaming_plugin_provider(
                     while let Some(chunk) = next {
                         let metadata_only = chunk.get("type").and_then(serde_json::Value::as_str) == Some("usage");
                         if let Some(event) = mapper.apply(chunk) {
+                            recorded_calls.observe(&event);
                             let accepted = tokio::select! {
                                 biased;
                                 _ = cancel.cancelled() => false,
@@ -772,6 +772,25 @@ async fn drive_streaming_plugin_provider(
             },
         }
     };
+    // The agent executes calls from this final message, not from the streamed
+    // `ToolCallEnd`s, so a recording seen on the stream must survive into it. A
+    // final message that cannot keep it fails the turn instead of letting the
+    // call run. An error or aborted message already executes nothing.
+    if let Err(reason) = recorded_calls.reconcile_recorded(&mut message) {
+        if !matches!(
+            message.stop_reason,
+            rpi_ai::types::StopReason::Error | rpi_ai::types::StopReason::Aborted
+        ) {
+            // Constant text: the harness retries errors whose text looks
+            // transient, and plugin-chosen ids or names could match that.
+            let text =
+                format!("plugin provider final message drops a recorded tool call: {reason}");
+            message = AssistantMessage {
+                usage: message.usage,
+                ..error_message(record, &text)
+            };
+        }
+    }
     // Revocation is an authority failure, not a user abort. Keep that cause even
     // when its admission monitor also cancelled the owning FFI invocation.
     if epoch_signal.is_some_and(|signal| signal.is_cancelled()) {
@@ -949,7 +968,7 @@ extern "C" fn stream_emit_trampoline(event_json: StbString, user_data: *mut c_vo
         // SAFETY: the plugin transfers a live, plugin-owned allocation exactly
         // once; `plugin_free_string` is that plugin's deallocator.
         let owned = unsafe { OwnedString::from_raw(event_json, Some(bridge.plugin_free_string)) };
-        let text = owned.to_string_lossy();
+        let text = owned.as_str_lossy();
         let bytes = text.len();
         let parsed = serde_json::from_str::<serde_json::Value>(&text);
         drop(text);
@@ -1066,7 +1085,7 @@ fn run_streaming_provider_request(
                 record.provider_id
             ));
         }
-        let response_text = out.to_string_lossy();
+        let response_text = out.as_str_lossy();
         serde_json::from_str::<AssistantMessage>(&response_text).map_err(|err| {
             format!(
                 "plugin provider {} returned unparseable response: {err}",
@@ -1146,15 +1165,82 @@ fn api_from_style(style: &str) -> rpi_ai::types::Api {
         .unwrap_or_else(|_| rpi_ai::types::Api::Other(style.to_string()))
 }
 
-/// Build the `{ model, context, options }` request envelope shared by the
-/// one-shot and streaming provider paths.
+/// Build the `{ model, context, options, capabilities }` request envelope
+/// shared by the one-shot and streaming provider paths. `Model`/`Context` are
+/// Serialize; `SimpleStreamOptions` is not, so the `options` object is
+/// hand-built (mirrors `ExtensionProviderHooks::before_request`).
+///
+/// `capabilities` names host behavior a plugin must not assume from the ABI
+/// version alone. `recordedToolCalls` is the highest `recorded` version this
+/// host decodes (every version from 1 up to it) and never executes. A host
+/// without the key ignores `recorded` and runs the call, so a plugin must not
+/// send `recorded` unless the value is at least 1.
 fn request_envelope_json(model: &Model, ctx: &Context, opts: &SimpleStreamOptions) -> String {
     serde_json::json!({
         "model": serde_json::to_value(model).unwrap_or(serde_json::Value::Null),
         "context": serde_json::to_value(ctx).unwrap_or(serde_json::Value::Null),
         "options": options_json(opts),
+        "capabilities": { "recordedToolCalls": 1 },
     })
     .to_string()
+}
+
+/// Every call a `toolcall_end` reported as already run upstream, kept so the
+/// final message can be held to it. The mapper itself lives in `rpi_ai`.
+#[derive(Default)]
+struct RecordedCalls(Vec<rpi_ai::types::ToolCall>);
+
+impl RecordedCalls {
+    fn observe(&mut self, event: &AssistantMessageEvent) {
+        if let AssistantMessageEvent::ToolCallEnd { tool_call, .. } = event {
+            if tool_call.recorded.is_some() && !self.0.contains(tool_call) {
+                self.0.push(tool_call.clone());
+            }
+        }
+    }
+
+    /// Hold the plugin's final `message` to every recording a `toolcall_end`
+    /// reported. A final call with the same id, name and arguments and no
+    /// `recorded` key gets the observed recording, including an explicit `null`.
+    /// Anything that could let a recorded call run is an error: a recorded call
+    /// with no id, two recorded calls or two final calls sharing an id, a final
+    /// message without the id, a different name or arguments, or a different
+    /// recording. Calls never reported as recorded are left alone.
+    fn reconcile_recorded(&self, message: &mut AssistantMessage) -> Result<(), &'static str> {
+        for observed in &self.0 {
+            let id = &observed.id;
+            let reject = |reason: &'static str| {
+                // The id stays out of the error text (see the driver); log it.
+                tracing::warn!(tool_call_id = %id, reason, "plugin provider final message drops a recorded tool call");
+                Err(reason)
+            };
+            if id.is_empty() {
+                return reject("a recorded call has no id");
+            }
+            if self.0.iter().filter(|call| &call.id == id).count() > 1 {
+                return reject("two recorded calls share an id");
+            }
+            let mut finals = message.content.iter_mut().filter_map(|block| match block {
+                rpi_ai::Content::ToolCall(call) if &call.id == id => Some(call),
+                _ => None,
+            });
+            let Some(call) = finals.next() else {
+                return reject("the call is missing");
+            };
+            if finals.next().is_some() {
+                return reject("the call is repeated");
+            }
+            if call.name != observed.name || call.arguments != observed.arguments {
+                return reject("its name or arguments changed");
+            }
+            match &call.recorded {
+                None => call.recorded = observed.recorded.clone(),
+                Some(recorded) if Some(recorded) == observed.recorded.as_ref() => {}
+                Some(_) => return reject("its recording differs"),
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1611,5 +1697,488 @@ mod tests {
         };
         assert_eq!(tool_call.name, "echo");
         assert_eq!(tool_call.arguments["text"], "hi");
+    }
+
+    /// A plugin replaying a call the remote agent already ran must reach the
+    /// host with its recording intact: dropping it would let the local loop run
+    /// the call a second time.
+    #[test]
+    fn tool_call_end_keeps_the_recording_of_an_already_executed_call() {
+        let recording = serde_json::json!({
+            "version": 1,
+            "isError": false,
+            "result": {
+                "content": [{ "type": "text", "text": "recorded output" }],
+                "details": {},
+                "terminate": true
+            }
+        });
+        let mut mapper = StreamMapper::new(rpi_ai::types::Api::Faux, "pluggy".into(), "m".into());
+        let mut ends = Vec::new();
+        for chunk in [
+            serde_json::json!({"type":"toolcall_start","contentIndex":0,"id":"c1","name":"shell"}),
+            serde_json::json!({"type":"toolcall_end","contentIndex":0,"id":"c1","name":"shell","arguments":{"command":"rm -rf target"},"recorded":recording}),
+        ] {
+            if let Some(AssistantMessageEvent::ToolCallEnd { tool_call, .. }) = mapper.apply(chunk)
+            {
+                ends.push(tool_call);
+            }
+            while let Some(deferred) = mapper.take_deferred() {
+                if let Some(AssistantMessageEvent::ToolCallEnd { tool_call, .. }) =
+                    mapper.apply(deferred)
+                {
+                    ends.push(tool_call);
+                }
+            }
+        }
+        let [tool_call] = ends.as_slice() else {
+            panic!("expected one ToolCallEnd, got {}", ends.len());
+        };
+        assert_eq!(
+            serde_json::to_value(tool_call).unwrap()["recorded"],
+            recording
+        );
+        assert_eq!(tool_call.arguments["command"], "rm -rf target");
+    }
+
+    /// A plugin written before `recorded` existed sends `toolcall_end` without
+    /// the key. Its call must stay an ordinary call that the loop executes.
+    #[test]
+    fn tool_call_end_without_a_recording_is_an_ordinary_call() {
+        let mut mapper = StreamMapper::new(rpi_ai::types::Api::Faux, "pluggy".into(), "m".into());
+        let mut ends = Vec::new();
+        for chunk in [
+            serde_json::json!({"type":"toolcall_start","contentIndex":0,"id":"c1","name":"echo"}),
+            serde_json::json!({"type":"toolcall_end","contentIndex":0,"id":"c1","name":"echo","arguments":{"text":"hi"}}),
+        ] {
+            if let Some(AssistantMessageEvent::ToolCallEnd { tool_call, .. }) = mapper.apply(chunk)
+            {
+                ends.push(tool_call);
+            }
+            while let Some(deferred) = mapper.take_deferred() {
+                if let Some(AssistantMessageEvent::ToolCallEnd { tool_call, .. }) =
+                    mapper.apply(deferred)
+                {
+                    ends.push(tool_call);
+                }
+            }
+        }
+        let [tool_call] = ends.as_slice() else {
+            panic!("expected one ToolCallEnd, got {}", ends.len());
+        };
+        assert_eq!(tool_call.recorded, None);
+        assert!(serde_json::to_value(tool_call)
+            .unwrap()
+            .get("recorded")
+            .is_none());
+        assert_eq!(tool_call.arguments["text"], "hi");
+    }
+
+    /// The recording a `toolcall_end` carries in the reconciliation tests.
+    fn recording(text: &str) -> serde_json::Value {
+        serde_json::json!({
+            "version": 1,
+            "isError": false,
+            "result": { "content": [{ "type": "text", "text": text }] }
+        })
+    }
+
+    /// A `toolcall_end` chunk for `id` at `index`, with `recorded` when given.
+    fn end_chunk(index: usize, id: &str, recorded: Option<serde_json::Value>) -> serde_json::Value {
+        let mut chunk = serde_json::json!({
+            "type": "toolcall_end", "contentIndex": index, "id": id,
+            "name": "shell", "arguments": { "command": id }
+        });
+        if let Some(recorded) = recorded {
+            chunk["recorded"] = recorded;
+        }
+        chunk
+    }
+
+    /// Run `chunks` through a mapper, as the streaming driver does.
+    fn mapper_after(chunks: Vec<serde_json::Value>) -> RecordedCalls {
+        let mut mapper = StreamMapper::new(rpi_ai::types::Api::Faux, "pluggy".into(), "m".into());
+        let mut recorded = RecordedCalls::default();
+        for chunk in chunks {
+            let mut next = Some(chunk);
+            while let Some(chunk) = next {
+                if let Some(event) = mapper.apply(chunk) {
+                    recorded.observe(&event);
+                }
+                next = mapper.take_deferred();
+            }
+        }
+        recorded
+    }
+
+    /// A final `out` message holding `calls`, given as tool-call JSON.
+    fn final_with(calls: Vec<serde_json::Value>) -> AssistantMessage {
+        let mut message = AssistantMessage::empty(rpi_ai::types::Api::Faux, "pluggy", "m", 0);
+        message.stop_reason = rpi_ai::types::StopReason::ToolUse;
+        for call in calls {
+            message
+                .content
+                .push(serde_json::from_value(call).expect("tool call decodes"));
+        }
+        message
+    }
+
+    /// A final tool call for `id` with the arguments `end_chunk` streamed.
+    fn final_call(id: &str, recorded: Option<serde_json::Value>) -> serde_json::Value {
+        let mut call = serde_json::json!({
+            "type": "toolCall", "id": id, "name": "shell", "arguments": { "command": id }
+        });
+        if let Some(recorded) = recorded {
+            call["recorded"] = recorded;
+        }
+        call
+    }
+
+    fn recorded_of(message: &AssistantMessage) -> Vec<Option<serde_json::Value>> {
+        message
+            .content
+            .iter()
+            .filter_map(|block| match block {
+                Content::ToolCall(call) => Some(call.recorded.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A recording seen only on `toolcall_end` reaches the final message, and so
+    /// does an explicit `null`, which the agent loop then rejects.
+    #[test]
+    fn final_message_gets_a_recording_seen_only_on_the_stream() {
+        for recorded in [recording("upstream"), serde_json::Value::Null] {
+            let mapper = mapper_after(vec![end_chunk(0, "c1", Some(recorded.clone()))]);
+            let mut message = final_with(vec![final_call("c1", None)]);
+            mapper.reconcile_recorded(&mut message).unwrap();
+            assert_eq!(recorded_of(&message), vec![Some(recorded)]);
+        }
+    }
+
+    /// Several recorded calls next to ordinary ones: each recorded call gets its
+    /// own recording, and the ordinary calls stay executable.
+    #[test]
+    fn only_recorded_calls_are_marked_among_mixed_calls() {
+        let mapper = mapper_after(vec![
+            end_chunk(0, "c1", Some(recording("one"))),
+            end_chunk(1, "c2", None),
+            end_chunk(2, "c3", Some(recording("three"))),
+        ]);
+        let mut message = final_with(vec![
+            final_call("c1", None),
+            final_call("c2", None),
+            final_call("c3", None),
+        ]);
+        mapper.reconcile_recorded(&mut message).unwrap();
+        assert_eq!(
+            recorded_of(&message),
+            vec![Some(recording("one")), None, Some(recording("three"))]
+        );
+    }
+
+    /// A final message that already agrees is left as it is, and a recording
+    /// present only in the final message still counts.
+    #[test]
+    fn agreeing_and_final_only_recordings_are_kept() {
+        let mapper = mapper_after(vec![
+            end_chunk(0, "c1", Some(recording("both"))),
+            end_chunk(1, "c2", None),
+        ]);
+        let mut message = final_with(vec![
+            final_call("c1", Some(recording("both"))),
+            final_call("c2", Some(recording("final only"))),
+        ]);
+        let expected = message.clone();
+        mapper.reconcile_recorded(&mut message).unwrap();
+        assert_eq!(message, expected);
+    }
+
+    /// Every final message that cannot keep a streamed recording is rejected.
+    #[test]
+    fn a_final_message_that_drops_a_recording_is_rejected() {
+        let recorded = || Some(recording("upstream"));
+        let renamed = {
+            let mut call = final_call("c1", None);
+            call["name"] = "other".into();
+            call
+        };
+        let new_arguments = {
+            let mut call = final_call("c1", None);
+            call["arguments"] = serde_json::json!({ "command": "changed" });
+            call
+        };
+        let cases = [
+            (
+                "different recording",
+                vec![end_chunk(0, "c1", recorded())],
+                vec![final_call("c1", Some(recording("other")))],
+                "its recording differs",
+            ),
+            (
+                "null versus recording",
+                vec![end_chunk(0, "c1", Some(serde_json::Value::Null))],
+                vec![final_call("c1", recorded())],
+                "its recording differs",
+            ),
+            (
+                "missing id",
+                vec![end_chunk(0, "c1", recorded())],
+                vec![final_call("c2", None)],
+                "the call is missing",
+            ),
+            (
+                "renamed",
+                vec![end_chunk(0, "c1", recorded())],
+                vec![renamed],
+                "its name or arguments changed",
+            ),
+            (
+                "new arguments",
+                vec![end_chunk(0, "c1", recorded())],
+                vec![new_arguments],
+                "its name or arguments changed",
+            ),
+            (
+                "duplicate final id",
+                vec![end_chunk(0, "c1", recorded())],
+                vec![final_call("c1", None), final_call("c1", None)],
+                "the call is repeated",
+            ),
+            (
+                "duplicate streamed id",
+                vec![
+                    end_chunk(0, "c1", recorded()),
+                    end_chunk(1, "c1", Some(recording("other"))),
+                ],
+                vec![final_call("c1", None)],
+                "two recorded calls share an id",
+            ),
+            (
+                "no id",
+                vec![end_chunk(0, "", recorded())],
+                vec![final_call("", None)],
+                "a recorded call has no id",
+            ),
+        ];
+        for (case, chunks, calls, reason) in cases {
+            let mapper = mapper_after(chunks);
+            let mut message = final_with(calls);
+            let error = mapper.reconcile_recorded(&mut message).expect_err(case);
+            assert_eq!(error, reason, "{case}");
+        }
+    }
+
+    /// The bytes a scripted streaming plugin emits and returns.
+    #[derive(Default)]
+    struct ScriptedStream {
+        chunks: Vec<serde_json::Value>,
+        out: String,
+        rc: i32,
+    }
+
+    extern "C" fn scripted_stream(
+        _req: StbStringRef,
+        emit: Option<rpi_plugin_sdk::ProviderStreamEmitFn>,
+        emit_user_data: *mut c_void,
+        _control: *const rpi_plugin_sdk::ProviderStreamControl,
+        _completion: Option<rpi_plugin_sdk::ProviderStreamCompletionFn>,
+        _completion_user_data: *mut c_void,
+        out: *mut StbString,
+        user_data: *mut c_void,
+    ) -> i32 {
+        let script = unsafe { &*(user_data as *const ScriptedStream) };
+        if let Some(emit) = emit {
+            for chunk in &script.chunks {
+                if emit(StbString::from_string(chunk.to_string()), emit_user_data) != 0 {
+                    return 1;
+                }
+            }
+        }
+        unsafe { *out = StbString::from_string(script.out.clone()) };
+        script.rc
+    }
+
+    /// Drive `script` through the real streaming provider and return the
+    /// terminal message, which must be an `Error`.
+    async fn error_terminal(script: ScriptedStream) -> AssistantMessage {
+        let script = Box::new(script);
+        let record = RegisteredProvider {
+            action_bridge: None,
+            provider_id: "pluggy".to_string(),
+            base_url: "https://example".to_string(),
+            api_style: "faux".to_string(),
+            request_fn: ok_request_fn,
+            stream_fn: Some(scripted_stream),
+            plugin_free_string: stub_free,
+            user_data: &*script as *const ScriptedStream as *mut c_void,
+        };
+        let mut registry = ExtensionRegistry::new();
+        registry.register_streaming_provider(record.clone());
+        let provider = PluggableProvider::new(
+            record,
+            Arc::new(registry.snapshot()),
+            PluginKeepalive::empty(),
+            Handle::current(),
+        );
+        let model = Model::new(
+            "m",
+            "M",
+            rpi_ai::types::Api::Faux,
+            "pluggy",
+            "https://example",
+        );
+        let mut stream = provider
+            .stream_simple(
+                &model,
+                &Context::new(Vec::new()),
+                &SimpleStreamOptions::default(),
+            )
+            .await;
+        let mut last = None;
+        while let Some(event) = stream.next().await {
+            last = Some(event);
+        }
+        match last {
+            Some(AssistantMessageEvent::Error { reason, error }) => {
+                assert_eq!(reason, ErrorReason::Error);
+                error
+            }
+            other => panic!("expected an Error terminal, got {other:?}"),
+        }
+    }
+
+    fn recorded_stream() -> Vec<serde_json::Value> {
+        vec![
+            serde_json::json!({"type":"toolcall_start","contentIndex":0,"id":"c1","name":"shell"}),
+            end_chunk(0, "c1", Some(recording("upstream"))),
+        ]
+    }
+
+    /// Through the real streaming driver, a final `out` that contradicts a
+    /// streamed recording ends the turn with an error, so the agent loop never
+    /// sees an executable copy of the call.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_contradicting_final_message_fails_the_turn() {
+        let mut out = final_with(vec![final_call("c2", None)]);
+        out.usage.input = 11;
+        out.usage.output = 7;
+        let error = error_terminal(ScriptedStream {
+            chunks: recorded_stream(),
+            out: serde_json::to_string(&out).unwrap(),
+            ..Default::default()
+        })
+        .await;
+        assert!(error.content.is_empty(), "{error:?}");
+        assert_eq!(
+            error.error_message.as_deref(),
+            Some("plugin provider final message drops a recorded tool call: the call is missing")
+        );
+        // The plugin's usage for the turn is still reported.
+        assert_eq!(error.usage, out.usage);
+    }
+
+    /// A plugin that fails after streaming a recorded call keeps its own error:
+    /// it already executes nothing, so reconciliation does not replace it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_request_keeps_its_own_error_after_a_recorded_call() {
+        let error = error_terminal(ScriptedStream {
+            chunks: recorded_stream(),
+            rc: 7,
+            ..Default::default()
+        })
+        .await;
+        let text = error.error_message.unwrap_or_default();
+        assert!(text.contains("returned error code 7"), "{text}");
+    }
+
+    /// The request envelopes a capturing provider has seen.
+    type SeenRequests = Mutex<Vec<serde_json::Value>>;
+
+    fn seen(req: StbStringRef, user_data: *mut c_void) {
+        let seen = unsafe { &*(user_data as *const SeenRequests) };
+        let request = serde_json::from_str(unsafe { req.as_str() }).expect("request JSON");
+        seen.lock().unwrap().push(request);
+    }
+
+    extern "C" fn capturing_request(
+        req: StbStringRef,
+        out: *mut StbString,
+        user_data: *mut c_void,
+    ) -> i32 {
+        seen(req, user_data);
+        let message = AssistantMessage::empty(rpi_ai::types::Api::Faux, "pluggy", "m", 0);
+        unsafe { *out = StbString::from_string(serde_json::to_string(&message).unwrap()) };
+        0
+    }
+
+    extern "C" fn capturing_stream(
+        req: StbStringRef,
+        _emit: Option<rpi_plugin_sdk::ProviderStreamEmitFn>,
+        _emit_user_data: *mut c_void,
+        _control: *const rpi_plugin_sdk::ProviderStreamControl,
+        _completion: Option<rpi_plugin_sdk::ProviderStreamCompletionFn>,
+        _completion_user_data: *mut c_void,
+        out: *mut StbString,
+        user_data: *mut c_void,
+    ) -> i32 {
+        capturing_request(req, out, user_data)
+    }
+
+    /// A plugin may only send `recorded` to a host that honors it: an older
+    /// host ignores the key and runs the call. Both request paths therefore
+    /// advertise the recording version this host decodes, and a plugin that
+    /// finds no such capability must not send `recorded`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn both_request_paths_advertise_recorded_tool_calls() {
+        let requests = Box::new(SeenRequests::default());
+        for stream_fn in [
+            None,
+            Some(capturing_stream as rpi_plugin_sdk::ProviderStreamRequestFn),
+        ] {
+            let record = RegisteredProvider {
+                action_bridge: None,
+                provider_id: "pluggy".to_string(),
+                base_url: "https://example".to_string(),
+                api_style: "faux".to_string(),
+                request_fn: capturing_request,
+                stream_fn,
+                plugin_free_string: stub_free,
+                user_data: &*requests as *const SeenRequests as *mut c_void,
+            };
+            let mut registry = ExtensionRegistry::new();
+            registry.register_provider(record.clone());
+            let provider = PluggableProvider::new(
+                record,
+                Arc::new(registry.snapshot()),
+                PluginKeepalive::empty(),
+                Handle::current(),
+            );
+            let model = Model::new(
+                "m",
+                "M",
+                rpi_ai::types::Api::Faux,
+                "pluggy",
+                "https://example",
+            );
+            let mut stream = provider
+                .stream_simple(
+                    &model,
+                    &Context::new(Vec::new()),
+                    &SimpleStreamOptions::default(),
+                )
+                .await;
+            while stream.next().await.is_some() {}
+        }
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        for request in requests.iter() {
+            assert_eq!(
+                request["capabilities"],
+                serde_json::json!({ "recordedToolCalls": 1 }),
+                "{request}"
+            );
+        }
     }
 }

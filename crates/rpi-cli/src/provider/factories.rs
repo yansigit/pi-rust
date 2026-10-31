@@ -1,8 +1,10 @@
 //! Built-in protocols and native extensions implement the same factory contract.
 //! Authentication and model binding are applied once, outside every factory.
-use super::binding::{ExecutionBinding, RequestAuth};
+use super::binding::{ExecutionBinding, OAuthLease, RequestAuth};
 use super::*;
+use crate::config::Credential;
 use rpi_extensions::{ExtensionSession, ProviderManifest};
+use rpi_runtime::credentials::OAuthRefresher;
 
 trait ProviderFactory: Send + Sync {
     fn create(
@@ -66,6 +68,7 @@ pub(super) struct RuntimeFactories {
     provider_apis: BTreeMap<String, String>,
     pub manifests: Vec<ProviderManifest>,
     pub auth: BTreeMap<String, Arc<super::auth::AuthBinding>>,
+    oauth_refresher: Option<Arc<dyn OAuthRefresher>>,
 }
 
 impl Default for RuntimeFactories {
@@ -89,6 +92,7 @@ impl Default for RuntimeFactories {
             provider_apis: BTreeMap::new(),
             manifests: Vec::new(),
             auth: BTreeMap::new(),
+            oauth_refresher: None,
         }
     }
 }
@@ -151,8 +155,62 @@ impl RuntimeFactories {
         }
         factories
     }
+    /// Renew stored OAuth credentials through `refresher` before requests send
+    /// them. Without one, an expired stored OAuth credential is unavailable.
+    pub fn set_oauth_refresher(&mut self, refresher: Arc<dyn OAuthRefresher>) {
+        self.oauth_refresher = Some(refresher);
+    }
+
+    fn refresher_for(&self, provider_id: &str) -> Option<&Arc<dyn OAuthRefresher>> {
+        // Provider-owned (native) auth refreshes through its own resolver.
+        self.oauth_refresher.as_ref().filter(|refresher| {
+            !self.auth.contains_key(provider_id) && refresher.supports(provider_id)
+        })
+    }
+
+    /// `store` as credential resolution should see it: a renewable stored OAuth
+    /// login stays usable after it expires, because the execution binding
+    /// renews it before any request sends it ([`OAuthLease`]).
+    pub fn refreshable_view(&self, store: &config::AuthStore) -> config::AuthStore {
+        let mut view = store.clone();
+        for (provider_id, credential) in &mut view {
+            if let Credential::Oauth {
+                refresh, expires, ..
+            } = credential
+            {
+                if !refresh.trim().is_empty() && self.refresher_for(provider_id).is_some() {
+                    *expires = 0;
+                }
+            }
+        }
+        view
+    }
+
+    /// A lease when `auth` sends `provider_id`'s stored, renewable OAuth token.
+    pub(super) fn oauth_lease(
+        &self,
+        provider_id: &str,
+        store: &config::AuthStore,
+        auth: &RequestAuth,
+    ) -> Option<OAuthLease> {
+        let refresher = self.refresher_for(provider_id)?;
+        match store.get(provider_id) {
+            Some(Credential::Oauth {
+                access,
+                refresh,
+                expires,
+            }) if *expires != 0 && !refresh.trim().is_empty() && auth.carries(access) => {
+                Some(OAuthLease::new(Arc::clone(refresher), *expires))
+            }
+            _ => None,
+        }
+    }
+
     pub fn from_session(session: &ExtensionSession) -> Self {
         let mut factories = Self::default();
+        if let Some(refresher) = crate::auth::PackageOAuthRefresher::new(session) {
+            factories.set_oauth_refresher(Arc::new(refresher));
+        }
         if let Some(snapshot) = session.snapshot() {
             factories.provider_apis = snapshot
                 .providers()
@@ -207,6 +265,7 @@ impl RuntimeFactories {
         factories
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn configure(
         &self,
         provider_id: &str,
@@ -214,6 +273,7 @@ impl RuntimeFactories {
         models: Vec<Model>,
         canonical_models: &[Model],
         auth: RequestAuth,
+        oauth: Option<OAuthLease>,
         settings: &settings::Settings,
     ) -> Option<(Arc<dyn Provider>, Arc<ExecutionBinding>)> {
         let factory = self
@@ -222,11 +282,11 @@ impl RuntimeFactories {
             .filter(|_| {
                 self.provider_apis
                     .get(provider_id)
-                    .map_or(true, |declared| declared == api.as_str())
+                    .is_none_or(|declared| declared == api.as_str())
             })
             .or_else(|| self.protocols.get(api.as_str()))?;
         let binding = Arc::new(
-            ExecutionBinding::new(provider_id, models, canonical_models.to_vec(), auth)
+            ExecutionBinding::new(provider_id, models, canonical_models.to_vec(), auth, oauth)
                 .with_auth_config(self.auth.get(provider_id).map(Arc::as_ref)),
         );
         let inner = factory.create(provider_id, binding.models().to_vec(), settings);
@@ -253,7 +313,7 @@ pub(crate) fn native_alias(
         id,
         models.clone(),
     )?;
-    let binding = ExecutionBinding::new(id, models.clone(), models, RequestAuth::None);
+    let binding = ExecutionBinding::new(id, models.clone(), models, RequestAuth::None, None);
     let api = session
         .snapshot()?
         .providers()
@@ -478,6 +538,7 @@ impl Provider for ConfiguredProvider {
     ) -> Result<rpi_ai::auth::AttemptAuth, String> {
         self.preflight(requested, signal.clone()).await?;
         let options = SimpleStreamOptions::default().with_signal(signal);
+        self.binding.renew_oauth(&options).await?;
         let (mut model, mut options) = self
             .binding
             .prepare(requested, &options)
@@ -498,6 +559,16 @@ impl Provider for ConfiguredProvider {
     ) -> AssistantMessageEventStream {
         if let Err(error) = self.preflight(model, options.signal.clone()).await {
             return crate::provider_runtime::error_stream(model, error).await;
+        }
+        if !self.binding.binds(model) {
+            return unbound_model_error(model, &self.id).await;
+        }
+        if let Err(error) = self.binding.renew_oauth(options).await {
+            let id = &self.id;
+            let message = format!(
+                "The stored OAuth login for \"{id}\" has expired and could not be refreshed: {error}. Run `rpi auth login --provider {id}`."
+            );
+            return crate::provider_runtime::error_stream(model, message).await;
         }
         let Some((mut model, mut options)) = self.binding.prepare(model, options) else {
             return unbound_model_error(model, &self.id).await;
@@ -575,6 +646,7 @@ mod tests {
                 vec![configured],
                 vec![canonical.clone()],
                 RequestAuth::ApiKey("target-key".into()),
+                None,
             )),
             auth: None,
         };
@@ -685,6 +757,7 @@ mod tests {
                         vec![model],
                         &[],
                         RequestAuth::ApiKey(token.into()),
+                        None,
                         &settings::Settings::default(),
                     )
                     .unwrap()
@@ -786,6 +859,7 @@ mod tests {
                     vec![model],
                     &[],
                     RequestAuth::None,
+                    None,
                     &settings::Settings::default(),
                 )
                 .unwrap();
@@ -843,6 +917,7 @@ mod tests {
                     vec![raw],
                     &[],
                     RequestAuth::ApiKey("private-credential".into()),
+                    None,
                     &settings::Settings::default(),
                 )
                 .unwrap();
@@ -935,6 +1010,7 @@ mod tests {
                     "authorization".into(),
                     "Bearer default".into(),
                 )])),
+                None,
                 &settings::Settings::default(),
             )
             .unwrap();

@@ -240,7 +240,7 @@ phase_winget() {
 }
 
 phase_crates() {
-  note "publish nine crates to crates.io"
+  note "publish workspace crates to crates.io"
   confirm "Publish $release_version to crates.io (irreversible)?" || { note "  skipped"; return; }
   step task publish:crates RELEASE_VERSION="$release_version"
 }

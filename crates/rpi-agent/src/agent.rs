@@ -16,7 +16,9 @@
 
 use crate::agent_loop::{run_agent_loop, run_agent_loop_continue};
 use crate::events::{AgentEmitter, AgentEvent, BroadcastEmitter};
-use crate::hooks::{default_convert_to_llm_fn, AgentLoopConfig, ConvertToLlm};
+use crate::hooks::{
+    default_convert_to_llm_fn, default_convert_to_llm_incremental_fn, AgentLoopConfig, ConvertToLlm,
+};
 use crate::message::AgentMessage;
 use crate::queue::PendingMessageQueue;
 use crate::stream_fn::{get_default_stream_fn, StreamFn};
@@ -164,6 +166,7 @@ pub struct Agent {
 struct Inner {
     state: Arc<Mutex<MutableAgentState>>,
     convert_to_llm: ConvertToLlm,
+    convert_to_llm_incremental: Option<crate::hooks::IncrementalConvertToLlm>,
     stream_fn: StreamFn,
     steering_queue: SharedQueue,
     follow_up_queue: SharedQueue,
@@ -270,10 +273,16 @@ impl AgentBuilder {
             .thinking_level
             .or(initial.thinking_level)
             .unwrap_or(rpi_ai::types::ThinkingLevel::Off);
+        let default_converter = self.opts.convert_to_llm.is_none();
         let convert_to_llm = self
             .opts
             .convert_to_llm
             .unwrap_or_else(default_convert_to_llm_fn);
+        let convert_to_llm_incremental = if default_converter {
+            Some(default_convert_to_llm_incremental_fn())
+        } else {
+            None
+        };
 
         let state = MutableAgentState {
             system_prompt: initial.system_prompt.unwrap_or_default(),
@@ -295,6 +304,7 @@ impl AgentBuilder {
         let inner = Inner {
             state: Arc::new(Mutex::new(state)),
             convert_to_llm,
+            convert_to_llm_incremental,
             stream_fn,
             steering_queue: Arc::new(Mutex::new(PendingMessageQueue::new(queue_mode))),
             follow_up_queue: Arc::new(Mutex::new(PendingMessageQueue::new(follow_up_mode))),
@@ -516,6 +526,7 @@ impl Agent {
         AgentLoopConfig {
             model: state.model.clone(),
             convert_to_llm: Arc::clone(&self.inner.convert_to_llm),
+            convert_to_llm_incremental: self.inner.convert_to_llm_incremental.clone(),
             transform_context: None,
             get_api_key: None,
             prepare_request: None,

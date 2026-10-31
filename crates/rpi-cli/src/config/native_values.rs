@@ -1,5 +1,5 @@
 //! Pi 1.3 values for the opt-in native auth path; legacy fallback behavior is unchanged.
-use super::{parse_template, TemplatePart};
+use rpi_runtime::values::{parse_template, TemplatePart};
 use std::{collections::BTreeMap, process::Stdio, time::Duration};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 

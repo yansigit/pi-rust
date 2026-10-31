@@ -14,6 +14,21 @@ on:
         description: Existing tag to build
         required: true
         type: string
+      version:
+        description: Full package version (used by preview releases)
+        required: false
+        type: string
+        default: ''
+      preview:
+        description: Publish a GitHub prerelease without install channels
+        required: false
+        type: boolean
+        default: false
+      checkout_ref:
+        description: Commit or ref to build when the release tag is synthetic
+        required: false
+        type: string
+        default: ''
   push:
     tags: ["v*"]
   workflow_dispatch:
@@ -63,7 +78,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.checkout_ref || inputs.tag || github.ref }}
           persist-credentials: false
 
       - name: Install stable Rust
@@ -85,8 +100,11 @@ jobs:
         id: version
         shell: bash
         run: |
-          version="$(cargo metadata --no-deps --format-version 1 --locked \
-            | jq -r '.packages[] | select(.name == "rpi-cli") | .version' | head -n 1)"
+          version="${{ inputs.version }}"
+          if [[ -z "${version}" ]]; then
+            version="$(cargo metadata --no-deps --format-version 1 --locked \
+              | jq -r '.packages[] | select(.name == "rpi-cli") | .version' | head -n 1)"
+          fi
           if [[ -z "${version}" || "${version}" == "null" ]]; then
             echo "Could not determine the rpi-cli workspace version." >&2
             exit 1
@@ -95,7 +113,16 @@ jobs:
           echo "Building rpi ${version} for ${{ matrix.target }}"
 
       - name: Build release binary
-        run: cargo build -p rpi-cli --release --locked --target ${{ matrix.target }}
+        shell: bash
+        env:
+          PREVIEW_VERSION: ${{ steps.version.outputs.version }}
+          PREVIEW: ${{ inputs.preview }}
+        run: |
+          if [[ "${PREVIEW}" == "true" ]]; then
+            RPI_BUILD_VERSION="${PREVIEW_VERSION}" cargo build -p rpi-cli --release --locked --target ${{ matrix.target }}
+          else
+            cargo build -p rpi-cli --release --locked --target ${{ matrix.target }}
+          fi
 
       - name: Smoke test Intel macOS binary
         if: matrix.target == 'x86_64-apple-darwin'
@@ -175,7 +202,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.checkout_ref || inputs.tag || github.ref }}
           persist-credentials: false
 
       - name: Download all artifacts
@@ -214,14 +241,21 @@ jobs:
             fi
             gh release upload "${TAG}" "${assets[@]}" --clobber
           else
-            gh release create "${TAG}" "${assets[@]}" \
-              --title "rpi ${TAG}" \
-              --generate-notes
+            if [[ "${{ inputs.preview }}" == "true" ]]; then
+              gh release create "${TAG}" "${assets[@]}" \
+                --title "rpi ${TAG} (preview)" \
+                --prerelease --generate-notes
+            else
+              gh release create "${TAG}" "${assets[@]}" \
+                --title "rpi ${TAG}" \
+                --generate-notes
+            fi
           fi
           # Upload last: a manifest means all five verified archives are ready.
           gh release upload "${TAG}" rpi-release.json --clobber
 
   channels:
+    if: inputs.preview != true
     needs: release
     uses: ./.github/workflows/release-channels.yml
     with:

@@ -25,7 +25,7 @@
       "compare.th.dist": "分发",
       "compare.th.embed": "当库嵌入",
       "compare.th.extend": "扩展模型",
-      "compare.rpi.impl": "Rust（9 个 crate）",
+      "compare.rpi.impl": "Rust（10 个 crate）",
       "compare.rpi.license": "MIT",
       "compare.rpi.dist": "cargo / 预编译二进制",
       "compare.rpi.embed": "✅ 就是库，CLI 只是其中一层",
@@ -239,7 +239,7 @@
       "compare.th.dist": "Distribution",
       "compare.th.embed": "Embeddable as a library",
       "compare.th.extend": "Extension model",
-      "compare.rpi.impl": "Rust (9 crates)",
+      "compare.rpi.impl": "Rust (10 crates)",
       "compare.rpi.license": "MIT",
       "compare.rpi.dist": "cargo / prebuilt binaries",
       "compare.rpi.embed": "✅ It is the library; the CLI is one layer on top",
@@ -524,10 +524,10 @@
       ],
       "releases": [
         {
-          "version": "0.5.1",
+          "version": "0.9.0",
           "status": "current",
-          "title": "Consistent tool panel themes and warning-free builds",
-          "description": "Edit, read and write panels share themed insets and status backgrounds. Changelog version parsing is fixed, and Linux and Windows PR checks now reject compiler warnings."
+          "title": "Runtime and performance improvements",
+          "description": "Extracted the reusable rpi-runtime, reduced repeated context and message copies, and added zero-copy archived payloads with performance benchmarks."
         },
         {
           "version": "next",
@@ -574,7 +574,14 @@
       "rpi-run-stats": "Live terminal monitoring for turns, steps, TPS, TTFT, TPM, errors and cost. Toggle with /stats or F8.",
       "rpi-plan-mode": "Session planning mode with read-only exploration, /plan commands, restored branch plans and progress display.",
       "rpi-langfuse": "Langfuse observability for model, tool and session events, plus scoring and prompt-management tools.",
-      "rpi-voice": "Terminal voice conversations with push-to-talk, offline speech recognition, spoken replies and a pet panel."
+      "rpi-voice": "Terminal voice conversations with push-to-talk, offline speech recognition, spoken replies and a pet panel.",
+      "rpi-orchestrator": "Bounded DAG subagent orchestration extension for the rpi Rust agent",
+      "rpi-btw": "Ask a read-only side question without interrupting or adding to the main rpi conversation",
+      "rpi-permission-gate": "Tool-call permission gate extension for rpi — confirm dangerous bash/write/edit calls via the host UI dialog",
+      "rpi-ui-adapter": "UI adapters for rpi ACP agents, starting with Open WebUI",
+      "rpi-providers": "Unified DeepSeek, OpenRouter, llama.cpp and proxy provider extension for rpi",
+      "rpi-web": "Project and chat workspace for the native rpi RPC host",
+      "rpi-runtime": "Embeddable model catalog, provider-scoped credentials, model selection and execution bindings."
     },
     "docs": {
       "title": "Documentation",

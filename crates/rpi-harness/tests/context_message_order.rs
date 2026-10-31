@@ -16,7 +16,9 @@ use rpi_ai::Provider;
 use rpi_harness::agent_harness::{AgentHarness, AgentLane, HarnessRunOutcome, SendMessageResult};
 use rpi_harness::messages::create_custom_message;
 use rpi_harness::session::memory::{InMemorySessionStorage, SystemClock};
-use rpi_harness::session::types::{Entry, EntryOrder, EntryQuery, RecordQuery, SessionMetadata};
+use rpi_harness::session::types::{
+    Entry, EntryOrder, EntryQuery, LaneRecord, RecordQuery, SessionMetadata,
+};
 use rpi_harness::session::{DefaultIdGenerator, Session};
 use rpi_harness::types::{AgentHarnessOptions, HarnessTool, MessageDelivery, SendMessageOptions};
 use rpi_tools::{create_write_tool, ExecutionToolContext, InMemoryExecutionEnv};
@@ -1180,6 +1182,36 @@ async fn retry_frames_are_salvaged_after_generation_has_started() {
     tokio::time::timeout(std::time::Duration::from_secs(5), emitter.ready.notified())
         .await
         .unwrap();
+    // Delivery only queues the frame for batched persistence. Crash after a
+    // recoverable checkpoint, rather than racing the background frame writer.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let frames = session
+                .find_records(&RecordQuery {
+                    record_type: Some("assistant_frame"),
+                    order: Some(EntryOrder::OldestFirst),
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+            if let Some(LaneRecord::AssistantFrame(frame)) = frames.last() {
+                let recovered =
+                    rpi_harness::frame_progress::salvage_run_frames(&session, &frame.run_id)
+                        .await
+                        .unwrap();
+                if recovered.iter().any(|message| {
+                    message.content.iter().any(
+                        |content| matches!(content, Content::Text(text) if text.text == "retry partial"),
+                    )
+                }) {
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("retry progress must reach the persisted recovery checkpoint");
     run.abort();
     let _ = run.await;
     drop(h);
@@ -1820,6 +1852,37 @@ mod resume_admission {
         let _ = run.await;
         drop(h);
         source
+    }
+
+    #[tokio::test]
+    async fn custom_storage_uses_default_context_fallback_and_propagates_errors() {
+        let source = fresh_session();
+        source
+            .append_message(AgentMessage::User(rpi_ai::types::UserMessage::new(
+                "fallback", 0,
+            )))
+            .await
+            .unwrap();
+        let storage = PausedStorage {
+            inner: source.storage(),
+            armed: AtomicBool::new(false),
+            ready: Default::default(),
+            proceed: Default::default(),
+        };
+        let leaf = storage.inner.get_lanes().await.unwrap()[0]
+            .leaf_id
+            .clone()
+            .unwrap();
+        let context = storage
+            .context_on_branch(&BranchBounds::default(), &leaf)
+            .await
+            .unwrap();
+        assert_eq!(context.messages.len(), 1);
+        let error = storage
+            .context_on_branch(&BranchBounds::default(), "missing")
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, rpi_harness::error::SessionErrorCode::NotFound);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

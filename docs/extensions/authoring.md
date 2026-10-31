@@ -20,6 +20,45 @@
 对应注册槽位是否为 `Some`。缺少能力时返回清晰错误并优雅降级，不要 panic、
 空指针或依赖 `undefined` 语义。
 
+### 先选复用层
+
+写会被 `rpi` 直接加载的 Rust `cdylib` 插件时，ABI 入口和工具/事件注册使用
+`rpi-plugin-sdk`。不要把 `rpi-extensions`、`rpi-cli` 或 harness 私有模块链接进
+插件；它们属于宿主侧。
+
+如果插件项目还需要 Web/ACP/远程适配器共享的会话、工作区、RPC、事件重放和运行
+状态逻辑，可以复用 crates.io 的 [`rpi-extcore`](https://crates.io/crates/rpi-extcore)：
+
+```toml
+[dependencies]
+rpi-plugin-sdk = "0.8"
+rpi-extcore = "0.1" # 需要 native RPC / session / workspace 服务时再添加
+```
+
+`rpi-extcore` 是普通 Rust 库，不是 `cdylib` 插件入口，也不替代
+`rpi-plugin-sdk`。它为适配器提供 `service::Service`、`host::HostSession`、事件订阅、
+会话/工作区操作和 `durable::DurableCoordinator` 等可复用模块；运行时需要一个兼容的
+`rpi --mode rpc` 可执行文件。它不会自行启动服务端、管理凭据或提供 HTTP/ACP 前端，
+也不会创建第二份 transcript。需要它的项目可以这样初始化共享服务：
+
+```rust
+use rpi_extcore::service::{self, BackendConfig, Service};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let core = Service::new(BackendConfig::default())?;
+    let projects = service::list_projects(&core).await;
+    assert!(projects["projects"].is_array());
+    core.shutdown().await;
+    Ok(())
+}
+```
+
+如果只需要给 `rpi` 增加一个工具，保持 `rpi-plugin-sdk` 单一依赖并从
+`examples/plugin-stub` 开始；只有确实需要协议适配器或共享 native RPC 服务时才加入
+`rpi-extcore`。注意它与插件 ABI 的版本策略独立：插件 SDK 跟随宿主 ABI，`rpi-extcore`
+按自己的 `0.1` minor line 选择兼容 patch 版本。
+
 ## 2. 推荐结构
 
 ```text
@@ -48,7 +87,7 @@ repository = "https://github.com/example/my-rpi-extension"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rpi-plugin-sdk = "0.1"
+rpi-plugin-sdk = "0.8"
 serde_json = "1"
 ```
 
@@ -202,6 +241,13 @@ fan-out 到所有已注册 handler，合并返回的 `{skillPaths, promptPaths, 
 `thinking_start`/`thinking_delta`/`thinking_end`、
 `toolcall_start`/`toolcall_delta`/`toolcall_end`、`usage`；未知 `type` 会被忽略
 （向前兼容）。
+
+`toolcall_end` 可带可选的 `recorded` 字段，表示该调用已在远端执行过：宿主把它当作已完成的
+工具结果，绝不在本地再次执行（形状与版本规则见 `docs/rpi-tool/extension-authoring.md`）。
+`capabilities.recordedToolCalls` 是宿主能解码的最高 `recorded` 版本，插件只能在它 `>= 1` 时
+发送 `recorded`；旧宿主没有这个键，会忽略 `recorded` 并执行调用。SDK 桥接会自动执行这条检查。
+流中带过 `recorded` 的调用在 `out` 中必须是同一 `id`、`name` 和 `arguments`：缺少记录时宿主
+会补上，冲突或缺失则这一轮以 `Error` 结束。
 
 两点约定：
 

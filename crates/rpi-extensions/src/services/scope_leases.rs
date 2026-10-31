@@ -34,7 +34,7 @@ impl Grant {
             && self
                 .scope
                 .as_ref()
-                .map_or(true, |scope| scope.strong_count() > 0)
+                .is_none_or(|scope| scope.strong_count() > 0)
     }
 }
 impl Drop for Grant {

@@ -121,6 +121,7 @@ async fn replacement_drops_default_credentials_env_and_endpoint_without_changing
             vec![bound],
             std::slice::from_ref(&canonical),
             RequestAuth::ApiKey("bound-secret".into()),
+            None,
             &settings::Settings::default(),
         )
         .unwrap();
@@ -238,6 +239,7 @@ async fn provider_owned_auth_is_resolved_per_request_and_unavailable_credentials
             vec![model.clone()],
             &[model.clone()],
             RequestAuth::None,
+            None,
             &settings::Settings::default(),
         )
         .unwrap();
@@ -321,7 +323,7 @@ async fn catalog_roundtrip_preserves_private_configuration_and_rejects_api_subst
     let mut configured = canonical.clone();
     configured.base_url = "https://default-account.example".into();
     configured.headers = Some(BTreeMap::from([("x-account".into(),"default-secret".into())]));
-    let (provider, _) = factories.configure("pool", &canonical.api, vec![configured], &[canonical.clone()], RequestAuth::ApiKey("default-key".into()), &settings::Settings::default()).unwrap();
+    let (provider, _) = factories.configure("pool", &canonical.api, vec![configured], &[canonical.clone()], RequestAuth::ApiKey("default-key".into()), None, &settings::Settings::default()).unwrap();
     let mut new = canonical.clone(); new.id = "new".into();
     let provider = provider.with_catalog(vec![]).unwrap().with_catalog(vec![new.clone()]).unwrap();
     let mut forged = new.clone(); forged.api = Api::AnthropicMessages;
@@ -353,7 +355,7 @@ async fn provider_admission_refuses_before_credential_reads_or_transport() {
     let model = Model::new("retired", "Retired", Api::OpenaiCompletions, "retired", "https://provider.invalid");
     let provider = ConfiguredProvider {
         id:"retired".into(), api:model.api.as_str().into(), inner:Arc::new(Refusal),
-        binding:Arc::new(ExecutionBinding::new("retired",vec![model.clone()],vec![model.clone()], RequestAuth::None)),
+        binding:Arc::new(ExecutionBinding::new("retired",vec![model.clone()],vec![model.clone()], RequestAuth::None, None)),
         auth:Some(Arc::new(super::super::auth::AuthBinding {
             model_headers: Default::default(),
             credential_headers: Default::default(),

@@ -27,6 +27,7 @@ use crate::types::{
     Usage, UsageCost,
 };
 use std::sync::Arc;
+use std::time::Instant;
 
 /// Per-content-block scratch state, mirroring the TS `Block` shape with its
 /// `index` + `partialJson` fields.
@@ -192,6 +193,7 @@ impl MapperState {
         // The TS loop only enters the match arms for event names it recognizes;
         // `iterate_anthropic_events` already filtered to ANTHROPIC_MESSAGE_EVENTS,
         // so we dispatch on the payload `type` (which equals the SSE event name).
+        let checkpoint_metadata = matches!(event_type.as_str(), "message_start" | "message_delta");
         match event_type.as_str() {
             "message_start" => self.apply_message_start(payload, prod).await,
             "content_block_start" => self.apply_content_block_start(payload, prod).await,
@@ -201,7 +203,9 @@ impl MapperState {
             "message_stop" => self.saw_message_end = true,
             _ => {}
         }
-        prod.commit_metadata(&self.output);
+        if checkpoint_metadata {
+            prod.commit_metadata(&self.output);
+        }
         Ok(())
     }
 
@@ -728,6 +732,15 @@ pub fn map_stop_reason(
 /// `cost_fn` is called on the final `output.usage` before the terminal event
 /// so the message carries the model-aware cost (the TS calls `calculateCost`
 /// inline; the Rust port defers to the provider, which knows the `Model`).
+#[derive(Debug, Default, Clone, Copy)]
+pub struct MapperDiagnostics {
+    pub sse_events: u64,
+    pub pull_ns: u64,
+    pub parse_ns: u64,
+    pub apply_ns: u64,
+}
+
+/// Run the mapper without diagnostic timing overhead.
 pub async fn run_mapper<F>(
     stream: &mut SseEventStream,
     prod: &mut AssistantMessageEventStreamProducer,
@@ -736,28 +749,74 @@ pub async fn run_mapper<F>(
 ) where
     F: Fn(&Usage) -> UsageCost,
 {
+    run_mapper_impl(stream, prod, state, cost_fn, None).await;
+}
+
+/// Run the mapper and account for raw SSE pulls, JSON decoding, and state
+/// application separately. This is diagnostics-only; the normal path uses
+/// `run_mapper` and does not take these timestamps.
+pub async fn run_mapper_with_diagnostics<F>(
+    stream: &mut SseEventStream,
+    prod: &mut AssistantMessageEventStreamProducer,
+    state: &mut MapperState,
+    cost_fn: F,
+    diagnostics: &mut MapperDiagnostics,
+) where
+    F: Fn(&Usage) -> UsageCost,
+{
+    run_mapper_impl(stream, prod, state, cost_fn, Some(diagnostics)).await;
+}
+
+async fn run_mapper_impl<F>(
+    stream: &mut SseEventStream,
+    prod: &mut AssistantMessageEventStreamProducer,
+    state: &mut MapperState,
+    cost_fn: F,
+    mut diagnostics: Option<&mut MapperDiagnostics>,
+) where
+    F: Fn(&Usage) -> UsageCost,
+{
     loop {
-        match stream.next_event().await {
+        let pull_started = diagnostics.is_some().then(Instant::now);
+        let next = stream.next_event().await;
+        if let Some(diagnostics) = diagnostics.as_deref_mut() {
+            diagnostics.pull_ns += elapsed_ns(pull_started);
+        }
+        match next {
             Ok(None) => break,
             Ok(Some(sse_frame)) => {
+                if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                    diagnostics.sse_events += 1;
+                }
+                let parse_started = diagnostics.is_some().then(Instant::now);
                 let event =
                     match crate::providers::anthropic::sse::parse_anthropic_event(&sse_frame) {
                         Ok(e) => e,
                         Err(err) => {
+                            if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                                diagnostics.parse_ns += elapsed_ns(parse_started);
+                            }
                             emit_terminal_error(prod, state, err.to_string(), false).await;
                             return;
                         }
                     };
+                if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                    diagnostics.parse_ns += elapsed_ns(parse_started);
+                }
+                let apply_started = diagnostics.is_some().then(Instant::now);
                 if let Err(err) = state.apply(&event, prod).await {
+                    if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                        diagnostics.apply_ns += elapsed_ns(apply_started);
+                    }
                     emit_terminal_error(prod, state, err.to_string(), false).await;
                     return;
                 }
+                if let Some(diagnostics) = diagnostics.as_deref_mut() {
+                    diagnostics.apply_ns += elapsed_ns(apply_started);
+                }
                 // `message_stop` is Anthropic's protocol-level terminal
-                // marker.  A few proxies leave the HTTP body open or emit an
-                // invalid trailing chunk after this frame; waiting for EOF
-                // would turn an otherwise complete answer into an SSE/body
-                // error.  The event has already carried the final stop/usage
-                // state, so finalize immediately and drop the body stream.
+                // marker. A few proxies leave the HTTP body open or emit an
+                // invalid trailing chunk after this frame; finalize immediately.
                 if event.event_type() == Some("message_stop") {
                     finalize_mapper(prod, state, cost_fn).await;
                     return;
@@ -772,6 +831,12 @@ pub async fn run_mapper<F>(
     }
 
     finalize_mapper(prod, state, cost_fn).await;
+}
+
+fn elapsed_ns(started: Option<Instant>) -> u64 {
+    started
+        .map(|started| started.elapsed().as_nanos().min(u64::MAX as u128) as u64)
+        .unwrap_or_default()
 }
 
 /// Emit the terminal `Done`/`Error` event for a normally-ended stream. Mirrors

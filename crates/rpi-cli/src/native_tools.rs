@@ -90,7 +90,7 @@ pub(crate) fn declarations(
     owner: &rpi_extensions::native::NativeOwner,
     ctx: &ExecutionToolContext,
 ) -> Result<Vec<HarnessTool>, String> {
-    if value.as_array().map_or(true, |items| items.len() > 128)
+    if value.as_array().is_none_or(|items| items.len() > 128)
         || serde_json::to_vec(&value)
             .map_err(|_| "invalid native tools")?
             .len()

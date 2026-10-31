@@ -6,7 +6,6 @@ import unittest
 from unittest.mock import patch
 import os
 import sys
-import tempfile
 import tomllib
 
 sys.dont_write_bytecode = True
@@ -80,12 +79,20 @@ class ReleaseGateTests(unittest.TestCase):
             automation.main()
             output.assert_called_once_with(release="false")
 
-    def test_all_nine_core_crates_share_one_release_group(self):
+    def test_all_core_crates_share_one_release_group(self):
         root = Path(__file__).resolve().parent.parent
         config = tomllib.loads((root / "release-plz.toml").read_text(encoding="utf-8"))
         self.assertFalse(config["workspace"]["release"])
         packages = config["package"]
-        self.assertEqual(len(packages), 9)
+        workspace = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]
+        expected = set()
+        for member in workspace["members"]:
+            if member.startswith("crates/rpi-"):
+                package = tomllib.loads((root / member / "Cargo.toml").read_text(encoding="utf-8"))["package"]
+                if package.get("publish", True):
+                    expected.add(package["name"])
+        self.assertEqual({package["name"] for package in packages}, expected)
+        self.assertEqual(len(packages), len(expected))
         self.assertTrue(all(p["release"] and p["version_group"] == "rpi" for p in packages))
         self.assertEqual(sum(p.get("changelog_update", False) for p in packages), 1)
 
@@ -118,77 +125,39 @@ class ReleaseGateTests(unittest.TestCase):
             api.assert_not_called()
 
 
-class ReleaseSeriesTests(unittest.TestCase):
-    def test_versions_stay_on_the_selected_series_and_increment_numerically(self):
-        tags = ["v0.8.0", "v0.8.9", "v0.7.99", "v0.8.10-rc1", "v0.8.invalid"]
-        self.assertEqual(automation.series_version("0.9.0", "0.8", tags), "0.8.10")
-        self.assertEqual(automation.series_version("1.0.0", "0.8", tags), "0.8.10")
-        self.assertEqual(automation.series_version("0.8.12", "0.8", tags), "0.8.12")
-        self.assertEqual(automation.series_version("0.9.0", "0.8", []), "0.8.0")
-        for series in ("0.08", "0.8.0", "invalid"):
-            with self.assertRaises(ValueError):
-                automation.series_version("0.9.0", series, tags)
+class ReleaseVersionTests(unittest.TestCase):
+    setUp = ReleaseGateTests.setUp
 
-    def test_publish_gate_rejects_a_version_outside_the_series(self):
-        root = {"workspace": {"metadata": {"release": {"series": "0.8"}}}}
-        automation.check_series("0.8.1", root)
-        for version in ("0.9.0", "1.0.0", "0.8.1-rc1"):
-            with self.assertRaises(ValueError):
-                automation.check_series(version, root)
+    def test_minor_and_major_upgrades_reach_the_release_gate_without_rewriting(self):
+        for version in ("0.9.0", "1.0.0"):
+            for command in ("detect", "tag"):
+                with self.subTest(version=version, command=command), \
+                        patch.dict(os.environ, {"GITHUB_REPOSITORY": automation.REPOSITORY,
+                                              "GITHUB_EVENT_NAME": "push", "GITHUB_REF": "refs/heads/main",
+                                              "GITHUB_SHA": self.commit}), \
+                        patch.object(sys, "argv", ["script", command]), \
+                        patch.object(automation, "run", side_effect=[self.commit, "v0.8.4"]), \
+                        patch.object(automation.Path, "read_text", side_effect=[
+                            f'[workspace.package]\nversion = "{version}"\n',
+                            f'## [{version}](https://example.test/v0.8.4...v{version})\n']), \
+                        patch.object(automation.Path, "write_text") as write, \
+                        patch.object(automation, "api", side_effect=[[{"number": 1}], self.pr, {}]) as api, \
+                        patch.object(automation, "output") as output:
+                    automation.main()
+                    output.assert_called_once_with(release="true", version=version, tag=f"v{version}")
+                    write.assert_not_called()
+                    if command == "tag":
+                        self.assertIn(f"ref=refs/tags/v{version}", api.call_args.args)
 
-    def test_normalize_updates_pins_and_new_notes_without_rewriting_history(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            manifest = root / "Cargo.toml"
-            manifest.write_text('''[workspace.package]
-version = "0.9.0"
-[workspace.metadata.release]
-series = "0.8"
-[workspace.dependencies]
-rpi-tui = { path = "crates/rpi-tui", version = "0.9.0" }
-serde = "1"
-''', encoding="utf-8")
-            changelog = root / "CHANGELOG.md"
-            historical = "## [0.8.0] - 2026-10-22\n\nPrevious release, targeting 0.9.0 later.\n"
-            changelog.write_text("## [Unreleased]\n\n"
-                                 "## [0.9.0](https://example.test/v0.8.0...v0.9.0) - 2026-10-23\n"
-                                 "\n### Added\n\n- New feature\n\n" + historical,
-                                 encoding="utf-8")
-            self.assertEqual(automation.normalize_release(root, ["v0.8.0"]), "0.8.1")
-            result = tomllib.loads(manifest.read_text(encoding="utf-8"))
-            self.assertEqual(result["workspace"]["package"]["version"], "0.8.1")
-            self.assertEqual(result["workspace"]["dependencies"]["rpi-tui"]["version"], "0.8.1")
-            self.assertEqual(result["workspace"]["dependencies"]["serde"], "1")
-            notes = changelog.read_text(encoding="utf-8")
-            self.assertIn("## [0.8.1](https://example.test/v0.8.0...v0.8.1)", notes)
-            self.assertTrue(notes.endswith(historical))
-            self.assertEqual(automation.normalize_release(root, ["v0.8.0"]), "0.8.1")
-            self.assertEqual(changelog.read_text(encoding="utf-8"), notes)
+    def test_cross_series_downgrades_and_retagging_are_still_rejected(self):
+        for version, tags in (("0.8.9", ["v0.9.0"]), ("0.9.0", ["v1.0.0"]), ("1.0.0", ["v1.0.0"])):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                automation.check_version(version, tags, self.commit)
 
-    def test_missing_proposed_notes_fail_before_modifying_the_manifest(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            manifest = root / "Cargo.toml"
-            original = ('[workspace.package]\nversion = "0.9.0"\n'
-                        '[workspace.metadata.release]\nseries = "0.8"\n')
-            manifest.write_text(original, encoding="utf-8")
-            (root / "CHANGELOG.md").write_text("## [0.8.0]\n", encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "missing from CHANGELOG"):
-                automation.normalize_release(root, ["v0.8.0"])
-            self.assertEqual(manifest.read_text(encoding="utf-8"), original)
-
-    def test_published_notes_cannot_be_retargeted(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            manifest = root / "Cargo.toml"
-            manifest.write_text('[workspace.package]\nversion = "0.8.0"\n'
-                                '[workspace.metadata.release]\nseries = "0.8"\n', encoding="utf-8")
-            changelog = root / "CHANGELOG.md"
-            original = "## [0.8.0]\n\nPublished notes\n"
-            changelog.write_text(original, encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "already published"):
-                automation.normalize_release(root, ["v0.8.0"])
-            self.assertEqual(changelog.read_text(encoding="utf-8"), original)
+    def test_workspace_has_no_release_series_pin(self):
+        root = Path(__file__).resolve().parent.parent
+        workspace = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]
+        self.assertNotIn("series", workspace.get("metadata", {}).get("release", {}))
 
 
 class ChannelReadinessTests(unittest.TestCase):

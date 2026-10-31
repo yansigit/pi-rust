@@ -247,9 +247,9 @@ pub(crate) extern "C" fn request(
             }
             if session_persistence
                 && (args["port"] != "sessions"
-                    || !args["origin"]
+                    || args["origin"]
                         .as_str()
-                        .is_some_and(|origin| !origin.is_empty())
+                        .is_none_or(|origin| origin.is_empty())
                     || !matches!(
                         args["action"].as_str(),
                         Some(

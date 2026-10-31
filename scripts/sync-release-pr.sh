@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Finish the bot's draft PR before marking it ready for review/CI.
 set -euo pipefail
-branch=$(jq -r '.head_branch // empty' <<<"${RELEASE_PR_JSON:?}")
-number=$(jq -r '.number // empty' <<<"$RELEASE_PR_JSON")
+# On a no-op retry release-plz can omit its PR output. Recover the existing PR
+# returned by the draft step so it cannot be stranded in draft after success.
+release_pr=$(jq -c --argjson existing "${EXISTING_RELEASE_PR_JSON:-null}" \
+  'if .head_branch? and .number? then . else $existing end' <<<"${RELEASE_PR_JSON:-null}")
+branch=$(jq -r '.head_branch // empty' <<<"$release_pr")
+number=$(jq -r '.number // empty' <<<"$release_pr")
 [[ -n "$branch" && -n "$number" ]] || exit 0
 [[ "$branch" == release-plz-* ]] || { echo 'unexpected release branch' >&2; exit 1; }
 git fetch origin "$branch"
 git switch --detach FETCH_HEAD
-proposed_version=$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml', 'rb'))['workspace']['package']['version'])")
-version=$(python3 scripts/release-automation.py normalize)
 cargo update --workspace
 python3 - <<'PY'
 from pathlib import Path
@@ -32,19 +34,7 @@ if ! git diff --cached --quiet; then
   gh auth setup-git
   git push origin "HEAD:refs/heads/$branch"
 fi
-if [[ "$proposed_version" != "$version" ]]; then
-  body_file=$(git rev-parse --git-path rpi-release-body.md)
-  gh pr view "$number" --json body --jq .body > "$body_file"
-  python3 - "$body_file" "$proposed_version" "$version" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-body = path.read_text(encoding='utf-8').replace(sys.argv[2], sys.argv[3])
-body += '\n\nRelease numbering is kept on the configured patch series. API compatibility findings above are retained for review.\n'
-path.write_text(body, encoding='utf-8', newline='\n')
-PY
-  gh pr edit "$number" --title "chore(release): prepare $version" --body-file "$body_file"
-fi
-if [[ $(gh pr view "$number" --json isDraft --jq .isDraft) == true ]]; then
+is_draft=$(gh pr view "$number" --json isDraft --jq .isDraft)
+if [[ "$is_draft" == true ]]; then
   gh pr ready "$number"
 fi

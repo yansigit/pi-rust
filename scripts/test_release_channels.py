@@ -121,6 +121,7 @@ class ChannelScriptTests(unittest.TestCase):
         shutil.copytree(self.root / "website" / "data", data)
         packages = json.loads((data / "packages.json").read_text(encoding="utf-8"))
         extensions = [package for package in packages if package["type"] != "crate"]
+        original_core_names = {package["name"] for package in packages if package["type"] == "crate"}
         for name, version in (("site", "0.3.0"), ("locales", "0.4.0")):
             path = data / f"{name}.json"
             document = json.loads(path.read_text(encoding="utf-8"))
@@ -136,7 +137,8 @@ class ChannelScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         packages = json.loads((data / "packages.json").read_text(encoding="utf-8"))
         core = [package for package in packages if package["type"] == "crate"]
-        self.assertEqual(len(core), 9)
+        self.assertEqual(len(core), len(original_core_names))
+        self.assertEqual({package["name"] for package in core}, original_core_names)
         self.assertTrue(all(package["version"] == "9.8.7" and package["ageLabel"] == "v9.8.7"
                             and package["publishedAt"] == "2026-10-17" for package in core))
         self.assertEqual([package for package in packages if package["type"] != "crate"], extensions)

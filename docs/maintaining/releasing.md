@@ -1,25 +1,41 @@
 # Releasing rpi
 
-## Normal releases: merge the Release PR
+## Normal releases: manually prepare, then merge the Release PR
 
 Contributors, including fork contributors, submit code and tests without changing
-versions. After an ordinary PR lands on `main` and all CI checks pass,
+versions. After an ordinary PR lands on `main`, CI only runs the normal validation
+jobs; it does **not** prepare a Release PR automatically. When maintainers want to
+ship the accumulated changes, manually run the **CI** workflow from the `main`
+branch with `prepare_release` enabled (the default). After CI passes,
 `release-plz` creates or updates a draft Release PR. It prepares the version and
-root changelog, synchronizes the embedded documentation, validates the nine
+root changelog, synchronizes the embedded documentation, validates the core
 crates, and marks the PR ready. The shared workspace version and `rpi` version
-group keep the nine core crates together; examples are excluded.
+group keep the core crates together; examples are excluded.
 
-Automatic releases currently stay on **0.8.x**, as configured by
-`workspace.metadata.release.series` in `Cargo.toml`. After release-plz proposes
-a version, the preparation step keeps it on this series, updates the workspace
-and internal pins, and retargets the new changelog section and PR metadata. The
-publish gate rejects versions outside the series. Change this setting explicitly
-when starting 0.9.x. API compatibility findings remain visible in the Release PR;
-the numbering policy does not disable those checks.
+Only same-repository `release-plz-*` draft PRs targeting `main` defer CI until
+preparation is complete; ordinary PRs (including drafts and fork PRs) still run
+all checks. Before updating an existing Release PR, automation returns it to
+draft so intermediate version/changelog commits are not checked prematurely.
+After documentation synchronization and validation succeed, marking the PR ready
+triggers full CI on its final head, even when a retry produces no new commit.
+Skipped draft jobs use distinct names, so they cannot satisfy the required
+`Cargo check` / `Cargo test` checks while the ready-event run is being scheduled.
+A failed preparation leaves the PR in draft; fix the failure and rerun preparation
+rather than marking an incomplete Release PR ready manually. The embedded-docs
+consistency check and publishing authorization remain unchanged.
 
-Merge that Release PR when ready to ship. After its main-branch CI passes:
+Automatic releases use the version proposed by release-plz without pinning a
+minor series or rewriting it to a patch release. Versions such as `0.9.0` and
+`1.0.0` may proceed through the same Release PR workflow. The publish gate still
+requires a stable version newer than existing release tags, or an identical-commit
+retry. API compatibility findings remain visible in the Release PR.
 
-1. The existing release helper publishes the nine crates in dependency order.
+An ordinary merge runs CI but does not prepare a Release PR. To start a release,
+use **Actions → CI → Run workflow**, select `main`, leave `prepare_release`
+enabled, and wait for the workflow to finish. Review and merge the resulting
+Release PR when ready to ship. After its main-branch CI passes:
+
+1. The existing release helper publishes the core crates in dependency order.
 2. Automation creates `vX.Y.Z` at the tested main commit. Existing tags are never
    moved; retrying the same release commit is supported.
 3. A reusable workflow builds all five platforms, verifies the archives, uploads
@@ -32,7 +48,15 @@ requires a merged PR from an upstream `release-plz-*` branch whose merge commit
 matches the tested main commit. A fork branch with that name does not qualify.
 Do not use `pull_request_target` to execute contribution code with release secrets.
 
-### Documentation-only updates without a release
+### Preview releases
+
+A preview merge on the `preview` branch runs only the prebuilt binary workflow. It creates a
+GitHub prerelease with a `vX.Y.Z-preview.N` tag and does **not** run release-plz, publish any
+crate to crates.io, or update Homebrew/Scoop/winget channels. The preview binary is available
+through the explicit `rpi update preview` command; normal stable update checks never select a
+prerelease. A preview binary still checks crates.io for the stable line and therefore tells the
+user to run `rpi update` when a formal release is available.
+
 
 A documentation update does not require a version bump. Keep `Cargo.toml`,
 `Cargo.lock`, existing tags and install-channel manifests unchanged, and do not
@@ -40,8 +64,10 @@ run `task publish` or merge a Release PR solely to publish documentation. Update
 the relevant `docs/rpi-tool/` sources and run `sh scripts/sync-embedded-docs.sh`
 when the bundled documentation changes.
 
-An ordinary merge runs CI and may prepare or update a Release PR; it does not
-authorize publication. If the explicit requirement is to avoid release
+An ordinary merge runs CI but does not prepare or authorize a Release PR. A
+maintainer must explicitly dispatch the CI workflow with `prepare_release`
+enabled to create/update one; merging that Release PR is still the only action
+that authorizes publication. If the explicit requirement is to avoid release
 automation entirely for a documentation-only change, maintainers can include
 `[skip ci]` in the final merge commit message (or the squash commit message).
 GitHub then skips the push/PR workflows, including the CI job that calls release
@@ -141,7 +167,7 @@ below are available through `task publish` too.
 | `bump` | `Cargo.toml` workspace version + internal pins → `cargo update --workspace` |
 | `changelog` | cuts `## [Unreleased]` into `## [X.Y.Z] - <date>` |
 | `docs` | re-syncs `crates/rpi-cli/embedded-docs` (CI enforces it) |
-| `validate` | `task release:validate` (version consistency across the nine crates) |
+| `validate` | `task release:validate` (version consistency across the core crates) |
 | `commit` | `chore(release): X.Y.Z` |
 | `tag` | `git tag vX.Y.Z` |
 | `push` | pushes the branch + tag → `release-binaries.yml` builds the assets |
@@ -150,7 +176,7 @@ below are available through `task publish` too.
 | `commit-channels` | `chore(release): refresh the install channels and the site for X.Y.Z` |
 | `taps` | pushes the formula/manifest into `homebrew-tap` + `scoop-bucket` |
 | `winget` | opens the `microsoft/winget-pkgs` PR (`scripts/winget-submit.sh`) |
-| `crates` | `task publish:crates RELEASE_VERSION=X.Y.Z` (nine crates, dependency order) |
+| `crates` | `task publish:crates RELEASE_VERSION=X.Y.Z` (core crates, dependency order) |
 | `site` | `task rpi-deploy` |
 
 ## Flags
